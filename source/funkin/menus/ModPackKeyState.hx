@@ -21,10 +21,13 @@ class ModPackKeyState extends UIState {
 	public var box:UITextBox;
 	public var errorText:UIText;
 	public var attempts:Int = 0;
+	/** Shown right away, e.g. when the previous key was rejected by the loader. */
+	public var errorMessage:String = null;
 
-	public function new(packs:Array<String>) {
+	public function new(packs:Array<String>, ?errorMessage:String) {
 		super();
 		this.packs = packs == null ? [] : packs;
+		this.errorMessage = errorMessage;
 	}
 
 	override function create() {
@@ -56,6 +59,8 @@ class ModPackKeyState extends UIState {
 		add(errorText = new UIText(40, 316, FlxG.width - 80, "", 16, 0xFFFF5A5A, false));
 		errorText.visible = false;
 
+		if (errorMessage != null) showError(errorMessage);
+
 		for (p in packs) {
 			var problem = ModPackCrypto.packProblem(p);
 			if (problem != null) {
@@ -77,31 +82,31 @@ class ModPackKeyState extends UIState {
 			return;
 		}
 		var key = StringTools.trim(typed);
+		attempts++;
 
-		var failed:Array<String> = [];
-		var problem:String = null;
+		// Verify the key before the loading screen starts: a wrong password would
+		// otherwise decrypt the whole pack for nothing and then silently come back
+		// here without saying what went wrong.
+		var bad:Array<String> = [];
 		for (p in packs) {
-			var unsupported = ModPackCrypto.packProblem(p);
-			if (unsupported != null) {
-				failed.push(p);
-				problem = unsupported;
-				continue;
-			}
 			ModPackCrypto.setSessionKey(p, key);
-			if (ModPackCrypto.resolveKey(p) == null) failed.push(p);
+			if (!ModPackCrypto.keyWorks(p, key)) bad.push(p);
 		}
-
-		if (failed.length > 0) {
-			for (p in failed) ModPackCrypto.clearSessionKey(p);
-			attempts++;
-			if (problem != null)
-				showError(problem);
-			else
-				showError("That password did not open " + failed.length + " pack(s). Check it and try again, or pick \"Play without mods\".");
+		if (bad.length > 0 && attempts < 3) {
+			for (p in packs) ModPackCrypto.clearSessionKey(p);
+			var names = "";
+			for (p in bad)
+				names += (names.length == 0 ? "" : ", ") + Path.withoutExtension(Path.withoutDirectory(p));
+			showError("Wrong password: " + names + " could not be unlocked. Check the password and try again.");
 			return;
 		}
+		// Rejected three times in a row: let the loader do a real decryption attempt
+		// anyway, in case this particular pack cannot be probed up front. It now
+		// reports a failed decryption on this screen instead of coming back silently.
 
-		FlxG.switchState(new MainState());
+		// Decompressing happens on the loading screen (a worker thread), so a big
+		// pack no longer freezes this prompt.
+		FlxG.switchState(new ModPackLoadingState(packs));
 	}
 
 	function onDisableMods() {

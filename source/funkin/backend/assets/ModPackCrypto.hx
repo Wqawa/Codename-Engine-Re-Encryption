@@ -45,6 +45,35 @@ class ModPackCrypto {
 	/** Set when the player chose "play without mods" after a bad key. */
 	public static var disableMods: Bool = false;
 
+	// ---------------------------------------------------- background prepare
+	// Decrypting a big pack takes seconds, so the loading screen starts the work
+	// on a worker thread and only polls these fields from the render loop.
+
+	/** 0..1 progress of the pack currently being prepared. */
+	public static var progress:Float = 0;
+	/** File name of the pack being prepared (shown on the loading screen). */
+	public static var progressLabel:String = "";
+	/** True while the worker thread is still running. */
+	public static var preparing:Bool = false;
+	/** Set by the worker when it finished (success or not). */
+	public static var prepareDone:Bool = false;
+	/** Packs none of the known keys could open. */
+	public static var prepareFailed:Array<String> = [];
+	/**
+	 * Packs whose prepare pass did not produce a cache file. They are skipped by
+	 * packsNeedingWork so a broken pack cannot bounce between the loader and the
+	 * progress screen forever; typing a new key clears the mark (see setSessionKey).
+	 */
+	static var failedPacks:Map<String, Bool> = new Map<String, Bool>();
+
+	public static function hasFailedBefore(zipPath:String):Bool {
+		return failedPacks.exists(normalizePath(zipPath));
+	}
+
+	public static function clearFailure(zipPath:String):Void {
+		failedPacks.remove(normalizePath(zipPath));
+	}
+
 	public static function normalizePath(path:String):String {
 		if (path == null) return "";
 		return StringTools.replace(StringTools.trim(path.toLowerCase()), "\\", "/");
@@ -137,7 +166,7 @@ class ModPackCrypto {
 		return out.getBytes();
 	}
 
-	public static function unpack(data:Bytes, ?pass:String):Bytes {
+	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
@@ -170,13 +199,16 @@ class ModPackCrypto {
 
 		var cipher = Bytes.alloc(len);
 		for (i in 0...len) cipher.set(i, data.get(HEADER_SIZE + i));
-		return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher);
+		if (onProgress == null) return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher);
+		return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
 	}
 
 	// ------------------------------------------------------------ key lookup
 
 	public static function setSessionKey(zipPath:String, key:String):Void {
 		sessionKeys.set(normalizePath(zipPath), key);
+		// a freshly typed key deserves a new attempt on the progress screen
+		failedPacks.remove(normalizePath(zipPath));
 	}
 
 	public static function clearSessionKey(zipPath:String):Void {
@@ -189,6 +221,66 @@ class ModPackCrypto {
 
 	public static function clearSessionKeys():Void {
 		sessionKeys = new Map<String, String>();
+	}
+
+	/** True when at least one key (typed, script_key.txt or built-in) is known. */
+	public static function hasKnownKey(zipPath:String):Bool {
+		return candidateKeys(zipPath).length > 0;
+	}
+
+	/** Memo for keyWorks(): decryption is never repeated for the same pack + key. */
+	static var keyCheckCache:Map<String, Bool> = new Map<String, Bool>();
+
+	/**
+	 * Cheap "does this key actually open the pack" check, so a wrong password can
+	 * be rejected on the prompt itself instead of after a pointless loading screen.
+	 *
+	 * A CNEZ container only needs the first four bytes of the payload decrypted (a
+	 * zip always starts with "PK"), so this costs a KDF run and nothing else; a
+	 * password protected zip is verified through ZipPassword (12 byte entry header,
+	 * or the AES password verifier).
+	 */
+	public static function keyWorks(zipPath:String, key:String):Bool {
+		#if sys
+		if (key == null) return false;
+		var id = normalizePath(zipPath) + "|" + key;
+		if (keyCheckCache.exists(id)) return keyCheckCache.get(id);
+		var ok = keyWorksUncached(zipPath, key);
+		keyCheckCache.set(id, ok);
+		return ok;
+		#else
+		return false;
+		#end
+	}
+
+	static function keyWorksUncached(zipPath:String, key:String):Bool {
+		#if sys
+		var pass = ScriptCrypto.resolveKeyValue(key);
+		if (pass == null) return false;
+		try {
+			if (isEncryptedPackFile(zipPath)) {
+				var handle = File.read(zipPath, true);
+				var head = handle.read(HEADER_SIZE);
+				var probe = handle.read(4);
+				handle.close();
+				if (head == null || head.length < HEADER_SIZE || probe == null || probe.length < 4)
+					return false;
+				var keys = ScriptCrypto.deriveKeys(pass, head.sub(8, SALT_SIZE));
+				var plain = ChaCha20.xorBytes(keys.enc, head.sub(24, NONCE_SIZE), 1, probe);
+				// every zip magic (local header, empty archive, spanning marker) starts with "PK"
+				return plain.get(0) == 0x50 && plain.get(1) == 0x4B;
+			}
+			if (ZipPassword.isProtected(zipPath)) return ZipPassword.checkPassword(zipPath, pass);
+		} catch (e:Dynamic) {}
+		#end
+		return false;
+	}
+
+	/** True when one of the known keys really opens the pack (cheap check). */
+	public static function hasWorkingKey(zipPath:String):Bool {
+		for (key in candidateKeys(zipPath))
+			if (keyWorks(zipPath, key)) return true;
+		return false;
 	}
 
 	/** Keys worth trying for a pack: the typed one first, then script_key.txt, then the built-in. */
@@ -239,7 +331,7 @@ class ModPackCrypto {
 	 * Finds a key that actually opens the pack, decrypting it into the cache on
 	 * the way. Returns null when none of the known keys work.
 	 */
-	public static function resolveKey(zipPath:String):String {
+	public static function resolveKey(zipPath:String, ?onProgress:Float->Void):String {
 		#if sys
 		var packed = isEncryptedPackFile(zipPath);
 		var protectedZip = !packed && ZipPassword.isProtected(zipPath);
@@ -250,14 +342,14 @@ class ModPackCrypto {
 				// decrypting into the cache is the expensive step, so reuse it
 				if (ZipPassword.hasCache(zipPath, key)) return key;
 				try {
-					ZipPassword.extractToCache(zipPath, key);
+					ZipPassword.extractToCache(zipPath, key, onProgress);
 					return key;
 				} catch (e:Dynamic) {}
 			} else {
 				if (cacheExistsFor(zipPath, key)) return key;
 				try {
 					var raw = File.getBytes(zipPath);
-					var zip = unpack(raw, key);
+					var zip = unpack(raw, key, onProgress);
 					if (!looksLikeZip(zip)) continue;
 					writeCache(zipPath, key, zip);
 					return key;
@@ -316,5 +408,86 @@ class ModPackCrypto {
 		} catch (e:Dynamic) {}
 		#end
 		return null;
+	}
+
+	// -------------------------------------------------- loader entry points
+
+	/** True when one of the known keys already has a decrypted copy on disk. */
+	public static function hasCacheForKey(zipPath:String):Bool {
+		#if sys
+		var packed = isEncryptedPackFile(zipPath);
+		for (key in candidateKeys(zipPath)) {
+			if (packed) {
+				if (cacheExistsFor(zipPath, key)) return true;
+			} else if (ZipPassword.hasCache(zipPath, key)) return true;
+		}
+		#end
+		return false;
+	}
+
+	/**
+	 * Libraries (the mods/Name path, without .zip) whose pack still has to be
+	 * decrypted before the loader can read it. Cheap: only stats the cache files.
+	 */
+	public static function packsNeedingWork(libPaths:Array<String>):Array<String> {
+		var out:Array<String> = [];
+		#if sys
+		for (lib in libPaths) {
+			if (lib == null) continue;
+			var zip = lib + ".zip";
+			try {
+				if (!FileSystem.exists(zip) || FileSystem.isDirectory(zip)) continue;
+				if (!needsKey(zip)) continue;
+				if (hasCacheForKey(zip)) continue;
+				if (hasFailedBefore(zip)) continue;
+				out.push(zip);
+			} catch (e:Dynamic) {}
+		}
+		#end
+		return out;
+	}
+
+	/**
+	 * Starts decrypting the given packs on a worker thread. The loading screen polls
+	 * preparing / progress / prepareDone and then reads prepareFailed.
+	 */
+	public static function startPrepare(packs:Array<String>):Void {
+		prepareFailed = [];
+		prepareDone = false;
+		preparing = true;
+		progress = 0;
+		progressLabel = "";
+
+		#if target.threaded
+		sys.thread.Thread.create(function() runPrepare(packs));
+		#else
+		runPrepare(packs);
+		#end
+	}
+
+	static function runPrepare(packs:Array<String>):Void {
+		var total = packs.length;
+		try {
+			for (i in 0...total) {
+				var pack = packs[i];
+				progressLabel = Path.withoutExtension(Path.withoutDirectory(pack));
+				var base = i / total;
+				var span = 1 / total;
+				progress = base;
+				var key = resolveKey(pack, function(p:Float) progress = base + span * p);
+				// a pack only counts as done when the cache file is really there:
+				// otherwise the loader would start the very same pass again
+				if (key == null || !hasCacheForKey(pack)) {
+					prepareFailed.push(pack);
+					failedPacks.set(normalizePath(pack), true);
+				} else
+					failedPacks.remove(normalizePath(pack));
+				progress = (i + 1) / total;
+			}
+		} catch (e:Dynamic) {
+			prepareFailed = packs.copy();
+		}
+		preparing = false;
+		prepareDone = true;
 	}
 }

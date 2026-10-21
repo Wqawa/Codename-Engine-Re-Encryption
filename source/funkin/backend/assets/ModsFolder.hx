@@ -1,6 +1,7 @@
 package funkin.backend.assets;
 
 import flixel.util.FlxSignal.FlxTypedSignal;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.system.MainState;
 import haxe.io.Path;
 import lime.text.Font;
@@ -85,6 +86,11 @@ class ModsFolder {
 	public static function loadModLib(path:String, force:Bool = false, ?modName:String) {
 		#if MOD_SUPPORT
 		if (FileSystem.exists('$path.zip')) {
+			// This path only runs without a progress screen when the loader could not
+			// prepare the pack beforehand; warn so a missing decryption screen shows
+			// up in the log instead of silently freezing the game.
+			if (!ModPackCrypto.preparing && ModPackCrypto.needsKey('$path.zip') && !ModPackCrypto.hasCacheForKey('$path.zip'))
+				Logs.warn('Decrypting "$path.zip" without the progress screen (no prepare pass was scheduled for it).');
 			var zipPath = ModPackCrypto.zipPathToLoad('$path.zip');
 			if (zipPath == null) {
 				var problem = ModPackCrypto.packProblem('$path.zip');
@@ -102,8 +108,13 @@ class ModsFolder {
 				return null;
 			}
 		}
-		else
+		else {
+			// a script_key.txt inside the mod (usually mods/<name>/data/) is picked up
+			// by the engine as well, so mods can ship their own keys
+			ScriptCrypto.addKeyFile('$path/data/script_key.txt');
+			ScriptCrypto.addKeyFile('$path/script_key.txt');
 			return loadLibraryFromFolder('$path'.toLowerCase(), '$path', force, modName);
+		}
 
 		#else
 		return null;

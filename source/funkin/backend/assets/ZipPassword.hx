@@ -35,11 +35,33 @@ class ZipPassword {
 	public static function isProtected(path:String):Bool {
 		#if sys
 		var entries = readCentral(path);
-		if (entries == null) return false;
+		if (entries == null) {
+			// The central directory may be unreadable (zip64 variations, a tool that
+			// rewrote offsets); fall back to the flags of the first local header so a
+			// password protected zip is still recognised instead of being handed to
+			// the plain zip reader, which would crash on its encrypted entries.
+			return (localHeaderFlags(path) & FLAG_ENCRYPTED) != 0;
+		}
 		for (e in entries)
 			if ((e.flags & FLAG_ENCRYPTED) != 0) return true;
 		#end
 		return false;
+	}
+
+	/** General purpose flags of the first local file header (0 when there is none). */
+	public static function localHeaderFlags(path:String):Int {
+		#if sys
+		try {
+			if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) return 0;
+			var f = File.read(path, true);
+			var head = f.read(10);
+			f.close();
+			if (head == null || head.length < 10) return 0;
+			if (head.get(0) != 0x50 || head.get(1) != 0x4B || head.get(2) != 0x03 || head.get(3) != 0x04) return 0;
+			return u16(head, 6);
+		} catch (err:Dynamic) {}
+		#end
+		return 0;
 	}
 
 	/** True when the archive uses AES entries (method 99) instead of ZipCrypto. */
@@ -114,7 +136,7 @@ class ZipPassword {
 	 * Decrypts the archive into the cache folder and returns the readable copy.
 	 * Throws when the password is wrong or the archive cannot be rewritten.
 	 */
-	public static function extractToCache(zipPath:String, pass:String):String {
+	public static function extractToCache(zipPath:String, pass:String, ?onProgress:Float->Void):String {
 		#if sys
 		if (!checkPassword(zipPath, pass)) throw "ZipPassword: wrong password";
 
@@ -133,7 +155,11 @@ class ZipPassword {
 		var pos = 0;
 		var count = 0;
 
+		var done = 0;
+		var entryCount = entries.length;
 		for (e in entries) {
+			if (onProgress != null) onProgress(done / entryCount);
+			done++;
 			var data = readEntryData(input, e, pass);
 			var crc = crc32(data);
 			// AES (AE-2) entries carry 0 in the crc field; their HMAC already proved integrity
@@ -310,6 +336,16 @@ class ZipPassword {
 
 			var cdSize = u32(tail, eocd + 12);
 			var cdOffset = u32(tail, eocd + 16);
+
+			if (cdSize == 0xFFFFFFFF || cdOffset == 0xFFFFFFFF) {
+				// zip64: the real values live in the zip64 end of central directory record
+				var rec = readZip64End(f, tail, eocd);
+				if (rec != null) {
+					cdSize = rec.cdSize;
+					cdOffset = rec.cdOffset;
+				}
+			}
+
 			if (cdSize <= 0 || cdOffset <= 0 || cdOffset + cdSize > size) {
 				f.close();
 				return null;
@@ -354,6 +390,36 @@ class ZipPassword {
 		#end
 		return null;
 	}
+
+	/**
+	 * Reads the zip64 end of central directory record, located through the zip64
+	 * locator that sits right before the normal EOCD.
+	 */
+	#if sys
+	static function readZip64End(f:FileInput, tail:Bytes, eocd:Int):{cdSize:Int, cdOffset:Int} {
+		var loc = -1;
+		var i = eocd - 20;
+		while (i >= 0) {
+			if (tail.get(i) == 0x50 && tail.get(i + 1) == 0x4B && tail.get(i + 2) == 0x06 && tail.get(i + 3) == 0x07) {
+				loc = i;
+				break;
+			}
+			i--;
+		}
+		if (loc < 0) return null;
+		var offset = u32(tail, loc + 8);
+		if (offset < 0) return null;
+		try {
+			// read just the fields we need: 56 byte record
+			f.seek(offset, SeekBegin);
+			var rec = f.read(56);
+			if (rec == null || rec.length < 56) return null;
+			if (!(rec.get(0) == 0x50 && rec.get(1) == 0x4B && rec.get(2) == 0x06 && rec.get(3) == 0x06)) return null;
+			return {cdSize: u32(rec, 40), cdOffset: u32(rec, 48)};
+		} catch (err:Dynamic) {}
+		return null;
+	}
+	#end
 
 	static function normalizePath(path:String):String {
 		if (path == null) return "";

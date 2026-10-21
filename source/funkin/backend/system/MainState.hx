@@ -97,17 +97,67 @@ class MainState extends FlxState {
 			}
 		}
 
-		for (addon in _lowPriorityAddons)
-			loadLib(addon.path, ltrim(addon.name, "[LOW]"));
-
+		var libPaths:Array<String> = [];
+		for (addon in _lowPriorityAddons) libPaths.push(addon.path);
+		for (addon in _noPriorityAddons) libPaths.push(addon.path);
+		for (addon in _highPriorityAddons) libPaths.push(addon.path);
 		if (!skipMods && ModsFolder.currentModFolder != null)
-			loadLib(ModsFolder.modsPath + ModsFolder.currentModFolder, ModsFolder.currentModFolder);
+			libPaths.push(ModsFolder.modsPath + ModsFolder.currentModFolder);
 
-		for (addon in _noPriorityAddons)
-			loadLib(addon.path, addon.name);
+		// Encrypted packs must be decrypted before the loader touches them: the plain
+		// zip reader cannot read password protected entries and would throw. The
+		// decryption runs on a worker thread behind a progress screen.
+		// No attempt counter here: switching mods from the menu must always show the
+		// progress screen again when the cached copy is gone. Packs that already
+		// failed during this session are filtered out by packsNeedingWork instead.
+		if (!skipMods) {
+			var work = ModPackCrypto.packsNeedingWork(libPaths);
+			if (work.length > 0) {
+				// These screens are shown before Flags.load(), and lazy flags are null
+				// until reset() runs, which made the title bar and the version text
+				// read "null". Initialise the base flags first.
+				Flags.reset();
+				WindowUtils.title = Flags.TITLE;
+				#if SHOW_BUILD_ON_FPS
+				if (Framerate.isLoaded && Framerate.codenameBuildField != null)
+					Framerate.codenameBuildField.reload();
+				#end
 
-		for (addon in _highPriorityAddons)
-			loadLib(addon.path, ltrim(addon.name, "[HIGH]"));
+				// Ask for the key first when no known key really opens the pack; only
+				// then does the progress screen have something to do. The check is
+				// cheap (a few decrypted bytes), so a script_key.txt with a stale
+				// password no longer flashes the loading screen before the prompt.
+				var locked:Array<String> = [];
+				for (zip in work)
+					if (!ModPackCrypto.hasWorkingKey(zip)) locked.push(zip);
+
+				if (locked.length > 0)
+					FlxG.switchState(new funkin.menus.ModPackKeyState(locked));
+				else
+					FlxG.switchState(new funkin.menus.ModPackLoadingState(work));
+				return;
+			}
+		}
+
+		try {
+			for (addon in _lowPriorityAddons)
+				loadLib(addon.path, ltrim(addon.name, "[LOW]"));
+
+			if (!skipMods && ModsFolder.currentModFolder != null)
+				loadLib(ModsFolder.modsPath + ModsFolder.currentModFolder, ModsFolder.currentModFolder);
+
+			for (addon in _noPriorityAddons)
+				loadLib(addon.path, addon.name);
+
+			for (addon in _highPriorityAddons)
+				loadLib(addon.path, ltrim(addon.name, "[HIGH]"));
+		} catch (e:Dynamic) {
+			// a broken pack must never take the whole game down: show the blue screen,
+			// where Enter restarts with every mod disabled
+			var info = funkin.menus.CrashScreenState.describe(e);
+			if (!funkin.menus.CrashScreenState.show(info.message, info.stack)) throw e;
+			return;
+		}
 		#end
 
 		Flags.reset();

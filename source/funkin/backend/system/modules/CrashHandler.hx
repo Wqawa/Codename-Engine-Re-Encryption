@@ -1,6 +1,8 @@
 package funkin.backend.system.modules;
 
+import flixel.FlxG;
 import funkin.backend.utils.NativeAPI;
+import funkin.menus.CrashScreenState;
 import haxe.CallStack;
 import openfl.Lib;
 import openfl.errors.Error;
@@ -51,6 +53,12 @@ final class CrashHandler {
 		e.stopPropagation();
 		e.stopImmediatePropagation();
 
+		// Show the in-game blue screen instead of the native dialog, so the player can
+		// read and copy the stack trace. A crash inside the crash screen (or before
+		// the stage exists) still falls back to the message box and quits.
+		if (!CrashScreenState.shown && CrashScreenState.show(m, stackLabel))
+			return;
+
 		NativeAPI.showMessageBox("Codename Engine Crash Handler", 'Uncaught Error:$m\n\n$stackLabel', MSG_ERROR);
 		#if sys
 		Sys.exit(1);
@@ -60,7 +68,10 @@ final class CrashHandler {
 	#if (cpp || hl)
 	private static function onError(message:Dynamic):Void
 	{
-		throw Std.string(message);
+		var text = Std.string(message);
+		if (!CrashScreenState.shown && CrashScreenState.show(text, CrashScreenState.formatStack()))
+			return;
+		throw text;
 	}
 	#end
 }

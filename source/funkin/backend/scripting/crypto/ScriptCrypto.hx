@@ -71,6 +71,24 @@ class ScriptCrypto {
 	static var KEY_FILE_CANDIDATES:Array<String> = ["script_key.txt", "./script_key.txt", "assets/data/script_key.txt"];
 
 	/**
+	 * Extra key files the engine registers at runtime (a mod's own data folder,
+	 * a portable install layout, ...). They are searched after the defaults, so a
+	 * mod can override the key of a single script without touching the engine one.
+	 */
+	static var extraKeyPaths:Array<String> = [];
+
+	/**
+	 * Signature (path + mtime + size) of the key files seen last time. Editing,
+	 * adding or deleting a key file changes it, which makes the keys reload
+	 * without restarting the game.
+	 */
+	static var keySnapshot:String = null;
+
+	/** Seconds between two stats of the key files; keeps getPassword() cheap. */
+	static inline var RESCAN_INTERVAL:Float = 0.35;
+	static var lastScan:Float = -1;
+
+	/**
 	 * Resolves the key used for one script. Lookup order:
 	 *   1. setPassword() override
 	 *   2. the "name = key" entry of script_key.txt matching `scriptName`
@@ -81,7 +99,7 @@ class ScriptCrypto {
 	 */
 	public static function getPassword(?scriptName:String):String {
 		if (password != null) return resolveKeyValue(password);
-		loadKeyFiles();
+		refreshKeys();
 		if (scriptKeys != null) {
 			var mapped = resolveKeyValue(findScriptKey(scriptName));
 			if (mapped != null) return mapped;
@@ -150,12 +168,11 @@ class ScriptCrypto {
 	/** Human readable description of where the current keys come from (editor UI). */
 	public static function keyFileSummary():String {
 		if (password != null) return "using the password set by ScriptCrypto.setPassword()";
-		loadKeyFiles();
-		if (scriptKeys != null) {
-			var count = 0;
+		refreshKeys();
+		var count = 0;
+		if (scriptKeys != null)
 			for (_ in scriptKeys.keys()) count++;
-			if (count > 0) return count + " per-script key(s) from script_key.txt";
-		}
+		if (count > 0) return count + " per-script key(s) from script_key.txt";
 		if (singleKey != null) return "single key from script_key.txt";
 		return "no script_key.txt found, using the built-in key";
 	}
@@ -166,26 +183,104 @@ class ScriptCrypto {
 		singleKey = null;
 		scriptKeys = null;
 		keyFilesLoaded = false;
+		keySnapshot = null;
+		lastScan = -1;
 	}
 
 	public static function setPassword(p:String):Void {
 		password = p;
 	}
 
-	static function loadKeyFiles():Void {
-		if (keyFilesLoaded) return;
-		keyFilesLoaded = true;
+	/** Adds a key file to search (the engine calls this for mod data folders). */
+	public static function addKeyFile(path:String):Void {
+		if (path == null || path.length == 0) return;
+		for (existing in extraKeyPaths) if (existing == path) return;
+		extraKeyPaths.push(path);
+		keySnapshot = null; // force a rescan on the next lookup
+	}
+
+	/**
+	 * Re-checks the key files and reparses them when they changed. Called on every
+	 * key lookup, but the stat pass itself is throttled to RESCAN_INTERVAL so it
+	 * stays cheap; an edited or newly added script_key.txt is picked up within a
+	 * fraction of a second, no restart needed.
+	 */
+	public static function refreshKeys():Void {
 		#if sys
-		for (path in KEY_FILE_CANDIDATES) {
+		var now = Sys.time();
+		if (lastScan >= 0 && now - lastScan < RESCAN_INTERVAL) return;
+		lastScan = now;
+		var snapshot = buildKeySnapshot();
+		if (keyFilesLoaded && snapshot == keySnapshot) return;
+		keySnapshot = snapshot;
+		parseAllKeyFiles();
+		#else
+		loadKeyFiles();
+		#end
+	}
+
+	/** Every place a script_key.txt may live, defaults first, mod folders last. */
+	static function candidatePaths():Array<String> {
+		var list:Array<String> = KEY_FILE_CANDIDATES.copy();
+		for (path in extraKeyPaths) list.push(path);
+		#if sys
+		for (root in ["./mods/", "./addons/"]) {
 			try {
-				if (!sys.FileSystem.exists(path) || sys.FileSystem.isDirectory(path)) continue;
-				var content = sys.io.File.getContent(path);
-				if (content == null) continue;
-				parseKeyFile(content);
-				if (singleKey != null || scriptKeys != null) return;
+				if (!sys.FileSystem.exists(root) || !sys.FileSystem.isDirectory(root)) continue;
+				for (dir in sys.FileSystem.readDirectory(root)) {
+					var base = root + dir + "/";
+					if (!sys.FileSystem.isDirectory(base)) continue;
+					// "data/script_key.txt" mirrors the mod asset layout; the flat one
+					// is what most packs have used so far.
+					list.push(base + "data/script_key.txt");
+					list.push(base + "script_key.txt");
+				}
 			} catch (e:Dynamic) {}
 		}
 		#end
+		return list;
+	}
+
+	static function buildKeySnapshot():String {
+		#if sys
+		var parts:Array<String> = [];
+		for (path in candidatePaths()) {
+			try {
+				if (!sys.FileSystem.exists(path) || sys.FileSystem.isDirectory(path)) continue;
+				var stat = sys.FileSystem.stat(path);
+				parts.push(path + ":" + stat.mtime + ":" + stat.size);
+			} catch (e:Dynamic) {}
+		}
+		return parts.join("|");
+		#else
+		return null;
+		#end
+	}
+
+	/**
+	 * Reparses every key file that exists. Mapping lines merge, later files winning,
+	 * and a file that is a single key overrides the single key of an earlier one -
+	 * so "engine key file + mod key file" behaves like the mod extends the engine.
+	 */
+	static function parseAllKeyFiles():Void {
+		keyFilesLoaded = true;
+		singleKey = null;
+		scriptKeys = null;
+		#if sys
+		for (path in candidatePaths()) {
+			try {
+				if (!sys.FileSystem.exists(path) || sys.FileSystem.isDirectory(path)) continue;
+				var content = sys.io.File.getContent(path);
+				if (content == null || StringTools.trim(content).length == 0) continue;
+				parseKeyFile(content);
+			} catch (e:Dynamic) {}
+		}
+		#end
+	}
+
+	/** Kept for older callers: makes sure the keys are loaded at least once. */
+	static function loadKeyFiles():Void {
+		if (!keyFilesLoaded) refreshKeys();
 	}
 
 	/**
@@ -213,7 +308,7 @@ class ScriptCrypto {
 			return;
 		}
 
-		var map = new Map<String, String>();
+		var map = scriptKeys != null ? scriptKeys : new Map<String, String>();
 		for (line in lines) {
 			var t = StringTools.trim(line);
 			if (t.length == 0 || StringTools.startsWith(t, "#") || StringTools.startsWith(t, "//")) continue;

@@ -13,7 +13,7 @@ class ChaCha20 {
 	static inline var SIGMA2:Int = 0x79622D32; // "2-by"
 	static inline var SIGMA3:Int = 0x6B206574; // "te k"
 
-	public static function xorBytes(key:Bytes, nonce:Bytes, counter:Int, input:Bytes):Bytes {
+	public static function xorBytes(key:Bytes, nonce:Bytes, counter:Int, input:Bytes, ?onProgress:Float->Void):Bytes {
 		if (key == null || key.length < 32)
 			throw "ChaCha20: key must be at least 32 bytes";
 		if (nonce == null || nonce.length < 12)
@@ -36,16 +36,21 @@ class ChaCha20 {
 		var block = Bytes.alloc(64);
 		var offset = 0;
 		var ctr = counter;
-		while (offset < input.length) {
+		var total = input.length;
+		var step = 0;
+		while (offset < total) {
 			state[12] = ctr;
 			blockFunction(state, block);
-			var n = input.length - offset;
+			var n = total - offset;
 			if (n > 64) n = 64;
 			for (i in 0...n)
 				output.set(offset + i, input.get(offset + i) ^ block.get(i));
 			offset += n;
 			ctr++;
+			// reporting every few blocks keeps the callback cheap on big payloads
+			if (onProgress != null && ++step % 2048 == 0) onProgress(offset / total);
 		}
+		if (onProgress != null) onProgress(1.0);
 		return output;
 	}
 
