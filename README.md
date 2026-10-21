@@ -1,3 +1,5 @@
+(Sorry bro,base on the 1.0.1 v,not 1.1.0 rc3)
+
 # Friday Night Funkin' - Codename Engine (WIP)
 
 ## PLEASE NOTE - THIS IS STILL IN A BETA STATE
