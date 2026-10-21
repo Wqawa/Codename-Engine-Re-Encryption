@@ -374,10 +374,12 @@ class ScriptCrypto {
 	}
 
 	public static function concat(a:Bytes, b:Bytes):Bytes {
-		var buf = new BytesBuffer();
-		buf.add(a);
-		buf.add(b);
-		return buf.getBytes();
+		// Allocation + two native blits; this sits in the 2048 round KDF loop, so
+		// avoiding the BytesBuffer wrapper measurably shortens every unlock.
+		var out = Bytes.alloc(a.length + b.length);
+		out.blit(0, a, 0, a.length);
+		out.blit(a.length, b, 0, b.length);
+		return out;
 	}
 
 	/**
@@ -523,27 +525,22 @@ class ScriptCrypto {
 		if (data.get(4) != VERSION)
 			throw 'ScriptCrypto: unsupported container version ' + data.get(4);
 
-		var salt = Bytes.alloc(SALT_SIZE);
-		for (i in 0...SALT_SIZE) salt.set(i, data.get(8 + i));
-		var nonce = Bytes.alloc(NONCE_SIZE);
-		for (i in 0...NONCE_SIZE) nonce.set(i, data.get(24 + i));
+		var salt = data.sub(8, SALT_SIZE);
+		var nonce = data.sub(24, NONCE_SIZE);
 
 		var len = data.get(36) | (data.get(37) << 8) | (data.get(38) << 16) | (data.get(39) << 24);
 		if (len < 0 || HEADER_SIZE + len + TAG_SIZE != data.length)
 			throw "ScriptCrypto: corrupted container (bad length)";
 
-		var body = Bytes.alloc(HEADER_SIZE + len);
-		for (i in 0...(HEADER_SIZE + len)) body.set(i, data.get(i));
-		var tagBytes = Bytes.alloc(TAG_SIZE);
-		for (i in 0...TAG_SIZE) tagBytes.set(i, data.get(HEADER_SIZE + len + i));
+		var body = data.sub(0, HEADER_SIZE + len);
+		var tagBytes = data.sub(HEADER_SIZE + len, TAG_SIZE);
 
 		var keys = deriveKeys(pass, salt);
 		var expected = hmacTag(keys.mac, body);
 		if (!constantTimeEquals(expected, tagBytes))
 			throw "ScriptCrypto: integrity check failed (wrong key or corrupted file)";
 
-		var cipher = Bytes.alloc(len);
-		for (i in 0...len) cipher.set(i, data.get(HEADER_SIZE + i));
+		var cipher = data.sub(HEADER_SIZE, len);
 		return {
 			mode: data.get(5),
 			payload: ChaCha20.xorBytes(keys.enc, nonce, 1, cipher)

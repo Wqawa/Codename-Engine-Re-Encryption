@@ -61,6 +61,17 @@ class ModPackKeyState extends UIState {
 
 		if (errorMessage != null) showError(errorMessage);
 
+		// A pack that already burned a full decryption attempt is not tried that way
+		// again (see onSubmit), so say it right away instead of after three tries.
+		if (errorMessage == null) {
+			for (p in packs) {
+				if (!ModPackCrypto.hasFailedBefore(p)) continue;
+				showError("This pack already failed a full unlock attempt in this session, so it will not be"
+					+ " decrypted again. Use \"Play without mods\" if the password keeps being rejected.");
+				break;
+			}
+		}
+
 		for (p in packs) {
 			var problem = ModPackCrypto.packProblem(p);
 			if (problem != null) {
@@ -84,6 +95,18 @@ class ModPackKeyState extends UIState {
 		var key = StringTools.trim(typed);
 		attempts++;
 
+		// A pack that already failed a full decryption attempt this session must
+		// never be decrypted again without a good reason: that is what turned a
+		// wrong password into an endless "loading screen -> prompt" loop.
+		var triedInFull = false;
+		var wasFailed:Map<String, Bool> = new Map<String, Bool>();
+		for (p in packs) {
+			if (ModPackCrypto.hasFailedBefore(p)) {
+				triedInFull = true;
+				wasFailed.set(p, true);
+			}
+		}
+
 		// Verify the key before the loading screen starts: a wrong password would
 		// otherwise decrypt the whole pack for nothing and then silently come back
 		// here without saying what went wrong.
@@ -92,12 +115,20 @@ class ModPackKeyState extends UIState {
 			ModPackCrypto.setSessionKey(p, key);
 			if (!ModPackCrypto.keyWorks(p, key)) bad.push(p);
 		}
-		if (bad.length > 0 && attempts < 3) {
-			for (p in packs) ModPackCrypto.clearSessionKey(p);
+		if (bad.length > 0 && (attempts < 3 || triedInFull)) {
+			for (p in packs) {
+				ModPackCrypto.clearSessionKey(p);
+				// setSessionKey() drops the failure mark so a freshly typed key may be
+				// tried; without restoring it here the next prompt would retry the
+				// full decryption again on the third wrong password.
+				if (wasFailed.exists(p)) ModPackCrypto.markFailed(p);
+			}
 			var names = "";
 			for (p in bad)
 				names += (names.length == 0 ? "" : ", ") + Path.withoutExtension(Path.withoutDirectory(p));
-			showError("Wrong password: " + names + " could not be unlocked. Check the password and try again.");
+			showError("Wrong password: " + names + " could not be unlocked. Check the password and try again."
+				+ (triedInFull ? "\nA full unlock attempt for this pack already failed, so it will not be "
+					+ "decrypted again - use \"Play without mods\" if the password keeps being rejected." : ""));
 			return;
 		}
 		// Rejected three times in a row: let the loader do a real decryption attempt

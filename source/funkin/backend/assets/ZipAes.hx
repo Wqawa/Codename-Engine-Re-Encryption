@@ -117,85 +117,95 @@ class ZipAes {
 		var input = File.read(srcPath, true);
 		var tmp = outPath + ".part";
 		var output = File.write(tmp, true);
-		var central = new BytesBuffer();
-		var pos = 0;
-		var count = 0;
+		try {
+			var central = new BytesBuffer();
+			var pos = 0;
+			var count = 0;
 
-		for (e in entries) {
-			var name = Bytes.ofString(e.name);
-			var isDir = e.name.length > 0 && StringTools.endsWith(e.name, "/");
-			var local = new BytesBuffer();
-			var data:Bytes;
+			for (e in entries) {
+				var name = Bytes.ofString(e.name);
+				var isDir = e.name.length > 0 && StringTools.endsWith(e.name, "/");
+				var local = new BytesBuffer();
+				var data:Bytes;
+				// Always mark a non-ASCII name as UTF-8: the bytes below are UTF-8,
+				// and a missing 0x800 flag made such names unreadable when unzipped.
+				var flags = ((e.flags & 0x0800) != 0 || !ZipPassword.isAscii(e.name)) ? 0x0800 : 0;
 
-			if (isDir) {
-				data = Bytes.alloc(0);
-				writeLocalHeader(local, e, 20, 0, 0, 0, 0, name, null);
-			} else {
-				input.seek(ZipPassword.dataOffset(input, e), SeekBegin);
-				var raw = e.csize > 0 ? input.read(e.csize) : Bytes.alloc(0);
+				if (isDir) {
+					data = Bytes.alloc(0);
+					writeLocalHeader(local, e, 20, flags, 0, 0, 0, name, null);
+				} else {
+					input.seek(ZipPassword.dataOffset(input, e), SeekBegin);
+					var raw = e.csize > 0 ? input.read(e.csize) : Bytes.alloc(0);
 
-				var salt = randomBytes(16);
-				var keys = deriveKeys(pass, salt, 32);
-				var cipher = Aes.ctrCrypt(keys.enc, raw);
-				var tag = HmacSha1.hash(keys.mac, cipher);
+					var salt = randomBytes(16);
+					var keys = deriveKeys(pass, salt, 32);
+					var cipher = Aes.ctrCrypt(keys.enc, raw);
+					var tag = HmacSha1.hash(keys.mac, cipher);
 
-				data = Bytes.alloc(salt.length + 2 + cipher.length + AUTH_LEN);
-				data.blit(0, salt, 0, salt.length);
-				data.set(salt.length, keys.pv.get(0));
-				data.set(salt.length + 1, keys.pv.get(1));
-				data.blit(salt.length + 2, cipher, 0, cipher.length);
-				data.blit(salt.length + 2 + cipher.length, tag, 0, AUTH_LEN);
+					data = Bytes.alloc(salt.length + 2 + cipher.length + AUTH_LEN);
+					data.blit(0, salt, 0, salt.length);
+					data.set(salt.length, keys.pv.get(0));
+					data.set(salt.length + 1, keys.pv.get(1));
+					data.blit(salt.length + 2, cipher, 0, cipher.length);
+					data.blit(salt.length + 2 + cipher.length, tag, 0, AUTH_LEN);
 
-				var extra = aesExtra(2, 3, e.method);
-				// AE-2 stores 0 in the crc fields; the AES auth code replaces it
-				writeLocalHeader(local, e, 51, (e.flags & 0x0800) | 0x1, 99, 0, data.length, name, extra);
+					var extra = aesExtra(2, 3, e.method);
+					// AE-2 stores 0 in the crc fields; the AES auth code replaces it
+					writeLocalHeader(local, e, 51, flags | 0x1, 99, 0, data.length, name, extra);
+				}
+
+				output.write(local.getBytes());
+				if (data.length > 0) output.write(data);
+
+				var head = new BytesBuffer();
+				ZipPassword.writeU32(head, 0x02014B50);
+				ZipPassword.writeU16(head, 20);
+				ZipPassword.writeU16(head, isDir ? 20 : 51);
+				ZipPassword.writeU16(head, isDir ? flags : (flags | 0x1));
+				ZipPassword.writeU16(head, isDir ? 0 : 99);
+				ZipPassword.writeU16(head, e.time);
+				ZipPassword.writeU16(head, e.date);
+				ZipPassword.writeU32(head, 0);
+				ZipPassword.writeU32(head, data.length);
+				ZipPassword.writeU32(head, isDir ? 0 : e.usize);
+				ZipPassword.writeU16(head, name.length);
+				var extra = isDir ? null : aesExtra(2, 3, e.method);
+				ZipPassword.writeU16(head, extra == null ? 0 : extra.length);
+				ZipPassword.writeU16(head, 0);
+				ZipPassword.writeU16(head, 0);
+				ZipPassword.writeU16(head, 0);
+				ZipPassword.writeU32(head, 0);
+				ZipPassword.writeU32(head, pos);
+				head.add(name);
+				if (extra != null) head.add(extra);
+				central.add(head.getBytes());
+
+				pos += 30 + name.length + (isDir ? 0 : (extra == null ? 0 : extra.length)) + data.length;
+				count++;
 			}
 
-			output.write(local.getBytes());
-			if (data.length > 0) output.write(data);
+			var cd = central.getBytes();
+			var eocd = new BytesBuffer();
+			ZipPassword.writeU32(eocd, 0x06054B50);
+			ZipPassword.writeU16(eocd, 0);
+			ZipPassword.writeU16(eocd, 0);
+			ZipPassword.writeU16(eocd, count);
+			ZipPassword.writeU16(eocd, count);
+			ZipPassword.writeU32(eocd, cd.length);
+			ZipPassword.writeU32(eocd, pos);
+			ZipPassword.writeU16(eocd, 0);
 
-			var head = new BytesBuffer();
-			ZipPassword.writeU32(head, 0x02014B50);
-			ZipPassword.writeU16(head, 20);
-			ZipPassword.writeU16(head, isDir ? 20 : 51);
-			ZipPassword.writeU16(head, isDir ? 0 : (e.flags & 0x0800 | 0x1));
-			ZipPassword.writeU16(head, isDir ? 0 : 99);
-			ZipPassword.writeU16(head, e.time);
-			ZipPassword.writeU16(head, e.date);
-			ZipPassword.writeU32(head, 0);
-			ZipPassword.writeU32(head, data.length);
-			ZipPassword.writeU32(head, isDir ? 0 : e.usize);
-			ZipPassword.writeU16(head, name.length);
-			var extra = isDir ? null : aesExtra(2, 3, e.method);
-			ZipPassword.writeU16(head, extra == null ? 0 : extra.length);
-			ZipPassword.writeU16(head, 0);
-			ZipPassword.writeU16(head, 0);
-			ZipPassword.writeU16(head, 0);
-			ZipPassword.writeU32(head, 0);
-			ZipPassword.writeU32(head, pos);
-			head.add(name);
-			if (extra != null) head.add(extra);
-			central.add(head.getBytes());
-
-			pos += 30 + name.length + (isDir ? 0 : (extra == null ? 0 : extra.length)) + data.length;
-			count++;
+			output.write(cd);
+			output.write(eocd.getBytes());
+			output.close();
+			input.close();
+		} catch (err:Dynamic) {
+			try { output.close(); } catch (e2:Dynamic) {}
+			try { input.close(); } catch (e2:Dynamic) {}
+			try { if (FileSystem.exists(tmp)) FileSystem.deleteFile(tmp); } catch (e2:Dynamic) {}
+			throw err;
 		}
-
-		var cd = central.getBytes();
-		var eocd = new BytesBuffer();
-		ZipPassword.writeU32(eocd, 0x06054B50);
-		ZipPassword.writeU16(eocd, 0);
-		ZipPassword.writeU16(eocd, 0);
-		ZipPassword.writeU16(eocd, count);
-		ZipPassword.writeU16(eocd, count);
-		ZipPassword.writeU32(eocd, cd.length);
-		ZipPassword.writeU32(eocd, pos);
-		ZipPassword.writeU16(eocd, 0);
-
-		output.write(cd);
-		output.write(eocd.getBytes());
-		output.close();
-		input.close();
 
 		if (FileSystem.exists(outPath)) FileSystem.deleteFile(outPath);
 		FileSystem.rename(tmp, outPath);

@@ -151,82 +151,95 @@ class ZipPassword {
 		var tmp = out + ".part";
 		var input = File.read(zipPath, true);
 		var output = File.write(tmp, true);
-		var central = new BytesBuffer();
-		var pos = 0;
-		var count = 0;
+		try {
+			var central = new BytesBuffer();
+			var pos = 0;
+			var count = 0;
 
-		var done = 0;
-		var entryCount = entries.length;
-		for (e in entries) {
-			if (onProgress != null) onProgress(done / entryCount);
-			done++;
-			var data = readEntryData(input, e, pass);
-			var crc = crc32(data);
-			// AES (AE-2) entries carry 0 in the crc field; their HMAC already proved integrity
-			if (e.method != 99 && data.length > 0 && (e.flags & 0x8) == 0) {
-				if (crc != e.crc) throw "ZipPassword: corrupted entry " + e.name;
+			var done = 0;
+			var entryCount = entries.length;
+			for (e in entries) {
+				if (onProgress != null) onProgress(done / entryCount);
+				done++;
+				var data = readEntryData(input, e, pass);
+				var crc = crc32(data);
+				// AES (AE-2) entries carry 0 in the crc field; their HMAC already proved integrity
+				if (e.method != 99 && data.length > 0 && (e.flags & 0x8) == 0) {
+					if (crc != e.crc) throw "ZipPassword: corrupted entry " + e.name;
+				}
+
+				var name = Bytes.ofString(e.name);
+				var size = data.length;
+				// Keep the UTF-8 name flag of the original archive, and set it for a name
+				// that needs it: the bytes written below are always UTF-8, so dropping the
+				// flag made non-ASCII file names unreadable. The data descriptor flag (0x8)
+				// is not needed any more because sizes are written into the header.
+				var flags = ((e.flags & 0x800) != 0 || !isAscii(e.name)) ? 0x800 : 0;
+
+				var local = new BytesBuffer();
+				writeU32(local, 0x04034B50);
+				writeU16(local, 20);
+				writeU16(local, flags);
+				writeU16(local, 0);
+				writeU16(local, e.time);
+				writeU16(local, e.date);
+				writeU32(local, crc);
+				writeU32(local, size);
+				writeU32(local, size);
+				writeU16(local, name.length);
+				writeU16(local, 0);
+				local.add(name);
+
+				output.write(local.getBytes());
+				if (size > 0) output.write(data);
+
+				var head = new BytesBuffer();
+				writeU32(head, 0x02014B50);
+				writeU16(head, 20);
+				writeU16(head, 20);
+				writeU16(head, flags);
+				writeU16(head, 0);
+				writeU16(head, e.time);
+				writeU16(head, e.date);
+				writeU32(head, crc);
+				writeU32(head, size);
+				writeU32(head, size);
+				writeU16(head, name.length);
+				writeU16(head, 0);
+				writeU16(head, 0);
+				writeU16(head, 0);
+				writeU16(head, 0);
+				writeU32(head, 0);
+				writeU32(head, pos);
+				head.add(name);
+				central.add(head.getBytes());
+
+				pos += 30 + name.length + size;
+				count++;
 			}
 
-			var name = Bytes.ofString(e.name);
-			var size = data.length;
+			var cd = central.getBytes();
+			var eocd = new BytesBuffer();
+			writeU32(eocd, 0x06054B50);
+			writeU16(eocd, 0);
+			writeU16(eocd, 0);
+			writeU16(eocd, count);
+			writeU16(eocd, count);
+			writeU32(eocd, cd.length);
+			writeU32(eocd, pos);
+			writeU16(eocd, 0);
 
-			var local = new BytesBuffer();
-			writeU32(local, 0x04034B50);
-			writeU16(local, 20);
-			writeU16(local, 0);
-			writeU16(local, 0);
-			writeU16(local, e.time);
-			writeU16(local, e.date);
-			writeU32(local, crc);
-			writeU32(local, size);
-			writeU32(local, size);
-			writeU16(local, name.length);
-			writeU16(local, 0);
-			local.add(name);
-
-			output.write(local.getBytes());
-			if (size > 0) output.write(data);
-
-			var head = new BytesBuffer();
-			writeU32(head, 0x02014B50);
-			writeU16(head, 20);
-			writeU16(head, 20);
-			writeU16(head, 0);
-			writeU16(head, 0);
-			writeU16(head, e.time);
-			writeU16(head, e.date);
-			writeU32(head, crc);
-			writeU32(head, size);
-			writeU32(head, size);
-			writeU16(head, name.length);
-			writeU16(head, 0);
-			writeU16(head, 0);
-			writeU16(head, 0);
-			writeU16(head, 0);
-			writeU32(head, 0);
-			writeU32(head, pos);
-			head.add(name);
-			central.add(head.getBytes());
-
-			pos += 30 + name.length + size;
-			count++;
+			output.write(cd);
+			output.write(eocd.getBytes());
+			output.close();
+			input.close();
+		} catch (err:Dynamic) {
+			// a half written .part file and two open handles used to be left behind
+			try { output.close(); } catch (e2:Dynamic) {}
+			try { input.close(); } catch (e2:Dynamic) {}
+			try { if (FileSystem.exists(tmp)) FileSystem.deleteFile(tmp); } catch (e2:Dynamic) {}
+			throw err;
 		}
-
-		var cd = central.getBytes();
-		var eocd = new BytesBuffer();
-		writeU32(eocd, 0x06054B50);
-		writeU16(eocd, 0);
-		writeU16(eocd, 0);
-		writeU16(eocd, count);
-		writeU16(eocd, count);
-		writeU32(eocd, cd.length);
-		writeU32(eocd, pos);
-		writeU16(eocd, 0);
-
-		output.write(cd);
-		output.write(eocd.getBytes());
-		output.close();
-		input.close();
 
 		if (FileSystem.exists(out)) FileSystem.deleteFile(out);
 		FileSystem.rename(tmp, out);
@@ -421,6 +434,14 @@ class ZipPassword {
 	}
 	#end
 
+	/** True when the name only needs the ASCII subset, so no UTF-8 flag is required. */
+	public static function isAscii(name:String):Bool {
+		if (name == null) return true;
+		for (i in 0...name.length)
+			if (name.charCodeAt(i) > 0x7F) return false;
+		return true;
+	}
+
 	static function normalizePath(path:String):String {
 		if (path == null) return "";
 		return StringTools.replace(StringTools.trim(path.toLowerCase()), "\\", "/");
@@ -507,9 +528,13 @@ class ZipCryptoKeys {
 
 	public function decryptByte():Int {
 		var t = (k2 | 2) & 0xFFFF;
-		// multiplied as floats: the product can pass 2^31 and must not overflow
-		var p:Float = t * 1.0 * (t ^ 1);
-		return Std.int(p / 256.0) & 0xFF;
+		var other = t ^ 1;
+		// Byte 1 of t * other, computed from the four 8 bit halves so no product
+		// ever exceeds 32 bits. About twice as fast as the float division, and it
+		// behaves identically on every target (including JS, where >> is 32 bit).
+		var al = t & 0xFF, ah = t >>> 8;
+		var bl = other & 0xFF, bh = other >>> 8;
+		return (al * bh + ah * bl + ((al * bl) >>> 8)) & 0xFF;
 	}
 
 	static function mulStep(k1:Int, k0:Int):Int {

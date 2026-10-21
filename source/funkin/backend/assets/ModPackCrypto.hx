@@ -175,19 +175,17 @@ class ModPackCrypto {
 		if (data.get(4) != VERSION)
 			throw 'ModPackCrypto: unsupported container version ' + data.get(4);
 
-		var salt = Bytes.alloc(SALT_SIZE);
-		for (i in 0...SALT_SIZE) salt.set(i, data.get(8 + i));
-		var nonce = Bytes.alloc(NONCE_SIZE);
-		for (i in 0...NONCE_SIZE) nonce.set(i, data.get(24 + i));
+		// Bytes.sub() copies in one native call instead of a per-byte Haxe loop;
+		// a large pack is copied twice here, so the loop was measurably slow.
+		var salt = data.sub(8, SALT_SIZE);
+		var nonce = data.sub(24, NONCE_SIZE);
 
 		var len = data.get(36) | (data.get(37) << 8) | (data.get(38) << 16) | (data.get(39) << 24);
 		if (len < 0 || HEADER_SIZE + len + TAG_SIZE != data.length)
 			throw "ModPackCrypto: corrupted container (bad length)";
 
-		var body = Bytes.alloc(HEADER_SIZE + len);
-		for (i in 0...(HEADER_SIZE + len)) body.set(i, data.get(i));
-		var tag = Bytes.alloc(TAG_SIZE);
-		for (i in 0...TAG_SIZE) tag.set(i, data.get(HEADER_SIZE + len + i));
+		var body = data.sub(0, HEADER_SIZE + len);
+		var tag = data.sub(HEADER_SIZE + len, TAG_SIZE);
 
 		var keys = ScriptCrypto.deriveKeys(pass, salt);
 		var expected = ScriptCrypto.hmacTag(keys.mac, body);
@@ -197,8 +195,7 @@ class ModPackCrypto {
 		if (diff != 0)
 			throw "ModPackCrypto: integrity check failed (wrong key or corrupted file)";
 
-		var cipher = Bytes.alloc(len);
-		for (i in 0...len) cipher.set(i, data.get(HEADER_SIZE + i));
+		var cipher = data.sub(HEADER_SIZE, len);
 		if (onProgress == null) return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher);
 		return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
 	}
@@ -209,6 +206,11 @@ class ModPackCrypto {
 		sessionKeys.set(normalizePath(zipPath), key);
 		// a freshly typed key deserves a new attempt on the progress screen
 		failedPacks.remove(normalizePath(zipPath));
+	}
+
+	/** Records that a full decryption attempt for this pack already failed. */
+	public static function markFailed(zipPath:String):Void {
+		failedPacks.set(normalizePath(zipPath), true);
 	}
 
 	public static function clearSessionKey(zipPath:String):Void {
@@ -230,6 +232,7 @@ class ModPackCrypto {
 
 	/** Memo for keyWorks(): decryption is never repeated for the same pack + key. */
 	static var keyCheckCache:Map<String, Bool> = new Map<String, Bool>();
+	static var keyCheckEntries:Int = 0;
 
 	/**
 	 * Cheap "does this key actually open the pack" check, so a wrong password can
@@ -243,14 +246,33 @@ class ModPackCrypto {
 	public static function keyWorks(zipPath:String, key:String):Bool {
 		#if sys
 		if (key == null) return false;
-		var id = normalizePath(zipPath) + "|" + key;
+		var id = normalizePath(zipPath) + "|" + packStamp(zipPath) + "|" + key;
 		if (keyCheckCache.exists(id)) return keyCheckCache.get(id);
 		var ok = keyWorksUncached(zipPath, key);
+		// The memo is not supposed to grow for the whole session: a player who
+		// types a lot of wrong passwords should not leak one entry per try.
+		// (Map has no size in Haxe 4.2, so the entries are counted on the side.)
+		keyCheckEntries++;
+		if (keyCheckEntries > 256) {
+			keyCheckCache = new Map<String, Bool>();
+			keyCheckEntries = 1;
+		}
 		keyCheckCache.set(id, ok);
 		return ok;
 		#else
 		return false;
 		#end
+	}
+
+	/** size:mtime of the pack, so a replaced file is never answered from a stale memo. */
+	static function packStamp(zipPath:String):String {
+		#if sys
+		try {
+			var st = FileSystem.stat(zipPath);
+			return Std.string(st.size) + ":" + Std.string(st.mtime);
+		} catch (e:Dynamic) {}
+		#end
+		return "";
 	}
 
 	static function keyWorksUncached(zipPath:String, key:String):Bool {
@@ -376,6 +398,9 @@ class ModPackCrypto {
 	 * missing or wrong.
 	 */
 	public static function zipPathToLoad(zipPath:String):String {
+		// A pack the prepare pass already failed on must not be decrypted again
+		// synchronously on the main thread; typing a new key clears the mark.
+		if (hasFailedBefore(zipPath)) return null;
 		if (isEncryptedPackFile(zipPath)) {
 			var key = resolveKey(zipPath);
 			if (key == null) return null;
@@ -404,7 +429,11 @@ class ModPackCrypto {
 			var zip = libPath + ".zip";
 			if (!FileSystem.exists(zip) || FileSystem.isDirectory(zip)) return null;
 			if (!needsKey(zip)) return null;
-			if (resolveKey(zip) == null) return zip;
+			// Never decrypt here: this runs on the main thread from the startup
+			// check, so only ask for a key when none of the known keys works.
+			// A pack with a working key is prepared by the loading screen instead.
+			if (hasWorkingKey(zip)) return null;
+			return zip;
 		} catch (e:Dynamic) {}
 		#end
 		return null;
@@ -486,6 +515,8 @@ class ModPackCrypto {
 			}
 		} catch (e:Dynamic) {
 			prepareFailed = packs.copy();
+			for (pack in packs)
+				failedPacks.set(normalizePath(pack), true);
 		}
 		preparing = false;
 		prepareDone = true;

@@ -62,35 +62,57 @@ class ChaCha20 {
 		return (v << n) | (v >>> (32 - n));
 	}
 
-	static inline function qr(x:Array<Int>, a:Int, b:Int, c:Int, d:Int):Void {
-		x[a] += x[b];
-		x[d] = rotl(x[d] ^ x[a], 16);
-		x[c] += x[d];
-		x[b] = rotl(x[b] ^ x[c], 12);
-		x[a] += x[b];
-		x[d] = rotl(x[d] ^ x[a], 8);
-		x[c] += x[d];
-		x[b] = rotl(x[b] ^ x[c], 7);
+	/**
+	 * One 64-byte ChaCha20 block. The 16 working words live in local variables so
+	 * that hashing a large payload does not allocate an Array per 64-byte block
+	 * (a 132 MB mod pack is roughly two million blocks).
+	 */
+	static function blockFunction(state:Array<Int>, out:Bytes):Void {
+		var s0 = state[0], s1 = state[1], s2 = state[2], s3 = state[3];
+		var s4 = state[4], s5 = state[5], s6 = state[6], s7 = state[7];
+		var s8 = state[8], s9 = state[9], s10 = state[10], s11 = state[11];
+		var s12 = state[12], s13 = state[13], s14 = state[14], s15 = state[15];
+		var x0 = s0, x1 = s1, x2 = s2, x3 = s3;
+		var x4 = s4, x5 = s5, x6 = s6, x7 = s7;
+		var x8 = s8, x9 = s9, x10 = s10, x11 = s11;
+		var x12 = s12, x13 = s13, x14 = s14, x15 = s15;
+
+		for (r in 0...10) {
+			// column rounds
+			x0 += x4; x12 = rotl(x12 ^ x0, 16); x8 += x12; x4 = rotl(x4 ^ x8, 12);
+			x0 += x4; x12 = rotl(x12 ^ x0, 8); x8 += x12; x4 = rotl(x4 ^ x8, 7);
+			x1 += x5; x13 = rotl(x13 ^ x1, 16); x9 += x13; x5 = rotl(x5 ^ x9, 12);
+			x1 += x5; x13 = rotl(x13 ^ x1, 8); x9 += x13; x5 = rotl(x5 ^ x9, 7);
+			x2 += x6; x14 = rotl(x14 ^ x2, 16); x10 += x14; x6 = rotl(x6 ^ x10, 12);
+			x2 += x6; x14 = rotl(x14 ^ x2, 8); x10 += x14; x6 = rotl(x6 ^ x10, 7);
+			x3 += x7; x15 = rotl(x15 ^ x3, 16); x11 += x15; x7 = rotl(x7 ^ x11, 12);
+			x3 += x7; x15 = rotl(x15 ^ x3, 8); x11 += x15; x7 = rotl(x7 ^ x11, 7);
+			// diagonal rounds
+			x0 += x5; x15 = rotl(x15 ^ x0, 16); x10 += x15; x5 = rotl(x5 ^ x10, 12);
+			x0 += x5; x15 = rotl(x15 ^ x0, 8); x10 += x15; x5 = rotl(x5 ^ x10, 7);
+			x1 += x6; x12 = rotl(x12 ^ x1, 16); x11 += x12; x6 = rotl(x6 ^ x11, 12);
+			x1 += x6; x12 = rotl(x12 ^ x1, 8); x11 += x12; x6 = rotl(x6 ^ x11, 7);
+			x2 += x7; x13 = rotl(x13 ^ x2, 16); x8 += x13; x7 = rotl(x7 ^ x8, 12);
+			x2 += x7; x13 = rotl(x13 ^ x2, 8); x8 += x13; x7 = rotl(x7 ^ x8, 7);
+			x3 += x4; x14 = rotl(x14 ^ x3, 16); x9 += x14; x4 = rotl(x4 ^ x9, 12);
+			x3 += x4; x14 = rotl(x14 ^ x3, 8); x9 += x14; x4 = rotl(x4 ^ x9, 7);
+		}
+
+		x0 += s0; x1 += s1; x2 += s2; x3 += s3;
+		x4 += s4; x5 += s5; x6 += s6; x7 += s7;
+		x8 += s8; x9 += s9; x10 += s10; x11 += s11;
+		x12 += s12; x13 += s13; x14 += s14; x15 += s15;
+
+		writeLE(out, 0, x0); writeLE(out, 4, x1); writeLE(out, 8, x2); writeLE(out, 12, x3);
+		writeLE(out, 16, x4); writeLE(out, 20, x5); writeLE(out, 24, x6); writeLE(out, 28, x7);
+		writeLE(out, 32, x8); writeLE(out, 36, x9); writeLE(out, 40, x10); writeLE(out, 44, x11);
+		writeLE(out, 48, x12); writeLE(out, 52, x13); writeLE(out, 56, x14); writeLE(out, 60, x15);
 	}
 
-	static function blockFunction(state:Array<Int>, out:Bytes):Void {
-		var x = state.copy();
-		for (r in 0...10) {
-			qr(x, 0, 4, 8, 12);
-			qr(x, 1, 5, 9, 13);
-			qr(x, 2, 6, 10, 14);
-			qr(x, 3, 7, 11, 15);
-			qr(x, 0, 5, 10, 15);
-			qr(x, 1, 6, 11, 12);
-			qr(x, 2, 7, 8, 13);
-			qr(x, 3, 4, 9, 14);
-		}
-		for (i in 0...16) {
-			var v = x[i] + state[i];
-			out.set(i * 4, v & 0xFF);
-			out.set(i * 4 + 1, (v >>> 8) & 0xFF);
-			out.set(i * 4 + 2, (v >>> 16) & 0xFF);
-			out.set(i * 4 + 3, (v >>> 24) & 0xFF);
-		}
+	static inline function writeLE(b:Bytes, o:Int, v:Int):Void {
+		b.set(o, v & 0xFF);
+		b.set(o + 1, (v >>> 8) & 0xFF);
+		b.set(o + 2, (v >>> 16) & 0xFF);
+		b.set(o + 3, (v >>> 24) & 0xFF);
 	}
 }

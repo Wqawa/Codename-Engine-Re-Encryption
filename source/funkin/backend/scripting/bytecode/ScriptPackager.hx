@@ -141,7 +141,12 @@ class ScriptPackager {
 			return {mode: result.mode, chunk: Chunk.deserialize(result.payload)};
 		if (result.mode == ScriptCrypto.MODE_BOTH) {
 			var payload = result.payload;
+			if (payload.length < 4)
+				throw "ScriptPackager: corrupted container (missing bytecode length)";
 			var len = payload.get(0) | (payload.get(1) << 8) | (payload.get(2) << 16) | (payload.get(3) << 24);
+			// a corrupted length must be rejected here, not inside sub()
+			if (len <= 0 || 4 + len > payload.length)
+				throw "ScriptPackager: corrupted container (bad bytecode length)";
 			var chunk = Chunk.deserialize(payload.sub(4, len));
 			var source = payload.length > 4 + len ? payload.sub(4 + len, payload.length - 4 - len).toString() : "";
 			return {mode: result.mode, chunk: chunk, source: source};
