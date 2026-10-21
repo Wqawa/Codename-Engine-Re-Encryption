@@ -2,6 +2,7 @@ package funkin.editors;
 
 import flixel.math.FlxRect;
 import funkin.backend.assets.ModPackCrypto;
+import funkin.backend.assets.ZipAes;
 import funkin.backend.assets.ZipPassword;
 import funkin.backend.scripting.bytecode.ScriptPackager;
 import funkin.backend.scripting.crypto.ScriptCrypto;
@@ -96,6 +97,12 @@ class EncryptionEditor extends UIState {
 
 	/** 0 = encrypted source, 1 = keyless VM bytecode, 2 = bytecode + encrypted source. */
 	public var currentMode:Int = 2;
+
+	/** 0 = CNEZ container (strong), 1 = standard AES-256 password zip. */
+	public var packModeStrong:UIRadioButton;
+	public var packModeStandard:UIRadioButton;
+	public var packModeText:UIText;
+	public var currentPackMode:Int = 0;
 
 	// tab bar: every tab owns a list of widgets that are simply hidden while
 	// another tab is selected, the way the rest of the editor screens work
@@ -295,19 +302,15 @@ class EncryptionEditor extends UIState {
 		track(g, new UIButton(800, CONTENT_Y + 156, "Copy Token", onCopyToken, 150, 32));
 
 		// -- the pack exporter itself
-		track(g, new UIText(30, CONTENT_Y + 216, FlxG.width - 60, "Encrypt a zip mod pack", 18, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 206, FlxG.width - 60, "Encrypt a zip mod pack", 18, 0xFFFFE066, false));
 
-		var body = new UIText(30, CONTENT_Y + 250, FlxG.width - 70,
-			"Wraps a .zip mod into a CNEZ container that cannot be opened without the key.\n\n"
-			+ "  1. Pick the zip with the button below (it must not be password protected).\n"
-			+ "  2. Choose where to save the encrypted copy (name_encrypted.zip by default).\n"
-			+ "  3. Drop the result into the mods folder and ship it with the key or the token above.\n\n"
-			+ "The pack is written with the Key field above, falling back to script_key.txt / the built-in key.\n"
-			+ "Players are asked for the key or a token before it loads and can pick \"Play without mods\";\n"
-			+ "old ZipCrypto password zips still load (the engine asks for that password at startup). AES is not supported.",
-			13, 0xFFC8C8D2, false);
-		body.wordWrap = true;
-		track(g, body);
+		track(g, packModeStrong = new UIRadioButton(30, CONTENT_Y + 238, "Enhanced: CNE container (CNEZ, needs the key)", true, "packModeStrong", 540));
+		track(g, packModeStandard = new UIRadioButton(575, CONTENT_Y + 238, "Standard: password zip (AES-256)", false, "packModeStandard", 520));
+		packModeStrong.onChecked = function(_) selectPackMode(0);
+		packModeStandard.onChecked = function(_) selectPackMode(1);
+
+		track(g, packModeText = new UIText(30, CONTENT_Y + 272, FlxG.width - 70, packModeDescription(0), 13, 0xFFC8C8D2, false));
+		packModeText.wordWrap = true;
 
 		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
 	}
@@ -315,7 +318,8 @@ class EncryptionEditor extends UIState {
 	static var HELP_BODY:String =
 		"WHAT THIS TOOL DOES\n\n"
 		+ "The Scripts tab turns HScript files into protected .hxb containers. The Mod Pack tab wraps a zip\n"
-		+ "mod into a CNEZ container, and it turns a key into a shareable token and back too.\n\n"
+		+ "mod into a CNEZ container (or turns it into a standard AES-256 password zip), and it turns a key\n"
+		+ "into a shareable token and back too.\n\n"
 		+ "scripts - three modes, picked with the radio buttons\n\n"
 		+ "  - source only: the text is encrypted, a key is needed to load it.\n"
 		+ "  - VM bytecode only: compiled to the CNE virtual machine, runs without any key, no readable source.\n"
@@ -337,9 +341,12 @@ class EncryptionEditor extends UIState {
 		+ ".hx scripts keep using the plain key. Copy Key / Copy Token put either one on the clipboard.\n\n"
 		+ "zip mod packs\n\n"
 		+ "Encrypted packs are asked for a key before the mod loads, with the option to play without mods.\n"
-		+ "Plain zips load as before. Zips protected the old way (ZipCrypto password) are supported: the\n"
-		+ "password is asked at startup and the engine keeps a readable copy in .cne_mods/. AES protected\n"
-		+ "zips are not supported - remove the password before shipping or wrapping them.\n\n"
+		+ "Two export formats, picked with the radio buttons on the Mod Pack tab:\n"
+		+ "  - enhanced: a CNEZ container. No archive tool can open it, only the engine can (needs the key).\n"
+		+ "  - standard: a normal zip whose entries are AES-256 encrypted (WinZip AES). 7-Zip, WinRAR and\n"
+		+ "    Bandizip open it with the password - and so does the engine, so players only type it once.\n"
+		+ "Plain zips load as before. Password zips from other tools load too (ZipCrypto and AES-128/192/256):\n"
+		+ "the password is asked at startup and the engine keeps a readable copy in .cne_mods/.\n\n"
 		+ "tips\n\n"
 		+ "While a text field is focused, Backspace edits the text and ESC only drops the focus.\n"
 		+ "ESC again leaves the editor. Scroll long text with the mouse wheel over it.\n";
@@ -544,7 +551,28 @@ class EncryptionEditor extends UIState {
 
 	// ----------------------------------------------------------- mod pack export
 
-	/** Wraps a .zip mod into the encrypted "CNEZ" container the engine can open. */
+	function selectPackMode(index:Int) {
+		currentPackMode = index;
+		setRadio(packModeStrong, index == 0);
+		setRadio(packModeStandard, index == 1);
+		if (packModeText != null) packModeText.text = packModeDescription(index);
+		status("Export format: " + (index == 1 ? "standard AES-256 password zip" : "enhanced CNEZ container") + ".");
+	}
+
+	function packModeDescription(index:Int):String {
+		if (index == 1)
+			return "Standard: the zip stays a normal zip, but every entry is encrypted with AES-256 (WinZip AES).\n"
+				+ "7-Zip, WinRAR and Bandizip open it with the password, and so does the engine - players are asked\n"
+				+ "for that password at startup. Hand out the key or a token: the same password works in both.";
+		return "Enhanced: the zip is wrapped in a CNEZ container. No archive tool can open it at all - only\n"
+			+ "Codename Engine can, with the key (or a token). Safest option, but nobody can browse the mod in\n"
+			+ "7-Zip and every tool that expects a real zip just sees garbage.";
+	}
+
+	/**
+	 * Encrypts a .zip mod pack. The method comes from the radio buttons above:
+	 * CNEZ container (strong) or a standard AES-256 password zip.
+	 */
 	function encryptModPack() {
 		var dialog = new FileDialog();
 		dialog.onSelect.add(function(path:String) encryptModPackFile(path));
@@ -559,47 +587,50 @@ class EncryptionEditor extends UIState {
 	function encryptModPackFile(path:String) {
 		fileDialogOpen = false;
 		var key = packKey(path);
+		var standard = currentPackMode == 1;
 
-		if (ZipPassword.usesAES(path)) {
-			status("That zip is AES protected. Remove the password first (the engine cannot read AES entries).");
-			return;
-		}
-		if (ZipPassword.isProtected(path)) {
-			status("That zip is password protected. Remove its password first, then encrypt it as a mod pack.");
-			return;
-		}
-
-		var bytes:Bytes = null;
 		try {
-			var raw = File.getBytes(path);
-			if (ModPackCrypto.isEncryptedPack(raw)) {
-				status("That file is already an encrypted mod pack.");
+			if (ModPackCrypto.isEncryptedPackFile(path)) {
+				status("That file is already an encrypted (CNEZ) mod pack.");
 				return;
 			}
-			if (!ModPackCrypto.looksLikeZip(raw)) {
+			var handle = File.read(path, true);
+			var head = handle.read(4);
+			handle.close();
+			if (head == null || head.length < 4 || head.get(0) != 0x50 || head.get(1) != 0x4B) {
 				status("That file is not a zip archive.");
 				return;
 			}
-			bytes = ModPackCrypto.pack(raw, key);
 		} catch(e:Dynamic) {
-			status("Failed to encrypt the mod pack: " + Std.string(e));
+			status("Cannot read " + path + ": " + Std.string(e));
 			return;
 		}
 
-		var defaultPath = siblingPath(path, "zip", "_encrypted");
+		if (ZipPassword.isProtected(path)) {
+			status("That zip is already password protected. Remove its password first, the exporter needs a plain zip.");
+			return;
+		}
+
+		var defaultPath = siblingPath(path, "zip", standard ? "_password" : "_encrypted");
 		var dialog = new FileDialog();
 		dialog.onSelect.add(function(outPath:String) {
 			fileDialogOpen = false;
 			try {
-				File.saveBytes(outPath, bytes);
-				status("Encrypted mod pack saved to " + outPath + " (" + bytes.length + " bytes). Put the key or a key token into the readme.");
+				if (standard) {
+					ZipAes.encryptZip(path, outPath, key);
+					status("Password zip saved to " + outPath + ". 7-Zip / WinRAR open it with the key; the engine asks players for the same password or a token.");
+				} else {
+					var bytes = ModPackCrypto.pack(File.getBytes(path), key);
+					File.saveBytes(outPath, bytes);
+					status("Encrypted mod pack saved to " + outPath + " (" + bytes.length + " bytes). Put the key or a key token into the readme.");
+				}
 			} catch(e:Dynamic) {
 				status("Failed to save: " + Std.string(e));
 			}
 		});
 		dialog.onCancel.add(function() fileDialogOpen = false);
 		fileDialogOpen = true;
-		if (!dialog.browse(SAVE, "*.zip", defaultPath, "Save Encrypted Mod Pack")) {
+		if (!dialog.browse(SAVE, "*.zip", defaultPath, standard ? "Save AES-256 Password Zip" : "Save Encrypted Mod Pack")) {
 			fileDialogOpen = false;
 			status("This platform does not support file dialogs.");
 		}

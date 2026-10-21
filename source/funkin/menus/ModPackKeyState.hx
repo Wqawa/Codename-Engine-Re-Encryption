@@ -43,7 +43,7 @@ class ModPackKeyState extends UIState {
 		add(new UIText(40, 118, FlxG.width - 80,
 			"This mod pack is encrypted. Type the password the author gave you.\n"
 			+ "A key token (it usually starts with CNEK1-) works here as well.\n"
-			+ "A zip that was protected with a normal zip password (ZipCrypto) also works: type that password.",
+			+ "A zip protected with a normal zip password also works (ZipCrypto or AES-256): type that password.",
 			14, 0xFFB0B0BE, false));
 
 		add(new UIText(40, 180, 200, "Password / token:", 16, 0xFFFFFFFF, false));

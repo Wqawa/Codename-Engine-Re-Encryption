@@ -22,8 +22,8 @@ import sys.io.FileOutput;
  * is stored uncompressed, which costs disk space but keeps the rewrite fast and
  * streaming (no whole-archive buffer in memory).
  *
- * AES protected zips (method 99, what 7-Zip uses for "AES-256") are detected but
- * not supported yet.
+ * AES protected zips (method 99, what 7-Zip and WinRAR write for "AES-256") are
+ * handled by ZipAes.
  */
 class ZipPassword {
 	/** Folder the decrypted copies are written to. */
@@ -62,7 +62,12 @@ class ZipPassword {
 		try {
 			var f = File.read(path, true);
 			for (e in entries) {
-				if ((e.flags & FLAG_ENCRYPTED) == 0 || e.method == 99) continue;
+				if ((e.flags & FLAG_ENCRYPTED) == 0) continue;
+				if (e.method == 99) {
+					var ok = ZipAes.checkPassword(f, e, pass);
+					f.close();
+					return ok;
+				}
 				var start = dataOffset(f, e);
 				f.seek(start, SeekBegin);
 				var head = f.read(12);
@@ -111,7 +116,6 @@ class ZipPassword {
 	 */
 	public static function extractToCache(zipPath:String, pass:String):String {
 		#if sys
-		if (usesAES(zipPath)) throw "ZipPassword: AES encrypted archives are not supported";
 		if (!checkPassword(zipPath, pass)) throw "ZipPassword: wrong password";
 
 		var out = cachePath(zipPath, pass);
@@ -132,7 +136,8 @@ class ZipPassword {
 		for (e in entries) {
 			var data = readEntryData(input, e, pass);
 			var crc = crc32(data);
-			if (data.length > 0 && (e.flags & 0x8) == 0) {
+			// AES (AE-2) entries carry 0 in the crc field; their HMAC already proved integrity
+			if (e.method != 99 && data.length > 0 && (e.flags & 0x8) == 0) {
 				if (crc != e.crc) throw "ZipPassword: corrupted entry " + e.name;
 			}
 
@@ -212,20 +217,26 @@ class ZipPassword {
 		f.seek(dataOffset(f, e), SeekBegin);
 		var raw = e.csize > 0 ? f.read(e.csize) : Bytes.alloc(0);
 
+		var method = e.method;
 		if ((e.flags & FLAG_ENCRYPTED) != 0) {
-			if (e.method == 99) throw "ZipPassword: AES encrypted entries are not supported";
-			raw = decryptEntry(raw, e, pass);
+			if (e.method == 99) {
+				var plain = ZipAes.decryptEntry(raw, e, pass);
+				raw = plain.data;
+				method = plain.method;
+			} else {
+				raw = decryptEntry(raw, e, pass);
+			}
 		}
 
-		if (e.method == 0) return raw;
-		if (e.method == 8) return inflate(raw, e.usize);
-		throw "ZipPassword: unsupported compression method " + e.method;
+		if (method == 0) return raw;
+		if (method == 8) return inflate(raw, e.usize);
+		throw "ZipPassword: unsupported compression method " + method;
 		#else
 		return null;
 		#end
 	}
 
-	static function dataOffset(f:FileInput, e:ZipEntry):Int {
+	public static function dataOffset(f:FileInput, e:ZipEntry):Int {
 		f.seek(e.offset, SeekBegin);
 		var head = f.read(30);
 		if (head == null || head.length < 30) throw "ZipPassword: truncated local header";
@@ -271,7 +282,7 @@ class ZipPassword {
 	}
 
 	/** Reads the central directory (names, sizes, offsets) of the archive. */
-	static function readCentral(path:String):Array<ZipEntry> {
+	public static function readCentral(path:String):Array<ZipEntry> {
 		#if sys
 		try {
 			if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) return null;
@@ -323,6 +334,7 @@ class ZipPassword {
 				var clen = u16(cd, p + 32);
 				var offset = u32(cd, p + 42);
 				var name = cd.getString(p + 46, nlen);
+				var extra = elen > 0 ? cd.sub(p + 46 + nlen, elen) : null;
 				entries.push({
 					name: name,
 					flags: flags,
@@ -332,7 +344,8 @@ class ZipPassword {
 					crc: crc,
 					csize: csize,
 					usize: usize,
-					offset: offset
+					offset: offset,
+					extra: extra
 				});
 				p += 46 + nlen + elen + clen;
 			}
@@ -349,18 +362,18 @@ class ZipPassword {
 
 	// ---------------------------------------------------------------- byte utils
 
-	static inline function u16(b:Bytes, p:Int):Int
+	public static inline function u16(b:Bytes, p:Int):Int
 		return b.get(p) | (b.get(p + 1) << 8);
 
-	static inline function u32(b:Bytes, p:Int):Int
+	public static inline function u32(b:Bytes, p:Int):Int
 		return b.get(p) | (b.get(p + 1) << 8) | (b.get(p + 2) << 16) | (b.get(p + 3) << 24);
 
-	static inline function writeU16(b:BytesBuffer, v:Int) {
+	public static inline function writeU16(b:BytesBuffer, v:Int) {
 		b.addByte(v & 0xFF);
 		b.addByte((v >>> 8) & 0xFF);
 	}
 
-	static inline function writeU32(b:BytesBuffer, v:Int) {
+	public static inline function writeU32(b:BytesBuffer, v:Int) {
 		b.addByte(v & 0xFF);
 		b.addByte((v >>> 8) & 0xFF);
 		b.addByte((v >>> 16) & 0xFF);
@@ -403,6 +416,8 @@ typedef ZipEntry = {
 	var csize:Int;
 	var usize:Int;
 	var offset:Int;
+	/** Raw central directory extra field, needed for the WinZip AES header. */
+	var extra:Bytes;
 }
 
 /** Traditional PKWARE ("ZipCrypto") key schedule. */

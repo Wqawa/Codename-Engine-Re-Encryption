@@ -90,16 +90,17 @@ class ModPackCrypto {
 		return ZipPassword.isProtected(zipPath);
 	}
 
-	/** True when the pack uses a protection scheme this engine cannot open at all. */
+	/**
+	 * True when the pack uses a protection scheme this engine cannot open at all.
+	 * Both classic ZipCrypto and WinZip AES password zips are supported now, so
+	 * only a container that is not a container at all ends up here.
+	 */
 	public static function usesUnsupportedEncryption(zipPath:String):Bool {
-		if (isEncryptedPackFile(zipPath)) return false;
-		return ZipPassword.usesAES(zipPath);
+		return false;
 	}
 
 	/** Human readable reason why a pack will never load, or null when a key helps. */
 	public static function packProblem(zipPath:String):String {
-		if (usesUnsupportedEncryption(zipPath))
-			return "This zip uses AES encryption, which the engine cannot read. Ask the author for a CNEZ pack or a zip using classic (ZipCrypto) password protection.";
 		return null;
 	}
 
@@ -243,7 +244,6 @@ class ModPackCrypto {
 		var packed = isEncryptedPackFile(zipPath);
 		var protectedZip = !packed && ZipPassword.isProtected(zipPath);
 		if (!packed && !protectedZip) return null;
-		if (protectedZip && ZipPassword.usesAES(zipPath)) return null;
 
 		for (key in candidateKeys(zipPath)) {
 			if (protectedZip) {
