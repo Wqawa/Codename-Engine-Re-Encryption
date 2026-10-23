@@ -131,12 +131,28 @@ class ModsFolder {
 			if (!FileSystem.exists(path))
 				continue;
 
-			var zip = new SysZip(path);
-			for (entry in zip.entries) {
-				if (entry.fileName.toLowerCase() == "data/config/modpack.ini") {
-					var bytes = zip.unzipEntry(entry);
-					return IniUtil.parseString(bytes.getString(0, bytes.length));
+			// Encrypted packs are not readable as zips in place: hand SysZip the
+			// decrypted copy instead. Never decrypt here (this runs for every pack in
+			// the mod menu, on the main thread), so a pack whose key is still unknown
+			// simply reports no config.
+			var zipPath:String = path;
+			if (ModPackCrypto.needsKey(path)) {
+				if (!ModPackCrypto.hasCacheForKey(path)) break;
+				zipPath = ModPackCrypto.zipPathToLoad(path);
+				if (zipPath == null) break;
+			}
+
+			// A broken pack must not take the whole menu down with it.
+			try {
+				var zip = new SysZip(zipPath);
+				for (entry in zip.entries) {
+					if (entry.fileName.toLowerCase() == "data/config/modpack.ini") {
+						var bytes = zip.unzipEntry(entry);
+						return IniUtil.parseString(bytes.getString(0, bytes.length));
+					}
 				}
+			} catch (e:Dynamic) {
+				Logs.warn('Could not read the config of "$path": ' + e);
 			}
 			break; // theoretically once it finds a zip mod, it'll stop even if there's no config
 		}
