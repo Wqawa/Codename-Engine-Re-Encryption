@@ -6,6 +6,8 @@ import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 import haxe.io.Path;
 #if sys
+import funkin.backend.utils.CoolUtil;
+import funkin.backend.utils.NativeAPI;
 import sys.FileSystem;
 import sys.io.File;
 #end
@@ -36,8 +38,18 @@ class ModPackCrypto {
 	static inline var SALT_SIZE:Int = 16;
 	static inline var NONCE_SIZE:Int = 12;
 
-	/** Folder the decrypted copies are written to. */
-	public static var cacheFolder:String = './.cne_mods/';
+	/**
+	 * Folder the decrypted copies are written to. Decrypted packs are plain zips
+	 * that anyone could open, so the folder and every file inside it are hidden and
+	 * prefixed with `CACHE_PREFIX`, and are deleted when the game closes.
+	 */
+	public static var cacheFolder:String = './.CNE_mods/';
+
+	/** Prefix every decrypted copy gets (".CNE_<pack>_<digest>.zip"). */
+	public static inline var CACHE_PREFIX:String = '.CNE_';
+
+	/** Cache folders used by earlier builds; swept on sight. */
+	public static var legacyCacheFolders:Array<String> = ['./.cne_mods/'];
 
 	/** Key typed by the player this session, per pack path. */
 	static var sessionKeys:Map<String, String> = new Map<String, String>();
@@ -337,12 +349,113 @@ class ModPackCrypto {
 		#end
 		var digest = ScriptCrypto.sha256(Bytes.ofString(normalizePath(zipPath) + "|" + key + "|" + stamp)).toHex();
 		var stem = Path.withoutExtension(Path.withoutDirectory(zipPath));
-		return cacheFolder + stem + "_" + digest.substr(0, 20) + ".zip";
+		return cacheFolder + CACHE_PREFIX + stem + "_" + digest.substr(0, 20) + ".zip";
 	}
+
+
+	// ------------------------------------------------------- cache hygiene
+	// Everything decrypted lands on disk as a readable zip. It stays hidden and
+	// prefixed while the game runs, is deleted when the game closes, and a crashed
+	// run (taskkill, power loss) is swept the next time the game reaches the cache.
+
+	static var __cacheSwept:Bool = false;
+	static var __exitHooked:Bool = false;
+
+	#if sys
+	/** Hides a path from Explorer (Windows; elsewhere the dot prefix already does it). */
+	static function hidePath(path:String):Void {
+		#if windows
+		try CoolUtil.safeAddAttributes(path, NativeAPI.FileAttribute.HIDDEN) catch (e:Dynamic) {}
+		#end
+	}
+
+	/** Creates the cache folder when missing and hides it. */
+	public static function ensureCacheFolder():Void {
+		try {
+			if (!FileSystem.exists(cacheFolder)) FileSystem.createDirectory(cacheFolder);
+			hidePath(cacheFolder);
+		} catch (e:Dynamic) {}
+	}
+
+	/** Hides one decrypted copy. */
+	public static function hideCacheFile(path:String):Void hidePath(path);
+
+	#if MOD_SUPPORT
+	/** Releases the open zip handles: a decrypted copy cannot be deleted while
+	 *  the library still reads from it. Only used right before the exit cleanup. */
+	static function closePackHandles():Void {
+		try {
+			if (Paths.assetsTree == null) return;
+			for (lib in Paths.assetsTree.libraries) {
+				try {
+					var clean = AssetsLibraryList.getCleanLibrary(lib);
+					if (clean is ZipFolderLibrary) {
+						var zip = (cast clean : ZipFolderLibrary).zip;
+						if (zip != null) zip.dispose();
+					}
+				} catch (e:Dynamic) {}
+			}
+		} catch (e:Dynamic) {}
+	}
+	#end
+
+	/** Deletes every decrypted copy (current and legacy folders), best effort. */
+	public static function cleanCache():Void {
+		for (folder in [cacheFolder].concat(legacyCacheFolders)) {
+			try {
+				if (!FileSystem.exists(folder) || !FileSystem.isDirectory(folder)) continue;
+				for (file in FileSystem.readDirectory(folder)) {
+					var path = folder + file;
+					try {
+						if (FileSystem.isDirectory(path)) continue;
+						FileSystem.deleteFile(path);
+					} catch (e:Dynamic) {}
+				}
+			} catch (e:Dynamic) {}
+		}
+	}
+
+	/** Removes what a previous run left behind; runs once per start. */
+	public static function sweepCache():Void {
+		if (__cacheSwept) return;
+		__cacheSwept = true;
+		cleanCache();
+		// the folder is recreated so an old ".cne_mods" (lower case, earlier build)
+		// becomes ".CNE_mods" on file systems that keep the case of the first creator
+		try {
+			if (FileSystem.exists(cacheFolder) && FileSystem.isDirectory(cacheFolder)) FileSystem.deleteDirectory(cacheFolder);
+		} catch (e:Dynamic) {}
+		ensureCacheFolder();
+		hookExit();
+	}
+
+	/** Entry point used by the cache readers and writers. */
+	public static function initCache():Void {
+		if (!__cacheSwept) sweepCache();
+		else hookExit();
+	}
+
+	/** Registers the exit cleanup; retried until the application exists. */
+	static function hookExit():Void {
+		if (__exitHooked) return;
+		try {
+			var app = openfl.Lib.application;
+			if (app == null) return; // too early, a later call will do it
+			__exitHooked = true;
+			app.onExit.add(function(_) {
+				#if MOD_SUPPORT
+				closePackHandles();
+				#end
+				cleanCache();
+			});
+		} catch (e:Dynamic) {}
+	}
+	#end
 
 	static function cacheExistsFor(zipPath:String, key:String):Bool {
 		#if sys
 		try {
+			initCache();
 			return FileSystem.exists(cachePath(zipPath, key));
 		} catch (e:Dynamic) {}
 		#end
@@ -386,8 +499,10 @@ class ModPackCrypto {
 		#if sys
 		var out = cachePath(zipPath, key);
 		try {
-			if (!FileSystem.exists(cacheFolder)) FileSystem.createDirectory(cacheFolder);
+			initCache();
+			ensureCacheFolder();
 			File.saveBytes(out, zip);
+			hideCacheFile(out);
 		} catch (e:Dynamic) {}
 		#end
 	}
@@ -398,6 +513,9 @@ class ModPackCrypto {
 	 * missing or wrong.
 	 */
 	public static function zipPathToLoad(zipPath:String):String {
+		#if sys
+		initCache();
+		#end
 		// A pack the prepare pass already failed on must not be decrypted again
 		// synchronously on the main thread; typing a new key clears the mark.
 		if (hasFailedBefore(zipPath)) return null;
@@ -444,6 +562,7 @@ class ModPackCrypto {
 	/** True when one of the known keys already has a decrypted copy on disk. */
 	public static function hasCacheForKey(zipPath:String):Bool {
 		#if sys
+		initCache();
 		var packed = isEncryptedPackFile(zipPath);
 		for (key in candidateKeys(zipPath)) {
 			if (packed) {

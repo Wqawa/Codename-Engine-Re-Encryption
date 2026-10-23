@@ -26,8 +26,10 @@ import sys.io.FileOutput;
  * handled by ZipAes.
  */
 class ZipPassword {
-	/** Folder the decrypted copies are written to. */
-	public static var cacheFolder:String = './.cne_mods/';
+	/** Folder the decrypted copies are written to (shared with ModPackCrypto). */
+	public static var cacheFolder(get, never):String;
+
+	static inline function get_cacheFolder():String return ModPackCrypto.cacheFolder;
 
 	public static inline var FLAG_ENCRYPTED:Int = 0x1;
 
@@ -120,12 +122,13 @@ class ZipPassword {
 		#end
 		var digest = Sha256.encode(normalizePath(zipPath) + "|" + key + "|" + stamp);
 		var stem = Path.withoutExtension(Path.withoutDirectory(zipPath));
-		return cacheFolder + stem + "_pw_" + digest.substr(0, 20) + ".zip";
+		return cacheFolder + ModPackCrypto.CACHE_PREFIX + stem + "_pw_" + digest.substr(0, 20) + ".zip";
 	}
 
 	public static function hasCache(zipPath:String, key:String):Bool {
 		#if sys
 		try {
+			ModPackCrypto.initCache();
 			return FileSystem.exists(cachePath(zipPath, key));
 		} catch (err:Dynamic) {}
 		#end
@@ -146,7 +149,7 @@ class ZipPassword {
 		var entries = readCentral(zipPath);
 		if (entries == null) throw "ZipPassword: cannot read the zip index";
 
-		if (!FileSystem.exists(cacheFolder)) FileSystem.createDirectory(cacheFolder);
+		ModPackCrypto.ensureCacheFolder();
 
 		var tmp = out + ".part";
 		var input = File.read(zipPath, true);
@@ -243,6 +246,7 @@ class ZipPassword {
 
 		if (FileSystem.exists(out)) FileSystem.deleteFile(out);
 		FileSystem.rename(tmp, out);
+		ModPackCrypto.hideCacheFile(out);
 		return out;
 		#else
 		return null;

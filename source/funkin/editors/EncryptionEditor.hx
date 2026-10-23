@@ -346,7 +346,8 @@ class EncryptionEditor extends UIState {
 		+ "  - standard: a normal zip whose entries are AES-256 encrypted (WinZip AES). 7-Zip, WinRAR and\n"
 		+ "    Bandizip open it with the password - and so does the engine, so players only type it once.\n"
 		+ "Plain zips load as before. Password zips from other tools load too (ZipCrypto and AES-128/192/256):\n"
-		+ "the password is asked at startup and the engine keeps a readable copy in .cne_mods/.\n\n"
+		+ "the password is asked at startup and the engine keeps a readable copy in .CNE_mods/\n"
+		+ "  (hidden, and deleted when the game closes).\n\n"
 		+ "tips\n\n"
 		+ "While a text field is focused, Backspace edits the text and ESC only drops the focus.\n"
 		+ "ESC again leaves the editor. Scroll long text with the mouse wheel over it.\n";
