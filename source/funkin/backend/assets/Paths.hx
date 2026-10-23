@@ -253,7 +253,10 @@ class Paths
 		return FlxAtlasFrames.fromAseprite('$key.${ext != null ? ext : Flags.IMAGE_EXTS[0]}', '$key.json');
 
 	static public function getAssetsRoot():String {
-		return if (ModsFolder.currentModFolder != null) '${ModsFolder.modsPath}${ModsFolder.currentModFolder}';
+		// "Play without mods" keeps the last pick remembered, but the assets that are
+		// actually running (and that editors must write into) are the base ones.
+		var mod:String = ModPackCrypto.disableMods ? null : ModsFolder.currentModFolder;
+		return if (mod != null) '${ModsFolder.modsPath}${mod}';
 			else assetsTree.rootDirectory;
 	}
 

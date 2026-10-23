@@ -36,6 +36,11 @@ class EditorPicker extends MusicBeatSubstate {
 		},
 		#end
 		{
+			name: "Encryption Tool",
+			id: "scriptEncryption",
+			state: EncryptionEditor
+		},
+		{
 			name: "Wiki",
 			id: "wiki",
 			state: null,

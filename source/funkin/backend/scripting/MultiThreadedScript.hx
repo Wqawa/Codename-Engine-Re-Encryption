@@ -56,6 +56,18 @@ class MultiThreadedScript implements IFlxDestroyable implements IHScriptCustomBe
 		return val;
 	}
 
+	/**
+	 * Runs a function of the script on its worker thread.
+	 *
+	 * Threading note: the call is posted to the thread's event loop and returns
+	 * immediately, so `returnValue` / `callEnded` are only meaningful once the
+	 * worker has run the queue. `callEnded` is written by the worker and read by
+	 * whoever polls it; overlapping calls from several threads are not serialized
+	 * by this class. Call it from one place at a time (the usual pattern: from a
+	 * single update callback and read the result on the next frame) instead of
+	 * relying on it being thread safe. The engine itself only creates these
+	 * through EngineUtil.startMultithreadedScript().
+	 */
 	public function call(func:String, args:Array<Dynamic>) {
 		#if ALLOW_MULTITHREADING
 		funkin.backend.utils.ThreadUtil.execAsync(() -> {

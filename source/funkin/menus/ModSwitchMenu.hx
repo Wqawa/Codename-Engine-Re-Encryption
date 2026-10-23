@@ -4,6 +4,7 @@ package funkin.menus;
 import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
 import flixel.math.FlxPoint;
+import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.system.framerate.Framerate;
 import funkin.backend.assets.ModsFolder;
 import funkin.backend.FunkinText;
@@ -67,6 +68,11 @@ class ModSwitchMenu extends MusicBeatSubstate {
 		});
 		mods.push(null);
 
+		// "Play without mods" only disables mods for this session; the player's pick is
+		// still remembered, so the menu has to highlight the disabled entry it is
+		// actually running with instead of the remembered mod.
+		var currentMod = ModPackCrypto.disableMods ? null : ModsFolder.currentModFolder;
+
 		alphabets = new FlxTypedGroup<Alphabet>();
 		for(mod in mods) {
 			var conf = (mod != null && Options.legacyModMenuNames) ? disableConf : ModsFolder.getModConfig(mod);
@@ -77,7 +83,7 @@ class ModSwitchMenu extends MusicBeatSubstate {
 				name = mod;
 
 			var a = new Alphabet(0, 0, name, "bold");
-			if(mod == ModsFolder.currentModFolder) {
+			if(mod == currentMod) {
 				a.effects = [new funkin.menus.ui.effects.ColorWaveEffect(0xFFFFFFFF, 0xFF00FF00, 10)];
 				a.effects[0].speed = 10;
 			}
@@ -142,7 +148,7 @@ class ModSwitchMenu extends MusicBeatSubstate {
 		keyInfo.visible = addons.length > 0;
 		add(keyInfo);
 
-		changeSelection(0, true);
+		changeSelection(currentMod == null ? mods.length - 1 : 0, true);
 		if (addons.length > 0)
 			changeAddon(0, true);
 	}

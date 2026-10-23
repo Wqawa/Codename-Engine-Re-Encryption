@@ -3,12 +3,14 @@ package funkin.backend.system;
 import flixel.FlxGame;
 import flixel.FlxG;
 import funkin.backend.system.modules.CrashHandler;
+import funkin.options.Options;
 import openfl.events.KeyboardEvent;
 import openfl.events.Event;
 
 class FunkinGame extends FlxGame {
 	var skipNextTickUpdate:Bool = false;
 	var manualPause:Bool = false; //fake autopause
+	var devCrashHold:Float = 0;
 
 	#if desktop
 	var fullscreenListener:KeyboardEvent->Void;
@@ -54,6 +56,9 @@ class FunkinGame extends FlxGame {
 			return;
 		}
 		super.__enterFrame(deltaTime);
+		#if sys
+		devCrashHotkey(FlxG.elapsed > 0 ? FlxG.elapsed : 0.016);
+		#end
 	}
 
 
@@ -80,4 +85,24 @@ class FunkinGame extends FlxGame {
 		}
 		FlxG.autoPause = prevAutoPause;
 	}
+
+	#if sys
+	/**
+	 * Debug helper: with developer mode on, holding Ctrl+Alt+Shift+Q for three
+	 * seconds throws an uncaught error on purpose, so the crash screen can be
+	 * tested without breaking the build.
+	 */
+	function devCrashHotkey(delta:Float) {
+		if (!Options.devMode || FlxG.keys == null || !FlxG.keys.pressed.CONTROL
+			|| !FlxG.keys.pressed.ALT || !FlxG.keys.pressed.SHIFT || !FlxG.keys.pressed.Q) {
+			devCrashHold = 0;
+			return;
+		}
+		devCrashHold += delta;
+		if (devCrashHold >= 3) {
+			devCrashHold = 0;
+			throw 'Manual crash test: Ctrl+Alt+Shift+Q held for 3 seconds (developer mode)';
+		}
+	}
+	#end
 }

@@ -1,6 +1,7 @@
 package funkin.backend.assets;
 
 import flixel.util.FlxSignal.FlxTypedSignal;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.system.MainState;
 import funkin.backend.utils.CoolUtil;
 import haxe.ds.StringMap;
@@ -63,6 +64,7 @@ class ModsFolder {
 	 * @param libName
 	 */
 	public static function switchMod(mod:String) {
+		ModPackCrypto.disableMods = false; // an explicit mod choice re-enables mods
 		Options.lastLoadedMod = currentModFolder = mod;
 		reloadMods();
 		if(mod == null) {
@@ -88,9 +90,34 @@ class ModsFolder {
 	public static function loadModLib(path:String, force:Bool = false, ?modName:String) {
 		#if MOD_SUPPORT
 		for (ext in Flags.ALLOWED_ZIP_EXTENSIONS) {
-			if (!FileSystem.exists('$path.$ext')) continue;
-			return loadLibraryFromZip('$path'.toLowerCase(), '$path.$ext', force, modName);
+			var packPath = '$path.$ext';
+			if (!FileSystem.exists(packPath)) continue;
+			// This path only runs without a progress screen when the loader could not
+			// prepare the pack beforehand; warn so a missing decryption screen shows
+			// up in the log instead of silently freezing the game.
+			if (!ModPackCrypto.preparing && ModPackCrypto.needsKey(packPath) && !ModPackCrypto.hasCacheForKey(packPath))
+				Logs.warn('Decrypting "$packPath" without the progress screen (no prepare pass was scheduled for it).');
+			var zipPath = ModPackCrypto.zipPathToLoad(packPath);
+			if (zipPath == null) {
+				var problem = ModPackCrypto.packProblem(packPath);
+				if (problem != null)
+					Logs.warn('Skipping mod pack "$packPath": ' + problem);
+				else
+					Logs.warn('Skipping encrypted mod pack "$packPath": it needs a password that was not given.');
+				return null;
+			}
+			try {
+				return loadLibraryFromZip('$path'.toLowerCase(), zipPath, force, modName);
+			} catch (e:Dynamic) {
+				// a broken or unsupported zip must not take the whole game down
+				Logs.error('Failed to load mod pack "$packPath": ' + e);
+				return null;
+			}
 		}
+		// a script_key.txt inside the mod (usually mods/<name>/data/) is picked up
+		// by the engine as well, so mods can ship their own keys
+		ScriptCrypto.addKeyFile('$path/data/script_key.txt');
+		ScriptCrypto.addKeyFile('$path/script_key.txt');
 		return loadLibraryFromFolder('$path'.toLowerCase(), '$path', force, modName);
 
 		#else
@@ -162,6 +189,7 @@ class ModsFolder {
 	}
 	public static function getLoadedModsLibs(skipTranslated:Bool = false):Array<IModsAssetLibrary> {
 		var libs = [];
+		if (Paths.assetsTree == null) return libs;
 		for (i in Paths.assetsTree.libraries) {
 			var l = AssetsLibraryList.getCleanLibrary(i);
 			#if TRANSLATIONS_SUPPORT
