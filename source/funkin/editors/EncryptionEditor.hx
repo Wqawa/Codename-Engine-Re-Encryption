@@ -581,7 +581,7 @@ class EncryptionEditor extends UIState {
 				return;
 			}
 			encryptModPackFile(files[0]);
-		}, [new FileDialogFilter("Mod pack", "*.zip")], lastDirectory);
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory);
 	}
 
 	function encryptModPackFile(path:String) {
@@ -628,7 +628,7 @@ class EncryptionEditor extends UIState {
 			} catch(e:Dynamic) {
 				status("Failed to save: " + Std.string(e));
 			}
-		}, [new FileDialogFilter("Mod pack", "*.zip")], defaultPath);
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
 	}
 
 	// ---------------------------------------------------------------- file input
@@ -648,7 +648,7 @@ class EncryptionEditor extends UIState {
 				return;
 			}
 			handlePaths(paths);
-		}, [new FileDialogFilter("Script", "*.hx;*.hscript;*.hsc;*.hxs;*.hxb")], startDir, true);
+		}, [new FileDialogFilter("Script", "hx;hscript;hsc;hxs;hxb"), new FileDialogFilter("All files", "*")], startDir, true);
 	}
 
 	function handlePaths(paths:Array<String>) {
@@ -1041,7 +1041,7 @@ class EncryptionEditor extends UIState {
 			} catch(e:Dynamic) {
 				status("Failed to save: " + Std.string(e));
 			}
-		}, [new FileDialogFilter("Encrypted Script", "*.hxb")], defaultPath);
+		}, [new FileDialogFilter("Encrypted Script", "hxb"), new FileDialogFilter("All files", "*")], defaultPath);
 	}
 
 	function packEntry(entry:ScriptEntry, pass:String):Bytes {
@@ -1093,7 +1093,7 @@ class EncryptionEditor extends UIState {
 				} catch(e:Dynamic) {
 					status("Failed to save: " + Std.string(e));
 				}
-			}, [new FileDialogFilter("Script", "*.hx;*.hscript;*.hsc;*.hxs")], defaultPath);
+			}, [new FileDialogFilter("Script", "hx;hscript;hsc;hxs"), new FileDialogFilter("All files", "*")], defaultPath);
 			return;
 		}
 
