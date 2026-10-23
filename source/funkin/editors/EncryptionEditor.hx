@@ -104,6 +104,18 @@ class EncryptionEditor extends UIState {
 	public var packModeText:UIText;
 	public var currentPackMode:Int = 0;
 
+	// pack restore: decrypts a sealed pack back into a plain zip. The work runs on
+	// a worker thread, so these fields are read by update() while it writes them.
+	public var restoreBarBg:FlxSprite;
+	public var restoreBar:FlxSprite;
+	public var restoreText:UIText;
+	public var restoring:Bool = false;
+	public var restoreProgress:Float = 0;
+	public var restoreDone:Bool = false;
+	public var restoreError:String = null;
+	public var restoreOut:String = null;
+	public var restoreName:String = "";
+
 	// tab bar: every tab owns a list of widgets that are simply hidden while
 	// another tab is selected, the way the rest of the editor screens work
 	public var tabs:Array<UIButton> = [];
@@ -279,7 +291,7 @@ class EncryptionEditor extends UIState {
 	function buildModPackTab() {
 		var g = tabGroups[TAB_MODPACK];
 		var panelH = FlxG.height - CONTENT_Y - 46;
-		if (panelH < 500) panelH = 500;
+		if (panelH < 540) panelH = 540;
 
 		track(g, new FlxSprite(10, CONTENT_Y).makeSolid(Std.int(FlxG.width - 20), Std.int(panelH), 0xFF1B1B21));
 
@@ -313,13 +325,24 @@ class EncryptionEditor extends UIState {
 		packModeText.wordWrap = true;
 
 		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
+		track(g, new UIButton(440, CONTENT_Y + 430, "Choose encrypted .zip and Decrypt...", decryptModPack, 440, 40));
+
+		// restore progress, laid out like the loading screen the game shows when it
+		// decrypts a pack at start up
+		track(g, restoreText = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "No pack is being decrypted.", 13, 0xFF9BE28C, false));
+		track(g, restoreBarBg = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
+		track(g, restoreBar = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
+		// scaling around the left edge keeps the bar growing to the right
+		restoreBar.origin.set(0, 0);
+		restoreBar.scale.x = 0.001;
+		restoreBarBg.visible = restoreBar.visible = false;
 	}
 
 	static var HELP_BODY:String =
 		"WHAT THIS TOOL DOES\n\n"
 		+ "The Scripts tab turns HScript files into protected .hxb containers. The Mod Pack tab wraps a zip\n"
-		+ "mod into a CNEZ container (or turns it into a standard AES-256 password zip), and it turns a key\n"
-		+ "into a shareable token and back too.\n\n"
+		+ "mod into a CNEZ container (or turns it into a standard AES-256 password zip), turns a key into a\n"
+		+ "shareable token and back, and unwraps a sealed pack into a plain zip again.\n\n"
 		+ "scripts - three modes, picked with the radio buttons\n\n"
 		+ "  - source only: the text is encrypted, a key is needed to load it.\n"
 		+ "  - VM bytecode only: compiled to the CNE virtual machine, runs without any key, no readable source.\n"
@@ -345,6 +368,9 @@ class EncryptionEditor extends UIState {
 		+ "  - enhanced: a CNEZ container. No archive tool can open it, only the engine can (needs the key).\n"
 		+ "  - standard: a normal zip whose entries are AES-256 encrypted (WinZip AES). 7-Zip, WinRAR and\n"
 		+ "    Bandizip open it with the password - and so does the engine, so players only type it once.\n"
+		+ "Both formats go back to a plain zip the same way: the Choose encrypted .zip and Decrypt... button\n"
+		+ "  asks for the key of the pack and writes a normal <name>_decrypted.zip. A progress bar shows\n"
+		+ "  what it is doing, so a big pack does not freeze the editor.\n\n"
 		+ "Plain zips load as before. Password zips from other tools load too (ZipCrypto and AES-128/192/256):\n"
 		+ "the password is asked at startup and the engine keeps a readable copy in .CNE_mods/\n"
 		+ "  (hidden, and deleted when the game closes).\n\n"
@@ -426,6 +452,7 @@ class EncryptionEditor extends UIState {
 	public override function update(elapsed:Float) {
 		super.update(elapsed);
 		handleBackInput();
+		updateRestore();
 
 		if (FlxG.mouse.wheel != 0 && !fileDialogOpen) {
 			if (currentTab == TAB_SCRIPTS && isMouseOverPreview())
@@ -630,6 +657,132 @@ class EncryptionEditor extends UIState {
 				status("Failed to save: " + Std.string(e));
 			}
 		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
+	}
+
+	// ------------------------------------------------------------- pack restore
+
+	/**
+	 * Restores an encrypted mod pack: a CNEZ container or a password zip becomes a
+	 * plain zip again. The work runs on a worker thread so the editor keeps
+	 * drawing while a 100+ MB pack is processed, the same way the game shows a
+	 * progress screen when it has to decrypt a pack at start up.
+	 */
+	function decryptModPack() {
+		if (restoring) {
+			status("Still decrypting " + restoreName + " - watch the progress bar.");
+			return;
+		}
+		fileDialogOpen = true;
+		FileDialog.openFile(FlxG.stage.window, "Choose the encrypted mod pack (.zip) to decrypt", function(files, filter) {
+			if (files == null || files.length == 0) {
+				fileDialogOpen = false;
+				return;
+			}
+			decryptModPackFile(files[0]);
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory);
+	}
+
+	function decryptModPackFile(path:String) {
+		fileDialogOpen = false;
+		if (path == null) return;
+
+		var container = ModPackCrypto.isEncryptedPackFile(path);
+		var protectedZip = !container && ZipPassword.isProtected(path);
+		if (!container && !protectedZip) {
+			status("Nothing to decrypt: " + Path.withoutDirectory(path) + " is already a plain zip.");
+			return;
+		}
+
+		var defaultPath = siblingPath(path, "zip", "_decrypted");
+		fileDialogOpen = true;
+		FileDialog.saveFile(FlxG.stage.window, "Save the decrypted (plain) mod pack", function(outPath, filter) {
+			fileDialogOpen = false;
+			if (outPath == null || outPath.length == 0) return;
+			startRestore(path, outPath, container, packKey(path));
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
+	}
+	/** Starts the worker thread that unwraps the pack into `outPath`. */
+	function startRestore(srcPath:String, outPath:String, container:Bool, key:String) {
+		if (restoring) return;
+		restoring = true;
+		restoreDone = false;
+		restoreError = null;
+		restoreProgress = 0;
+		restoreOut = outPath;
+		restoreName = Path.withoutDirectory(srcPath);
+
+		if (restoreBarBg != null) restoreBarBg.visible = true;
+		if (restoreBar != null) {
+			restoreBar.visible = true;
+			restoreBar.scale.x = 0.001;
+		}
+		if (restoreText != null) {
+			restoreText.color = 0xFF9BE28C;
+			restoreText.text = "0%  -  reading " + restoreName + "...";
+		}
+		status("Decrypting " + restoreName + " ...");
+
+		var work = function() {
+			try {
+				if (container) {
+					var data = File.getBytes(srcPath);
+					var plain = ModPackCrypto.unpack(data, key, function(p:Float) restoreProgress = p * 0.9);
+					restoreProgress = 0.95;
+					File.saveBytes(outPath, plain);
+				} else {
+					var cached = ZipPassword.extractToCache(srcPath, key, function(p:Float) restoreProgress = p * 0.85);
+					if (cached == null) throw "nothing was decrypted";
+					restoreProgress = 0.9;
+					// copy, do not move: the game may still be reading that copy
+					File.copy(cached, outPath);
+				}
+				restoreProgress = 1;
+			} catch (e:Dynamic) {
+				restoreError = Std.string(e);
+				restoreProgress = 1;
+			}
+			restoreDone = true;
+		};
+
+		#if target.threaded
+		try sys.thread.Thread.create(work) catch (e:Dynamic) work(); // no thread: blocking is still correct
+		#else
+		work();
+		#end
+	}
+	/** Draws the bar and reports the result once the worker is done. */
+	function updateRestore() {
+		if (!restoring) return;
+
+		var p = restoreProgress;
+		if (p < 0) p = 0;
+		if (p > 1) p = 1;
+		if (restoreBar != null) restoreBar.scale.x = Math.max(0.001, p);
+		var percent = Std.int(p * 100) + "%";
+
+		if (!restoreDone) {
+			if (restoreBarBg != null) restoreBarBg.visible = true;
+			if (restoreText != null) restoreText.text = percent + "  -  decrypting " + restoreName + " ...";
+			return;
+		}
+
+		restoring = false;
+		if (restoreError != null) {
+			if (restoreText != null) {
+				restoreText.color = 0xFFFF6B6B;
+				restoreText.text = "Failed: " + restoreError;
+			}
+			status("Could not decrypt " + restoreName + ": " + restoreError);
+			return;
+		}
+
+		var size = 0.0;
+		try size = sys.FileSystem.stat(restoreOut).size catch (e:Dynamic) {}
+		if (restoreText != null) {
+			restoreText.color = 0xFF9BE28C;
+			restoreText.text = "100%  -  " + restoreName + " is a plain zip again (" + Std.int(size / 1048576) + " MB).";
+		}
+		status("Decrypted " + restoreName + " to " + restoreOut + " (" + Std.int(size / 1048576) + " MB). It is a plain zip again.");
 	}
 
 	// ---------------------------------------------------------------- file input
