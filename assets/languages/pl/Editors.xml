@@ -36,6 +36,7 @@
 		<str id="chart.name">Edytor Mapy</str>
 		<str id="character.name">Edytor Postaci</str>
 		<str id="stage.name">Edytor Scen</str>
+		<str id="scriptEncryption.name">Narzędzie Szyfrowania</str>
 		<str id="uiDebug.name">Debug Interfejsu Użytkownika</str>
 		<str id="wiki.name">Wiki</str>
 		<str id="debugOptions.name">Opcje Debugowania</str>

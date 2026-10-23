@@ -34,6 +34,7 @@
 		<str id="chart.name">Editor de Mapas</str>
 		<str id="character.name">Editor de Personajes</str>
 		<str id="stage.name">Editor de Escenarios</str>
+		<str id="scriptEncryption.name">Herramienta de Cifrado</str>
 		<str id="uiDebug.name">Depuración de Interfaz</str>
 		<str id="debugOptions.name">Opciones de Depuración</str>
 	</group>

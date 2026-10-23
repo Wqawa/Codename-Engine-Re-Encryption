@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <language>
 	<group name="General Editor Translations" prefix="editor.">
 		<str id="autosavingIn">Salvataggio automatico in {0} secondi{1}</str>
@@ -34,6 +34,7 @@
 		<str id="chart.name">Editor Chart</str>
 		<str id="character.name">Editor Personaggio</str>
 		<str id="stage.name">Editor Stage</str>
+		<str id="scriptEncryption.name">Strumento di Cifratura</str>
 		<str id="wiki.name">Wiki</str>
 		<str id="debugOptions.name">Opzioni Debug</str>
 	</group>

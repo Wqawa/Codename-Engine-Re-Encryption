@@ -36,6 +36,7 @@
 		<str id="chart.name">Editor de Mapas</str>
 		<str id="character.name">Editor de Personagens</str>
 		<str id="stage.name">Editor de Cenários</str>
+		<str id="scriptEncryption.name">Ferramenta de Criptografia</str>
 		<str id="uiDebug.name">Interface de Depuração</str>
 		<str id="wiki.name">Wiki</str>
 		<str id="debugOptions.name">Opções de Depuração</str>

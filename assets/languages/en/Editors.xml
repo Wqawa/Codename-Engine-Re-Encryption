@@ -36,6 +36,7 @@
 		<str id="chart.name">Chart Editor</str>
 		<str id="character.name">Character Editor</str>
 		<str id="stage.name">Stage Editor</str>
+		<str id="scriptEncryption.name">Encryption Tool</str>
 		<str id="uiDebug.name">UI Debug State</str>
 		<str id="wiki.name">Wiki</str>
 		<str id="debugOptions.name">Debug Options</str>
