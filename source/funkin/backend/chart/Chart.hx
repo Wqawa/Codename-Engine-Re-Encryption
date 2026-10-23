@@ -280,11 +280,16 @@ class Chart {
 		#if sys
 		var songPath = saveSettings.songFolder == null ? 'songs/${chart.meta.name}' : saveSettings.songFolder, variantSuffix = variant != null && variant != "" ? '-$variant' : "", difficultySuffix = difficulty != null && difficulty != "" ? '-$difficulty' : "";
 		var metaPath = 'meta$variantSuffix.json', altMetaPath = 'meta${variantSuffix}${difficultySuffix}.json', prettyPrint = saveSettings.prettyPrint == true ? Flags.JSON_PRETTY_PRINT : null, temp:String;
-		if ((temp = Paths.assetsTree.getPath('assets/$songPath/$altMetaPath')) != null) { //check for difficulty specific
+		// A path resolved inside a compressed library (a .zip mod, or the decrypted copy
+		// of an encrypted one in .cne_mods/) looks like "./mods/x.zip/songs/song/meta.json"
+		// but is virtual: it exists as an asset yet cannot be written to. Only trust a
+		// resolved path when its folder really exists on disk, otherwise fall back to
+		// saving next to the pack (mods/<mod name>/...), like the editors do.
+		if ((temp = Paths.assetsTree.getPath('assets/$songPath/$altMetaPath')) != null && isWritablePath(temp)) { //check for difficulty specific
 			songPath = temp.substr(0, temp.length - altMetaPath.length - 1);
 			metaPath = temp;
 		}
-		else if ((temp = Paths.assetsTree.getPath('assets/$songPath/$metaPath')) != null) {
+		else if ((temp = Paths.assetsTree.getPath('assets/$songPath/$metaPath')) != null && isWritablePath(temp)) {
 			songPath = temp.substr(0, temp.length - metaPath.length - 1);
 			metaPath = temp;
 		}
@@ -310,6 +315,19 @@ class Chart {
 
 		return filteredChart;
 	}
+
+	#if sys
+	/**
+	 * Whenever a path resolved from the asset tree can actually be written to.
+	 * Paths pointing inside a zip archive (`./mods/x.zip/...`, `./.cne_mods/<pack>.zip/...`)
+	 * exist as assets but not on the file system, so the folder never exists.
+	 */
+	static function isWritablePath(path:String):Bool {
+		if (path == null) return false;
+		var folder = Path.directory(path);
+		return folder != null && folder != "" && FileSystem.exists(folder) && FileSystem.isDirectory(folder);
+	}
+	#end
 
 	public static function filterChartForSaving(chart:ChartData, saveMetaInChart = true, ?saveLocalEvents:Bool, ?saveGlobalEvents:Bool):ChartData {
 		var meta = chart.meta, events = chart.events;
