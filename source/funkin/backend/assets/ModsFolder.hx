@@ -107,7 +107,12 @@ class ModsFolder {
 				return null;
 			}
 			try {
-				return loadLibraryFromZip('$path'.toLowerCase(), zipPath, force, modName);
+				// `mods/Name.zip` with a `mods/Name/` folder next to it: the folder holds
+				// what the editors saved, so it is laid on top of the pack instead of
+				// being ignored (see OverlayZipFolderLibrary)
+				var overlayFolder:String = null;
+				if (FileSystem.exists(path) && FileSystem.isDirectory(path)) overlayFolder = path;
+				return loadLibraryFromZip('$path'.toLowerCase(), zipPath, force, modName, MODS, overlayFolder);
 			} catch (e:Dynamic) {
 				// a broken or unsupported zip must not take the whole game down
 				Logs.error('Failed to load mod pack "$packPath": ' + e);
@@ -175,8 +180,12 @@ class ModsFolder {
 		if (modsList == null || modsList.length <= 0) return mods;
 
 		for (modFolder in modsList) {
-			if (FileSystem.isDirectory(modsPath + modFolder)) mods.push(modFolder);
-			else if (Flags.ALLOWED_ZIP_EXTENSIONS.contains(Path.extension(modFolder))) mods.push(Path.withoutExtension(modFolder));
+			// "Name.zip" and "Name/" are the same mod (the folder is the writable
+			// overlay of the pack), so list it once instead of twice
+			var modName:String = null;
+			if (FileSystem.isDirectory(modsPath + modFolder)) modName = modFolder;
+			else if (Flags.ALLOWED_ZIP_EXTENSIONS.contains(Path.extension(modFolder))) modName = Path.withoutExtension(modFolder);
+			if (modName != null && !mods.contains(modName)) mods.push(modName);
 		}
 		
 		if (sortingOptions != null) {
@@ -255,8 +264,13 @@ class ModsFolder {
 		return prepareModLibrary(libName, new ModsFolderLibrary(folder, libName, modName), force, tag);
 	}
 
-	public static function loadLibraryFromZip(libName:String, zipPath:String, force:Bool = false, ?modName:String, ?tag:AssetSource = MODS) {
-		return prepareModLibrary(libName, new ZipFolderLibrary(zipPath, libName, modName), force, tag);
+	public static function loadLibraryFromZip(libName:String, zipPath:String, force:Bool = false, ?modName:String, ?tag:AssetSource = MODS, ?overlayFolder:String) {
+		// with a writable folder next to the pack, files saved in-game must win over
+		// the archive (OverlayZipFolderLibrary); otherwise the plain zip library is used
+		var lib:IModsAssetLibrary = (overlayFolder == null)
+			? new ZipFolderLibrary(zipPath, libName, modName)
+			: new OverlayZipFolderLibrary(zipPath, libName, modName, overlayFolder);
+		return prepareModLibrary(libName, lib, force, tag);
 	}
 	#end
 }
