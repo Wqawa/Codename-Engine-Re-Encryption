@@ -256,6 +256,11 @@ class CrashOverlay extends Sprite {
 	var scan:Shape;
 	var slices:Shape;
 	var info:Bitmap;
+	var icon:Bitmap;
+	var iconRed:Bitmap;
+	var iconCyan:Bitmap;
+	var iconW:Float = 0;
+	var iconH:Float = 0;
 	var quitButton:CrashButton;
 	var resetButton:CrashButton;
 	var fullText:String;
@@ -298,6 +303,22 @@ class CrashOverlay extends Sprite {
 		return new BitmapData(16, 16, false, 0xFF14001E);
 	}
 
+	/** Bottom-right mascot. Returns null when the asset is missing so the screen still works. */
+	function loadIcon():BitmapData {
+		var path = "assets/images/game/codenameerroricon.png";
+		try {
+			var resolved = Paths.image("game/codenameerroricon");
+			if (resolved != null) path = resolved;
+		} catch (_:Dynamic) {}
+		try {
+			if (Assets.exists(path)) {
+				var data = Assets.getBitmapData(path);
+				if (data != null && data.width > 0 && data.height > 0) return data;
+			}
+		} catch (_:Dynamic) {}
+		return null;
+	}
+
 	function build() {
 		pixels = loadBackground();
 
@@ -308,6 +329,21 @@ class CrashOverlay extends Sprite {
 		ghostRed.blendMode = BlendMode.ADD;
 		ghostCyan.transform.colorTransform = new ColorTransform(0.35, 0.85, 1, 1, 0, 40, 80);
 		ghostRed.transform.colorTransform = new ColorTransform(1, 0.2, 0.45, 1, 60, 0, 20);
+
+		var iconPixels = loadIcon();
+		if (iconPixels != null) {
+			iconW = iconPixels.width;
+			iconH = iconPixels.height;
+			icon = new Bitmap(iconPixels, null, true);
+			iconRed = new Bitmap(iconPixels, null, true);
+			iconCyan = new Bitmap(iconPixels, null, true);
+			// Same fringe treatment as the background ghosts, so the mascot reads as
+			// part of the same effect instead of a flat sticker pasted on top.
+			iconRed.blendMode = BlendMode.ADD;
+			iconCyan.blendMode = BlendMode.ADD;
+			iconRed.transform.colorTransform = new ColorTransform(1, 0.2, 0.45, 1, 60, 0, 20);
+			iconCyan.transform.colorTransform = new ColorTransform(0.35, 0.85, 1, 1, 0, 40, 80);
+		}
 
 		flash = new Shape();
 		scan = new Shape();
@@ -329,6 +365,11 @@ class CrashOverlay extends Sprite {
 		addChild(background);
 		addChild(ghostCyan);
 		addChild(ghostRed);
+		if (icon != null) {
+			addChild(icon);
+			addChild(iconCyan);
+			addChild(iconRed);
+		}
 		addChild(flash);
 		addChild(scan);
 		addChild(slices);
@@ -439,6 +480,32 @@ class CrashOverlay extends Sprite {
 		ghostCyan.y = background.y;
 		ghostRed.alpha = (glitching ? 0.55 : 0.22) * ease;
 		ghostCyan.alpha = (glitching ? 0.45 : 0.18) * ease;
+
+		// Mascot: pinned to the bottom-right corner, driven by the same intro zoom,
+		// breathing, glitch jitter and red/cyan fringe as the background.
+		if (icon != null) {
+			var margin = 18.0;
+			var baseH = Math.min(h * 0.36, 360);
+			var maxW = w * 0.42;
+			if (iconH > 0 && baseH * (iconW / iconH) > maxW) baseH = maxW * (iconH / iconW);
+			var izoom = (1 + (1 - ease) * 0.07) * breathe;
+			var iscale = (baseH / iconH) * izoom;
+			var iw = iconW * iscale;
+			var ih = iconH * iscale;
+			var ix = w - iw - margin + glitchX;
+			var iy = h - ih - margin;
+			icon.scaleX = icon.scaleY = iscale;
+			iconRed.scaleX = iconRed.scaleY = iconCyan.scaleX = iconCyan.scaleY = iscale;
+			icon.x = ix;
+			icon.y = iy;
+			iconRed.x = ix + fringe;
+			iconRed.y = iy;
+			iconCyan.x = ix - fringe;
+			iconCyan.y = iy;
+			icon.alpha = ease;
+			iconRed.alpha = (glitching ? 0.55 : 0.22) * ease;
+			iconCyan.alpha = (glitching ? 0.45 : 0.18) * ease;
+		}
 
 		if (flashW != w || flashH != h) {
 			flash.graphics.clear();
