@@ -80,6 +80,23 @@ class Compiler
 		code.i32(b);
 	}
 
+	// STORE_GLOBAL flag bits, see VM.defineGlobal().
+	static inline var GLOBAL_PUBLIC = 1;
+	static inline var GLOBAL_STATIC = 2;
+	static inline var GLOBAL_FUNCTION = 4;
+
+	/**
+	 * Emits a top-level declaration. The AST interpreter files top-level declarations into
+	 * interp.variables / publicVariables / staticVariables (Interp.EVar and Interp.EFunction);
+	 * STORE_NAME goes through Interp.assign instead, which is assignment semantics.
+	 */
+	inline function emitStoreGlobal(name:String, isPublic:Bool, isStatic:Bool, isFunction:Bool):Void
+	{
+		emit(Op.STORE_GLOBAL);
+		code.i32(chunk.addString(name));
+		code.u8((isPublic ? GLOBAL_PUBLIC : 0) | (isStatic ? GLOBAL_STATIC : 0) | (isFunction ? GLOBAL_FUNCTION : 0));
+	}
+
 	/** Emits a jump with a placeholder offset; returns the operand position for patchJump. */
 	function emitJump(op:Int):Int
 	{
@@ -276,8 +293,7 @@ class Compiler
 					popScope();
 				}
 			case EVar(n, t, initE, isPublic, isStatic, isPrivate, isFinal, isInline, getter, setter, isVar):
-				if (getter != null || setter != null) fail("property accessor local var '" + n + "'");
-				if (isPublic == true || isStatic == true) fail("public/static script var '" + n + "'");
+				if (getter != null || setter != null) fail("property accessor var '" + n + "'");
 				if (isMain)
 				{
 					// Top-level script vars are globals in the AST interpreter (Interp.variables),
@@ -289,7 +305,9 @@ class Compiler
 					else
 						emit(Op.PUSH_NULL);
 					emit(Op.DUP);
-					emitI(Op.STORE_NAME, chunk.addString(n));
+					// Declarations use STORE_GLOBAL: Interp.assign would treat them as writes
+					// to the script object's fields, which breaks for names like `update`.
+					emitStoreGlobal(n, isPublic == true, isStatic == true, false);
 				}
 				else
 				{
@@ -1031,7 +1049,7 @@ class Compiler
 			if (isMain)
 			{
 				emit(Op.DUP);
-				emitI(Op.STORE_NAME, chunk.addString(name));
+				emitStoreGlobal(name, isPublic, isStatic, true);
 			}
 			else
 			{

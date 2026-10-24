@@ -158,6 +158,9 @@ class VM
 						case Op.STORE_NAME:
 							assignName(chunk.strings[rdI32(code, pc)], stack.pop());
 							pc += 4;
+						case Op.STORE_GLOBAL:
+							defineGlobal(chunk.strings[rdI32(code, pc)], stack.pop(), code.get(pc + 4));
+							pc += 5;
 						case Op.LOAD_TEMP:
 							stack.push(vars[rdI32(code, pc)][0]);
 							pc += 4;
@@ -525,6 +528,35 @@ class VM
 		}
 		if (t == null) return false;
 		return Std.isOfType(v, t);
+	}
+
+	/**
+	 * Declares a top-level script name the same way Interp.EVar / Interp.EFunction do:
+	 * static names go to interp.staticVariables, public ones to publicVariables, everything
+	 * else to interp.variables. Keeping declarations out of Interp.assign matters because
+	 * assign() writes a field on the script's parent object when the name is not a variable
+	 * yet, and hxcpp throws "Invalid field:update" for names like update/create/stepHit.
+	 */
+	function defineGlobal(name:String, v:Dynamic, flags:Int):Void
+	{
+		var isPublic = (flags & 1) != 0;
+		var isStatic = (flags & 2) != 0;
+		var isFunction = (flags & 4) != 0;
+		if (isStatic && interp.allowStaticVariables)
+		{
+			// Interp keeps only the first value of a static *variable*, but a static
+			// *function* declaration always overwrites (Interp.EVar vs Interp.EFunction).
+			if (isFunction || !interp.staticVariables.exists(name))
+				interp.staticVariables.set(name, v);
+		}
+		else if (isPublic && interp.allowPublicVariables)
+			interp.publicVariables.set(name, v);
+		else
+		{
+			interp.variables.set(name, v);
+			// A new global can invalidate a cached VNotFound/type-resolution result.
+			interp.invalidateCache();
+		}
 	}
 
 	/**

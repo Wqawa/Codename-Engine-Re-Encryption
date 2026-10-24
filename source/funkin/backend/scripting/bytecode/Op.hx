@@ -81,4 +81,14 @@ class Op {
 	 * do rely on imports (they resolve type names at runtime).
 	 */
 	public static inline var EXEC_IMPORT:Int = 48; // i32 string index (statement text)
+
+	/**
+	 * Declares a top-level script name (var or function) the way the AST interpreter's
+	 * Interp.EVar / Interp.EFunction do: public/static names land in the interpreter's
+	 * public/static maps, everything else in interp.variables. STORE_NAME must not be
+	 * used for declarations: Interp.assign would try to write a field on the script's
+	 * parent object, which hxcpp rejects with "Invalid field:update" as soon as the
+	 * name collides with one of its methods.
+	 */
+	public static inline var STORE_GLOBAL:Int = 49; // i32 string index, u8 flags (1 = public, 2 = static, 4 = function)
 }
