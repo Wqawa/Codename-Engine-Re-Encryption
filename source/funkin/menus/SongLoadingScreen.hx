@@ -1,8 +1,10 @@
 package funkin.menus;
 
+import animate.FlxAnimateFrames;
 import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.graphics.FlxGraphic;
+import flixel.graphics.frames.FlxFramesCollection;
 import flixel.sound.FlxSoundData;
 import funkin.backend.MusicBeatState;
 import funkin.backend.assets.Paths;
@@ -49,6 +51,28 @@ class SongLoadingScreen extends UIState {
 	 * Time budget per frame, in seconds. Small enough to keep 60 fps.
 	 */
 	public static var frameBudget:Float = 0.008;
+	/**
+	 * When the `CNE_LOAD_PROFILE=1` environment variable is set, every load writes
+	 * `songload-profile.log` next to the executable: how long each step took, how
+	 * long the longest frame was, and how long `PlayState.create()` took after the
+	 * screen was done. Handy when a specific mod's song still hitches.
+	 */
+	@:noCompletion static var profileEnabled:Bool = #if sys Sys.getEnv("CNE_LOAD_PROFILE") == "1" #else false #end;
+	@:noCompletion static var profileLines:Array<String> = [];
+
+	@:noCompletion static function profileStep(label:String, ms:Float) {
+		if (profileEnabled) profileLines.push(Std.string(Std.int(ms * 1000) / 1000) + ' ms\t' + label);
+	}
+
+	@:noCompletion static function flushProfile(totalMs:Float, maxFrameMs:Float, steps:Int) {
+		if (!profileEnabled) return;
+		profileEnabled = false;
+		try {
+			final header = ['# song load: ' + Std.int(totalMs) + ' ms in ' + steps + ' steps, longest frame ' + Std.int(maxFrameMs) + ' ms'];
+			profileLines = header.concat(profileLines);
+			sys.io.File.saveContent('./songload-profile.log', profileLines.join('\n') + '\n');
+		} catch (e:Dynamic) {}
+	}
 
 	/**
 	 * Graphics preloaded by this screen. They are kept `useCount`-referenced so
@@ -69,6 +93,18 @@ class SongLoadingScreen extends UIState {
 			if (g != null) g.decrementUseCount();
 		}
 		held = [];
+	}
+
+	/**
+	 * Keeps every graphic a frame collection was built from alive, so the frames
+	 * themselves stay in `Paths`' static frame cache until the next song load.
+	 */
+	@:noCompletion static function holdFrames(frames:FlxFramesCollection) {
+		if (frames == null) return;
+		// for the usual one-sheet character the parent *is* the sheet graphic; a
+		// multi-sheet character gets a dummy 1x1 parent that is never destroyed, and
+		// `FlxAtlasFrames.addAtlas` already keeps the sheet graphics referenced
+		hold(frames.parent);
 	}
 
 	/**
@@ -102,6 +138,7 @@ class SongLoadingScreen extends UIState {
 	var totalSteps:Int = 0;
 	var doneSteps:Int = 0;
 	var elapsed:Float = 0;
+	var maxFrameMs:Float = 0;
 	var finished:Bool = false;
 
 	public function new() {
@@ -132,8 +169,10 @@ class SongLoadingScreen extends UIState {
 		add(percentText = new UIText(40, 244, FlxG.width - 80, "0%", 15, 0xFF9BE28C, false));
 		add(stepText = new UIText(40, 274, FlxG.width - 80, "Preparing...", 13, 0xFF7A7A88, false));
 
+		#if sys final queueStart = Sys.time(); #end
 		buildQueue();
 		totalSteps = queue.length;
+		#if sys if (profileEnabled) profileLines.push(Std.int((Sys.time() - queueStart) * 1000) + ' ms\tbuildQueue()'); #end
 
 		if (totalSteps == 0) finish();
 	}
@@ -143,17 +182,20 @@ class SongLoadingScreen extends UIState {
 		if (finished) return;
 
 		this.elapsed += elapsed;
+		if (elapsed * 1000 > maxFrameMs) maxFrameMs = elapsed * 1000;
 
 		#if sys final started = Sys.time(); #end
 		while (queue.length > 0) {
 			final step = queue.shift();
 			stepText.text = step.label;
+			#if sys final stepStart = Sys.time(); #end
 			try {
 				step.run();
 			} catch (e:Dynamic) {
 				// a broken mod asset must never keep the player out of the song
 				trace('Song preload failed on "' + step.label + '": ' + e);
 			}
+			#if sys profileStep(step.label, Sys.time() - stepStart); #end
 			doneSteps++;
 			#if sys if (Sys.time() - started > frameBudget) break; #end
 		}
@@ -176,6 +218,22 @@ class SongLoadingScreen extends UIState {
 		// PlayState.create(), when nothing can animate anyway
 		MusicBeatState.skipTransIn = true;
 		MusicBeatState.skipTransOut = true;
+
+		#if sys final totalMs = this.elapsed * 1000;
+		final switchStart = Sys.time();
+		final steps = totalSteps;
+		final longest = maxFrameMs;
+		if (profileEnabled) {
+			var listener:Void->Void = null;
+			listener = function() {
+				FlxG.signals.postStateSwitch.remove(listener);
+				profileLines.push(Std.int((Sys.time() - switchStart) * 1000) + ' ms\tPlayState.create()');
+				flushProfile(totalMs, longest, steps);
+			};
+			FlxG.signals.postStateSwitch.add(listener);
+		}
+		#end
+
 		FlxG.switchState(new PlayState());
 	}
 
@@ -262,15 +320,18 @@ class SongLoadingScreen extends UIState {
 	function addImagePath(path:String, label:String) {
 		if (path == null || !Assets.exists(path)) return;
 		step(label, () -> {
-			hold(graphicCache.cache(path));
+			final g = graphicCache.cache(path);
+			hold(g);
 		});
 	}
 
 	function addCharacterSteps(char:String) {
 		final xmlPath = Paths.xml('characters/' + char);
 		if (xmlPath != null && Assets.exists(xmlPath)) {
-			final keys = collectSpriteRefs(Assets.getText(xmlPath), "");
-			for (key in keys) addImageRef(key);
+			final text = Assets.getText(xmlPath);
+			// the frames step loads every sheet this character references, so there is
+			// no need to preload the raw <sprite>/<spritesheet> paths on their own
+			addCharacterFramesStep(char, text);
 		}
 
 		var icon = char;
@@ -279,6 +340,86 @@ class SongLoadingScreen extends UIState {
 			if (fromXml != null && fromXml.length > 0) icon = fromXml;
 		} catch (e:Dynamic) {}
 		addImageStep('icons/icon-' + icon);
+	}
+
+	/**
+	 * Builds the character's frames here, on the loading screen, instead of letting
+	 * `Character.buildCharacter()` do it on the first frame of the song.
+	 *
+	 * `PlayState` ends up doing the exact same `Paths.getMultiFrames()` call with
+	 * the exact same sheet list (see `XMLUtil.appendSpriteSheetsFromXML`), so this
+	 * just moves the work earlier and the real load hits the frame cache.
+	 */
+	function addCharacterFramesStep(char:String, xmlText:String) {
+		final sheets = collectCharacterSheets(xmlText, char);
+		if (sheets.length == 0) return;
+		final firstImage = Paths.image(sheets[0], null, true);
+		if (firstImage == null || !Assets.exists(firstImage)) return;
+
+		final settings = animateSettingsFrom(xmlText);
+		step('character ' + char + ' frames', () -> {
+			final frames = Paths.getMultiFrames(sheets, false, false, null, false, null, settings);
+			holdFrames(frames);
+		});
+	}
+
+	/**
+	 * Mirrors the sheet list `XMLUtil.appendSpriteSheetsFromXML` builds, otherwise
+	 * `getMultiFrames()` would cache the frames under a different key.
+	 */
+	static function collectCharacterSheets(xmlText:String, char:String):Array<String> {
+		final sheets:Array<String> = [];
+		final root = parseRoot(xmlText);
+		if (root == null) return sheets;
+
+		final spriteAttr = cleanAttribute(root.get("sprite"));
+		sheets.push("characters/" + (spriteAttr != null ? spriteAttr : char));
+
+		for (node in root.elements()) {
+			if (node.nodeName != "spritesheet" && node.nodeName != "sheet") continue;
+			var path = cleanAttribute(node.get("path"));
+			if (path == null && node.firstChild() != null) path = cleanAttribute(node.firstChild().nodeValue);
+			if (path == null || sheets.contains(path)) continue;
+			if (!Paths.framesExists(path, true)) continue;
+			sheets.push(path);
+		}
+		return sheets;
+	}
+
+	/**
+	 * Same three attributes `Character.buildCharacter()` copies into its own
+	 * `animateSettings`, so the cached frames match what the character expects.
+	 */
+	static function animateSettingsFrom(xmlText:String):FlxAnimateSettings {
+		final settings:FlxAnimateSettings = {};
+		final root = parseRoot(xmlText);
+		if (root == null) return settings;
+
+		final swf = cleanAttribute(root.get("swfMode"));
+		if (swf != null) settings.swfMode = (swf == "true");
+		final cache = cleanAttribute(root.get("cacheOnLoad"));
+		if (cache != null) settings.cacheOnLoad = (cache == "true");
+		final quality = cleanAttribute(root.get("filterQuality"));
+		if (quality != null) {
+			final n = Std.parseInt(quality);
+			if (n != null)
+				settings.filterQuality = cast(n, FilterQuality);
+			else {
+				final values = ["high", "medium", "low", "rudy"];
+				final index = values.indexOf(quality.toLowerCase());
+				if (index > -1) settings.filterQuality = cast(index, FilterQuality);
+			}
+		}
+		return settings;
+	}
+
+	static function parseRoot(xmlText:String):Xml {
+		if (xmlText == null) return null;
+		try {
+			return Xml.parse(xmlText).firstElement();
+		} catch (e:Dynamic) {
+			return null;
+		}
 	}
 
 	function addStageSteps(stage:String) {
