@@ -1,6 +1,7 @@
 package funkin.backend.system.modules;
 
 import flixel.FlxState;
+import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.assets.ModsFolder;
 import funkin.backend.scripting.Script;
 import funkin.backend.scripting.ScriptPack;
@@ -87,8 +88,18 @@ final class CrashHandler {
 		} catch (_:Dynamic) {}
 
 		try {
+			// switchMod() always re-enables mods and reloads currentModFolder, so a player who
+			// picked "Play without mods" got the encrypted pack (and its password prompt) back
+			// after pressing RESET MOD. Keep that choice: reset into the base game instead and
+			// restore the flag + the remembered mod afterwards.
+			final skipMods = ModPackCrypto.disableMods;
+			final remembered = funkin.options.Options.lastLoadedMod;
 			MusicBeatState.skipTransIn = MusicBeatState.skipTransOut = true;
-			ModsFolder.switchMod(ModsFolder.currentModFolder != null ? ModsFolder.currentModFolder : null);
+			ModsFolder.switchMod(skipMods ? null : (ModsFolder.currentModFolder != null ? ModsFolder.currentModFolder : null));
+			if (skipMods) {
+				ModPackCrypto.disableMods = true;
+				funkin.options.Options.lastLoadedMod = remembered;
+			}
 		} catch (err:Dynamic) {
 			trace('Could not reset mod: $err');
 			recovered = false;
