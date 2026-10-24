@@ -306,7 +306,8 @@ class StoryMenuState extends MusicBeatState {
 
 		new FlxTimer().start(1, function(tmr:FlxTimer)
 		{
-			FlxG.switchState(new PlayState());
+			// same as before, but the song's assets get decoded behind a progress bar
+			SongLoadingScreen.enterPlayState();
 		});
 		weekSprites.members[event.weekID].startFlashing();
 	}

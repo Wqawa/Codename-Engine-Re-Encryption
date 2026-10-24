@@ -266,8 +266,8 @@ class MainState extends FlxState {
 			if (Main.goToSong != null) {
 				if (Main.goToCharter) FlxG.switchState(new funkin.editors.charter.Charter(Main.goToSong, Main.goToDifficulty, Main.goToVariation));
 				else {
-					PlayState.loadSong(Main.goToSong, Main.goToDifficulty, Main.goToVariation);
-					FlxG.switchState(new PlayState());
+					// `play-song` boot flag: same route as Freeplay, with the loading screen
+					funkin.menus.SongLoadingScreen.startSong(Main.goToSong, Main.goToDifficulty, Main.goToVariation);
 				}
 			}
 		}
