@@ -938,9 +938,9 @@ class EncryptionEditor extends UIState {
 				eachJobBar(function(b) b.scale.x = 1);
 				var size = 0.0;
 				try size = sys.FileSystem.stat(jobOut).size catch (e:Dynamic) {}
-				var mb = Std.int(size / 1048576);
-				eachJobText(function(t) t.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + mb + " MB).");
-				status((isEncryptKind(jobKind) ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + mb + " MB).");
+				var amount = readableSize(size);
+				eachJobText(function(t) t.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + amount + ").");
+				status((isEncryptKind(jobKind) ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + amount + ").");
 			}
 		} else if (!jobActive && jobHold > 0) {
 			jobHold -= elapsed;
@@ -1026,6 +1026,13 @@ class EncryptionEditor extends UIState {
 		if (curExt != null && curExt.toLowerCase() == ext.toLowerCase())
 			base += suffix;
 		return dir + sep + base + "." + ext;
+	}
+
+	/** "812 bytes" / "12 KB" / "3.4 MB": a script is far below one MB, so whole MB hid its size. */
+	static function readableSize(bytes:Float):String {
+		if (bytes < 1024) return Std.int(bytes) + " bytes";
+		if (bytes < 1048576) return Math.round(bytes / 1024) + " KB";
+		return (Math.round(bytes / 104857.6) / 10) + " MB";
 	}
 
 	function status(message:String) {
