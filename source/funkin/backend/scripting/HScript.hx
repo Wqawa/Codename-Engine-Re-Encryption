@@ -4,12 +4,25 @@ import hscript.*;
 import hscript.Expr.Error;
 import hscript.Parser;
 import openfl.Assets;
+import haxe.io.Path;
+import funkin.backend.scripting.bytecode.Chunk;
+import funkin.backend.scripting.bytecode.OpMap;
+import funkin.backend.scripting.bytecode.ScriptContainer;
+import funkin.backend.scripting.bytecode.VM;
 
 class HScript extends Script {
 	public var interp:Interp;
 	public var parser:Parser;
 	public var expr:Expr;
 	public var code:String = null;
+	/** Bytecode payload, set while reading a protected .hxb script (null for plain scripts). */
+	public var bytecode:Chunk = null;
+	/** Opcode permutation belonging to [bytecode]; null means the chunk uses real opcodes. */
+	public var opMap:OpMap = null;
+	/** Interpreter used while running [bytecode]. */
+	public var vm:VM = null;
+	/** Layer flags of the container this script came from; 0 for plain scripts. */
+	public var containerFlags:Int = 0;
 	//public var folderlessPath:String;
 	var __importedPaths:Map<String, Bool>;
 
@@ -42,7 +55,16 @@ class HScript extends Script {
 		interp = new Interp();
 
 		try {
-			if(Assets.exists(rawPath)) code = Assets.getText(rawPath);
+			if(Assets.exists(rawPath)) {
+				if(Path.extension(rawPath).toLowerCase() == ScriptContainer.EXTENSION) {
+					// Protected container: the password comes from the key files / the resolved CNEK1- token.
+					var packed = ScriptContainer.unpack(Assets.getBytes(rawPath), null, fileName);
+					bytecode = packed.chunk;
+					opMap = packed.map;
+					containerFlags = packed.flags;
+					code = packed.source;
+				} else code = Assets.getText(rawPath);
+			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');
 
 		parser = getParser();
@@ -64,7 +86,8 @@ class HScript extends Script {
 		#if GLOBAL_SCRIPT
 		funkin.backend.scripting.GlobalScript.call("onScriptCreated", [this, "hscript"]);
 		#end
-		loadFromString(code);
+		// Bytecode scripts are not parsed: the source is only kept as a VM fallback.
+		if (bytecode == null) loadFromString(code);
 	}
 
 	public override function loadFromString(code:String) {
@@ -159,6 +182,21 @@ class HScript extends Script {
 	public override function onLoad() {
 		@:privateAccess
 		interp.execute(parser.mk(EBlock([]), 0, 0));
+		if (bytecode != null) {
+			try {
+				vm = new VM(bytecode, interp, parser, opMap);
+				vm.origin = fileName;
+				vm.runMain();
+				// the bytecode is self sufficient: drop the plaintext source so it is not kept around
+				if ((containerFlags & ScriptContainer.FLAG_FALLBACK) == 0) code = null;
+				call("new", []);
+			} catch(e:Dynamic) {
+				Logs.error('Bytecode failed in $fileName: ${Std.string(e)}');
+				vm = null;
+				// the container may still carry the source, which is the point of the fallback layer
+				if (code != null && code.length > 0) loadFromString(code);
+			}
+		}
 		if (expr != null) {
 			interp.execute(expr);
 			call("new", []);
@@ -232,6 +270,9 @@ class HScript extends Script {
 		returnParser(parser);
 		parser = null;
 		interp = null;
+		vm = null;
+		bytecode = null;
+		opMap = null;
 		super.destroy();
 	}
 }

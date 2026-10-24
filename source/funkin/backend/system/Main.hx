@@ -72,8 +72,11 @@ class Main extends Sprite
 	public static function preInit() {
 		#if sys
 		funkin.backend.utils.NativeAPI.registerAsDPICompatible();
-		funkin.backend.system.CommandLineHandler.parseCommandLine(Sys.args());
 		funkin.backend.system.Main.fixWorkingDirectory();
+		// Diagnostic run of the script container round trip ("--cne-selftest"), then close.
+		// Before the command line is parsed, so the flag is not reported as an unknown command.
+		if (funkin.backend.scripting.bytecode.ScriptContainerSelfTest.runIfRequested()) Sys.exit(0);
+		funkin.backend.system.CommandLineHandler.parseCommandLine(Sys.args());
 		funkin.backend.system.Logs.init();
 		#end
 	}
@@ -90,6 +93,8 @@ class Main extends Sprite
 		#end
 		// Before the game loop, so an uncaught error is drawn in-game instead of closing the window.
 		CrashHandler.init();
+		// Hides this thread from user mode debuggers before any script is decrypted (see MemoryGuard).
+		MemoryGuard.harden();
 		ConsoleUI.init();
 
 		// i hate you hxcpp

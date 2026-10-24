@@ -2,6 +2,7 @@ package funkin.backend.assets;
 
 import funkin.backend.scripting.crypto.ChaCha20;
 import funkin.backend.scripting.crypto.ScriptCrypto;
+import funkin.backend.system.MemoryGuard;
 import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 import haxe.io.Path;
@@ -52,7 +53,8 @@ class ModPackCrypto {
 	public static var legacyCacheFolders:Array<String> = ['./.cne_mods/'];
 
 	/** Key typed by the player this session, per pack path. */
-	static var sessionKeys:Map<String, String> = new Map<String, String>();
+	// passwords are kept wrapped (see MemoryGuard) so a memory scan does not find them as plain strings
+	static var sessionKeys:Map<String, Bytes> = new Map<String, Bytes>();
 
 	/** Set when the player chose "play without mods" after a bad key. */
 	public static var disableMods: Bool = false;
@@ -219,7 +221,7 @@ class ModPackCrypto {
 	// ------------------------------------------------------------ key lookup
 
 	public static function setSessionKey(zipPath:String, key:String):Void {
-		sessionKeys.set(normalizePath(zipPath), key);
+		sessionKeys.set(normalizePath(zipPath), MemoryGuard.sealString(key));
 		// a freshly typed key deserves a new attempt on the progress screen
 		failedPacks.remove(normalizePath(zipPath));
 	}
@@ -234,11 +236,11 @@ class ModPackCrypto {
 	}
 
 	public static function getSessionKey(zipPath:String):String {
-		return sessionKeys.get(normalizePath(zipPath));
+		return MemoryGuard.openString(sessionKeys.get(normalizePath(zipPath)));
 	}
 
 	public static function clearSessionKeys():Void {
-		sessionKeys = new Map<String, String>();
+		sessionKeys = new Map<String, Bytes>();
 	}
 
 	/** True when at least one key (typed, script_key.txt or built-in) is known. */

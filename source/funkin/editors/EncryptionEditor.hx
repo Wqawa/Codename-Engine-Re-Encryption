@@ -4,6 +4,8 @@ import flixel.math.FlxRect;
 import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.assets.ZipAes;
 import funkin.backend.assets.ZipPassword;
+import funkin.backend.scripting.bytecode.ScriptContainer;
+import funkin.backend.scripting.bytecode.ScriptContainer.PackOptions;
 import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.editors.ui.*;
 import funkin.editors.ui.UITopMenu.UITopMenuButton;
@@ -16,9 +18,10 @@ import sys.io.File;
 /**
  * General purpose encryption tool, reachable from the editor picker (F7 menu).
  *
- * It wraps zip mod packs into encrypted containers (or unwraps them again) and
- * holds the key token helper that turns a key into a shareable string and back.
- * Script level encryption is not part of this tool any more.
+ * The Mod Pack tab wraps zip mod packs into encrypted containers (or unwraps them
+ * again) and holds the key token helper. The Scripts tab protects .hx scripts with
+ * the CNX2 container: key encryption, VM bytecode, a bit offset and a split, each
+ * of them optional and freely combinable.
  */
 class EncryptionEditor extends UIState {
 	static inline var SCROLL_STEP:Float = 64;
@@ -27,8 +30,9 @@ class EncryptionEditor extends UIState {
 	static inline var CONTENT_Y:Float = 74;
 
 	static inline var TAB_MODPACK:Int = 0;
-	static inline var TAB_HELP:Int = 1;
-	static var TAB_NAMES:Array<String> = ["Mod Pack", "Help"];
+	static inline var TAB_SCRIPTS:Int = 1;
+	static inline var TAB_HELP:Int = 2;
+	static var TAB_NAMES:Array<String> = ["Mod Pack", "Scripts", "Help"];
 
 	public var topMenu:UITopMenu;
 	public var bg:FlxSprite;
@@ -49,9 +53,15 @@ class EncryptionEditor extends UIState {
 	static inline var JOB_NONE:Int = 0;
 	static inline var JOB_ENCRYPT:Int = 1;
 	static inline var JOB_DECRYPT:Int = 2;
+	static inline var JOB_SCRIPT_ENCRYPT:Int = 3;
+	static inline var JOB_SCRIPT_DECRYPT:Int = 4;
 	public var jobBarBg:FlxSprite;
 	public var jobBar:FlxSprite;
 	public var jobText:UIText;
+	// the Scripts tab has its own row, so a job never shows on the wrong page
+	public var jobBarBg2:FlxSprite;
+	public var jobBar2:FlxSprite;
+	public var jobText2:UIText;
 	public var jobActive:Bool = false;
 	public var jobKind:Int = JOB_NONE;
 	public var jobProgress:Float = 0;
@@ -68,12 +78,21 @@ class EncryptionEditor extends UIState {
 	// tab bar: every tab owns a list of widgets that are simply hidden while
 	// another tab is selected, the way the rest of the editor screens work
 	public var tabs:Array<UIButton> = [];
-	public var tabGroups:Array<Array<FlxSprite>> = [[], []];
+	public var tabGroups:Array<Array<FlxSprite>> = [[], [], []];
 	public var currentTab:Int = TAB_MODPACK;
 
 	// key token widgets - they share the Mod Pack tab
 	public var tokenKeyBox:UITextBox;
 	public var tokenTokenBox:UITextBox;
+
+	// Scripts tab: one checkbox per layer, plus the two numeric knobs
+	public var scKey:UICheckbox;
+	public var scVM:UICheckbox;
+	public var scOffset:UICheckbox;
+	public var scSplit:UICheckbox;
+	public var scOffsetBits:UITextBox;
+	public var scSplitCount:UITextBox;
+	public var scSummary:UIText;
 
 	// help tab
 	public var helpText:UIText;
@@ -109,7 +128,10 @@ class EncryptionEditor extends UIState {
 			{
 				label: "Tools",
 				childs: [
-					{label: "Mod Pack tab", onSelect: (_) -> showTab(TAB_MODPACK)}
+					{label: "Mod Pack tab", onSelect: (_) -> showTab(TAB_MODPACK)},
+					{label: "Scripts tab", onSelect: (_) -> showTab(TAB_SCRIPTS)},
+					null,
+					{label: "Self test: script container", onSelect: (_) -> runSelfTest()}
 				]
 			},
 			{
@@ -122,6 +144,7 @@ class EncryptionEditor extends UIState {
 
 		buildTabs();
 		buildModPackTab();
+		buildScriptTab();
 		buildHelpTab();
 
 		add(statusText = new UIText(10, FlxG.height - 30, FlxG.width - 20, "", 14, 0xFFFFE066, false));
@@ -233,10 +256,218 @@ class EncryptionEditor extends UIState {
 		jobBarBg.visible = jobBar.visible = false;
 	}
 
+	// ------------------------------------------------------------- scripts tab
+
+	function buildScriptTab() {
+		var g = tabGroups[TAB_SCRIPTS];
+		var panelH = FlxG.height - CONTENT_Y - 46;
+		if (panelH < 540) panelH = 540;
+
+		track(g, new FlxSprite(10, CONTENT_Y).makeSolid(Std.int(FlxG.width - 20), Std.int(panelH), 0xFF1B1B21));
+
+		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Protect a script (.hx -> .hxb)", 18, 0xFFFFE066, false));
+		var desc = new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
+			"Every layer below can be switched on by itself, and they combine: one for a quick seal, all four when\n"
+			+ "people are likely to try opening the file. The engine reads .hxb transparently, so a protected script\n"
+			+ "is a drop in replacement for the .hx it came from - same name, different extension.",
+			12, 0xFFB0B0BE, false);
+		desc.wordWrap = true;
+		track(g, desc);
+
+		track(g, scKey = new UICheckbox(30, CONTENT_Y + 112, "Key encryption - ChaCha20 + HMAC tag, needs the key", false, 540));
+		track(g, scVM = new UICheckbox(30, CONTENT_Y + 144, "VM bytecode - compiled, with a per file opcode permutation", false, 540));
+		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 176, "Byte offset - the whole payload rotated by N bits", false, 540));
+		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 208, "Split - cut into pieces, shuffled, padding in between", false, 540));
+
+		track(g, new UIText(30, CONTENT_Y + 246, 260, "Offset bits (1-16):", 14, 0xFFFFFFFF, false));
+		track(g, scOffsetBits = new UITextBox(260, CONTENT_Y + 242, "8", 90));
+		track(g, new UIText(400, CONTENT_Y + 246, 260, "Split pieces (2-16):", 14, 0xFFFFFFFF, false));
+		track(g, scSplitCount = new UITextBox(600, CONTENT_Y + 242, "4", 90));
+
+		track(g, new UIButton(30, CONTENT_Y + 296, "Choose .hx scripts and Encrypt...", encryptScripts, 420, 40));
+		track(g, new UIButton(460, CONTENT_Y + 296, "Choose .hxb and Decrypt...", decryptScripts, 440, 40));
+
+		track(g, scSummary = new UIText(30, CONTENT_Y + 348, FlxG.width - 60, "", 13, 0xFFC8C8D2, false));
+		scSummary.wordWrap = true;
+
+		scKey.onChecked = function(_) refreshScriptSummary();
+		scVM.onChecked = function(_) refreshScriptSummary();
+		scOffset.onChecked = function(_) refreshScriptSummary();
+		scSplit.onChecked = function(_) refreshScriptSummary();
+
+		// progress row for script jobs, mirrored from the Mod Pack tab but owned by
+		// this page so a job never shows itself on the wrong tab
+		track(g, jobText2 = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFF9BE28C, false));
+		track(g, jobBarBg2 = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
+		track(g, jobBar2 = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
+		jobBar2.origin.set(0, 0);
+		jobBar2.scale.x = 0.001;
+		jobText2.alpha = jobBarBg2.alpha = jobBar2.alpha = 0;
+		jobBarBg2.visible = jobBar2.visible = false;
+
+		refreshScriptSummary();
+	}
+
+	function refreshScriptSummary() {
+		if (scSummary == null) return;
+		var parts:Array<String> = [];
+		if (scKey.checked) parts.push("key");
+		if (scVM.checked) parts.push("VM bytecode");
+		if (scOffset.checked) parts.push("offset " + intField(scOffsetBits, 8) + " bit");
+		if (scSplit.checked) parts.push("split x" + intField(scSplitCount, 4));
+		if (parts.length == 0)
+			scSummary.text = "No layer selected - the file would be stored as plain text. Pick at least one.";
+		else
+			scSummary.text = "Layers: " + parts.join(" + ") + ".  Output: name_protected.hxb next to the source.";
+	}
+
+	/** Reads a number from a text box, clamped to [min, max]; a bad value falls back to def. */
+	function intField(box:UITextBox, def:Int):Int {
+		if (box == null) return def;
+		var value = Std.parseInt(StringTools.trim(box.label.text));
+		return value == null ? def : value;
+	}
+
+	function scriptOptions():PackOptions {
+		return {
+			useKey: scKey.checked,
+			useVM: scVM.checked,
+			useOffset: scOffset.checked,
+			offsetBits: intField(scOffsetBits, 8),
+			useSplit: scSplit.checked,
+			splitCount: intField(scSplitCount, 4),
+			// a source fallback is only embedded when it is encrypted as well,
+			// otherwise it would be readable straight out of the container
+			fallbackSource: scKey.checked && scVM.checked,
+			pass: null,
+			scriptName: null
+		};
+	}
+
+	function encryptScripts() {
+		if (jobActive) {
+			status("Wait for the current job to finish - watch the progress bar.");
+			return;
+		}
+		refreshScriptSummary();
+		var opts = scriptOptions();
+		if (!opts.useKey && !opts.useVM && !opts.useOffset && !opts.useSplit) {
+			status("Pick at least one layer first, otherwise nothing would be protected.");
+			return;
+		}
+		fileDialogOpen = true;
+		FileDialog.openFile(FlxG.stage.window, "Choose the script(s) to protect", function(files, filter) {
+			fileDialogOpen = false;
+			if (files == null || files.length == 0) return;
+			rememberDirectory(files[0]);
+			startScriptJob(JOB_SCRIPT_ENCRYPT, files, opts);
+		}, [new FileDialogFilter("Script", "hx;hscript;hsc;hxs"), new FileDialogFilter("All files", "*")], lastDirectory, true);
+	}
+
+	function decryptScripts() {
+		if (jobActive) {
+			status("Wait for the current job to finish - watch the progress bar.");
+			return;
+		}
+		fileDialogOpen = true;
+		FileDialog.openFile(FlxG.stage.window, "Choose the protected script(s) (.hxb)", function(files, filter) {
+			fileDialogOpen = false;
+			if (files == null || files.length == 0) return;
+			rememberDirectory(files[0]);
+			startScriptJob(JOB_SCRIPT_DECRYPT, files, null);
+		}, [new FileDialogFilter("Protected script", ScriptContainer.EXTENSION), new FileDialogFilter("All files", "*")], lastDirectory, true);
+	}
+
+	/**
+	 * Protects or restores a batch of scripts on a worker thread. The key is read
+	 * on the main thread, so the worker never touches the UI.
+	 */
+	function startScriptJob(kind:Int, paths:Array<String>, opts:PackOptions) {
+		if (jobActive || paths == null || paths.length == 0) return;
+
+		jobActive = true;
+		jobKind = kind;
+		jobDone = false;
+		jobError = null;
+		jobProgress = 0;
+		jobOut = null;
+		jobName = paths.length == 1 ? Path.withoutDirectory(paths[0]) : paths.length + " scripts";
+		jobHold = 0;
+		jobFadeTarget = 1;
+		eachJobText(function(t) {
+			t.color = 0xFF9BE28C;
+			t.text = "0%  -  reading " + jobName + "...";
+		});
+		status((isEncryptKind(kind) ? "Protecting " : "Unprotecting ") + jobName + " ...");
+
+		var key = packKey(paths[0]);
+		var work = function() {
+			try {
+				var total = paths.length;
+				for (i in 0...total) {
+					var path = paths[i];
+					if (kind == JOB_SCRIPT_ENCRYPT) {
+						var source = File.getContent(path);
+						var packed = ScriptContainer.pack(source, Path.withoutDirectory(path), {
+							useKey: opts.useKey,
+							useVM: opts.useVM,
+							useOffset: opts.useOffset,
+							offsetBits: opts.offsetBits,
+							useSplit: opts.useSplit,
+							splitCount: opts.splitCount,
+							fallbackSource: opts.fallbackSource,
+							pass: key,
+							scriptName: Path.withoutDirectory(path)
+						});
+						var out = scriptOutPath(path, ScriptContainer.EXTENSION, "_protected");
+						File.saveBytes(out, packed);
+						jobOut = out;
+					} else {
+						var data = File.getBytes(path);
+						var restored = ScriptContainer.unpack(data, key, Path.withoutDirectory(path));
+						if (restored.source == null)
+							throw Path.withoutDirectory(path) + ": this container holds bytecode only (no source fallback)";
+						var out = scriptOutPath(path, "hx", "_decrypted");
+						File.saveContent(out, restored.source);
+						jobOut = out;
+					}
+					jobProgress = (i + 1) / total;
+				}
+				jobProgress = 1;
+			} catch (e:Dynamic) {
+				jobError = Std.string(e);
+				jobProgress = 1;
+			}
+			jobDone = true;
+		};
+
+		#if target.threaded
+		try sys.thread.Thread.create(work) catch (e:Dynamic) work();
+		#else
+		work();
+		#end
+	}
+
+	/** name_protected.hxb / name_decrypted.hx next to the source file. */
+	function scriptOutPath(path:String, ext:String, suffix:String):String {
+		var dir = Path.directory(path);
+		if (dir == null) dir = "";
+		var sep = "";
+		if (dir.length > 0 && !StringTools.endsWith(dir, "/") && !StringTools.endsWith(dir, "\\"))
+			sep = "/";
+		return dir + sep + Path.withoutExtension(Path.withoutDirectory(path)) + suffix + "." + ext;
+	}
+
+	function rememberDirectory(path:String) {
+		if (path == null) return;
+		lastDirectory = Path.directory(path);
+	}
+
 	static var HELP_BODY:String =
 		"WHAT THIS TOOL DOES\n\n"
 		+ "The Mod Pack tab seals a zip mod into a CNEZ container or an AES-256 password zip, unwraps\n"
-		+ "either one into a plain zip again, and turns keys into shareable tokens.\n"
+		+ "either one into a plain zip again, and turns keys into shareable tokens. The Scripts tab\n"
+		+ "seals a single script into a .hxb the engine keeps loading like a .hx.\n"
 		+ "\n"
 		+ "keys\n"
 		+ "\n"
@@ -256,6 +487,23 @@ class EncryptionEditor extends UIState {
 		+ "  CNEZ container: only the engine can open it, the key is required.\n"
 		+ "  AES-256 zip: 7-Zip, WinRAR and Bandizip open it with the password, and so does the\n"
 		+ "  engine, so players only type the password once.\n"
+		+ "\n"
+		+ "the Scripts tab\n"
+		+ "\n"
+		+ "Pick one or more .hx files, switch on the layers you want and it writes name_protected.hxb\n"
+		+ "next to the source. The engine loads .hxb like any other script, so the .hx can be deleted\n"
+		+ "afterwards and the protected file takes its place. Choose .hxb and Decrypt turns it back.\n"
+		+ "\n"
+		+ "  key encryption: ChaCha20 plus an HMAC tag, the same key rules as above.\n"
+		+ "  VM bytecode: compiled to bytecode, with a per file random opcode permutation, so a\n"
+		+ "  disassembly of one script does not describe the next.\n"
+		+ "  byte offset: the payload is rotated by N bits, which stops a plain file signature.\n"
+		+ "  split: the payload is cut into pieces, shuffled, with random padding in between.\n"
+		+ "\n"
+		+ "A .hxb can hold the source, the bytecode, or both. Both means the engine falls back to the\n"
+		+ "source when the bytecode fails, so a newer engine feature cannot brick the script - but the\n"
+		+ "source then travels inside the file, so it is only embedded when key encryption is on.\n"
+		+ "Decrypting a bytecode only file gives an error: there is no source to write out.\n"
 		+ "\n"
 		+ "Encrypting and decrypting both run in the background with a progress bar and write a new\n"
 		+ "file next to the source: name_encrypted.zip, name_password.zip or name_decrypted.zip.\n"
@@ -613,11 +861,11 @@ class EncryptionEditor extends UIState {
 		jobName = Path.withoutDirectory(srcPath);
 		jobHold = 0;
 		jobFadeTarget = 1;
-		if (jobText != null) {
-			jobText.color = 0xFF9BE28C;
-			jobText.text = "0%  -  reading " + jobName + "...";
-		}
-		status((kind == JOB_ENCRYPT ? "Encrypting " : "Decrypting ") + jobName + " ...");
+		eachJobText(function(t) {
+			t.color = 0xFF9BE28C;
+			t.text = "0%  -  reading " + jobName + "...";
+		});
+		status((isEncryptKind(kind) ? "Encrypting " : "Decrypting ") + jobName + " ...");
 
 		var work = function() {
 			try {
@@ -670,29 +918,29 @@ class EncryptionEditor extends UIState {
 		if (p < 0) p = 0;
 		if (p > 1) p = 1;
 		var percent = Std.int(p * 100) + "%";
-		var verb = jobKind == JOB_ENCRYPT ? "encrypting" : "decrypting";
+		var verb = isEncryptKind(jobKind) ? "encrypting" : "decrypting";
 
 		if (jobActive) {
-			if (jobBar != null) jobBar.scale.x = Math.max(0.001, p);
-			if (jobText != null) jobText.text = percent + "  -  " + verb + " " + jobName + " ...";
+			eachJobBar(function(b) b.scale.x = Math.max(0.001, p));
+			eachJobText(function(t) t.text = percent + "  -  " + verb + " " + jobName + " ...");
 		}
 
 		if (jobActive && jobDone) {
 			jobActive = false;
 			jobHold = 2.5; // keep the result readable, then let the row fade away
 			if (jobError != null) {
-				if (jobText != null) {
-					jobText.color = 0xFFFF6B6B;
-					jobText.text = "Failed: " + jobError;
-				}
+				eachJobText(function(t) {
+					t.color = 0xFFFF6B6B;
+					t.text = "Failed: " + jobError;
+				});
 				status("Could not " + verb + " " + jobName + ": " + jobError);
 			} else {
-				if (jobBar != null) jobBar.scale.x = 1;
+				eachJobBar(function(b) b.scale.x = 1);
 				var size = 0.0;
 				try size = sys.FileSystem.stat(jobOut).size catch (e:Dynamic) {}
 				var mb = Std.int(size / 1048576);
-				if (jobText != null) jobText.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + mb + " MB).";
-				status((jobKind == JOB_ENCRYPT ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + mb + " MB).");
+				eachJobText(function(t) t.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + mb + " MB).");
+				status((isEncryptKind(jobKind) ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + mb + " MB).");
 			}
 		} else if (!jobActive && jobHold > 0) {
 			jobHold -= elapsed;
@@ -703,18 +951,37 @@ class EncryptionEditor extends UIState {
 		}
 
 		var shown = jobFade > 0.001;
-		if (jobText != null) {
-			jobText.alpha = jobFade;
-			jobText.visible = shown;
-		}
-		if (jobBarBg != null) {
-			jobBarBg.alpha = jobFade;
-			jobBarBg.visible = shown;
-		}
-		if (jobBar != null) {
-			jobBar.alpha = jobFade;
-			jobBar.visible = shown;
-		}
+		eachJobText(function(t) {
+			t.alpha = jobFade;
+			t.visible = shown;
+		});
+		eachJobBarBg(function(b) {
+			b.alpha = jobFade;
+			b.visible = shown;
+		});
+		eachJobBar(function(b) {
+			b.alpha = jobFade;
+			b.visible = shown;
+		});
+	}
+
+	inline function isEncryptKind(kind:Int):Bool
+		return kind == JOB_ENCRYPT || kind == JOB_SCRIPT_ENCRYPT;
+
+	/** Runs a callback on every progress label (the Mod Pack and the Scripts row). */
+	function eachJobText(callback:UIText->Void) {
+		if (jobText != null) callback(jobText);
+		if (jobText2 != null) callback(jobText2);
+	}
+
+	function eachJobBar(callback:FlxSprite->Void) {
+		if (jobBar != null) callback(jobBar);
+		if (jobBar2 != null) callback(jobBar2);
+	}
+
+	function eachJobBarBg(callback:FlxSprite->Void) {
+		if (jobBarBg != null) callback(jobBarBg);
+		if (jobBarBg2 != null) callback(jobBarBg2);
 	}
 
 	/** Re-reads script_key.txt so an edited key file is used without a restart. */
@@ -764,5 +1031,23 @@ class EncryptionEditor extends UIState {
 	function status(message:String) {
 		statusText.text = message;
 		Logs.trace(message, INFO);
+	}
+
+	/**
+	 * Round-trips the CNX2 container on a sample script (all layer combinations,
+	 * a VM run, damaged files) so a broken build is visible without having to
+	 * find a script that misbehaves. The details go to the log.
+	 */
+	function runSelfTest() {
+		var summary:String;
+		try {
+			summary = funkin.backend.scripting.bytecode.ScriptContainerSelfTest.run();
+		} catch (e:Dynamic) {
+			status("Self test crashed: " + Std.string(e));
+			return;
+		}
+		for (line in funkin.backend.scripting.bytecode.ScriptContainerSelfTest.getLines())
+			Logs.trace(line, line.indexOf("FAIL") == 0 ? ERROR : INFO);
+		status("Container self test: " + summary + (summary.indexOf(" 0 failed") >= 0 ? "  -  all good" : "  -  see the log"));
 	}
 }
