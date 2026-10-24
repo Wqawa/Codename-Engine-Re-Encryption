@@ -1,6 +1,7 @@
 package funkin.backend;
 
 import flixel.FlxState;
+import flixel.graphics.FlxGraphic;
 import flixel.tweens.FlxTween;
 import funkin.backend.scripting.Script;
 import funkin.backend.scripting.events.CancellableEvent;
@@ -8,6 +9,7 @@ import funkin.backend.scripting.events.ResizeEvent;
 import funkin.backend.scripting.events.TransitionCreationEvent;
 import funkin.backend.utils.FunkinParentDisabler;
 import funkin.editors.ui.UIState;
+import openfl.display.BitmapData;
 
 class MusicBeatTransition extends MusicBeatSubstate {
 	public static var script:String = Flags.DEFAULT_TRANSITION_SCRIPT;
@@ -24,6 +26,24 @@ class MusicBeatTransition extends MusicBeatSubstate {
 
 	public var blackSpr:FlxSprite;
 	public var transitionSprite:FunkinSprite;
+
+	// Tile transition: the screen is covered with black squares instead of the sliding sheet.
+	// Set tileTransition to false to get the old slide back.
+	public static var tileTransition:Bool = true;
+	/** Side of one tile, as a fraction of the camera width. */
+	public static var tileFactor:Float = 0.05;
+	/** Delay between two tiles of the wave, in seconds (row-major: left to right, top to bottom). */
+	public static var tileStagger:Float = 0.05;
+	/** Grow/shrink time of a single tile. */
+	public static var tileDuration:Float = 0.3;
+	/** Length of the whole wave. A literal tileStagger would take many seconds on a full grid,
+		so it is compressed to fit this; set it to 0 to use tileStagger as-is. */
+	public static var tileTotal:Float = 2 / 3;
+
+	var tiles:Array<FlxSprite> = [];
+	var tileDelays:Array<Float> = [];
+	var tileWaveTime:Float = 0;
+
 	public function new(?newState:FlxState) {
 		super();
 		this.newState = newState;
@@ -59,14 +79,21 @@ class MusicBeatTransition extends MusicBeatSubstate {
 		add(transitionSprite = new FunkinSprite().loadSprite(Paths.image('menus/transitionSpr')));
 		resizeDefaultSprites();
 
-		transitionCamera.flipY = !transOut;
-		transitionCamera.scroll.y = transitionCamera.height;
-		transitionTween = FlxTween.tween(transitionCamera.scroll, {y: -transitionCamera.height}, 2/3, {
-			ease: FlxEase.sineOut,
-			onComplete: function(_) {
-				finish();
-			}
-		});
+		if (tileTransition) {
+			// the tile wave covers the screen on its own, the sliding sheet would double it up
+			blackSpr.visible = false;
+			transitionSprite.visible = false;
+			startTileTransition();
+		} else {
+			transitionCamera.flipY = !transOut;
+			transitionCamera.scroll.y = transitionCamera.height;
+			transitionTween = FlxTween.tween(transitionCamera.scroll, {y: -transitionCamera.height}, 2/3, {
+				ease: FlxEase.sineOut,
+				onComplete: function(_) {
+					finish();
+				}
+			});
+		}
 
 		super.create();
 		transitionScript.call('postCreate', [event]);
@@ -80,6 +107,7 @@ class MusicBeatTransition extends MusicBeatSubstate {
 			var event = new CancellableEvent();
 			transitionScript.call('onSkip', [event]);
 			if (!event.cancelled) {
+				skipToEnd();
 				finish();
 				return;
 			}
@@ -94,6 +122,7 @@ class MusicBeatTransition extends MusicBeatSubstate {
 				var event = new CancellableEvent();
 				transitionScript.call('onSkip', [event]);
 				if (!event.cancelled) {
+					skipToEnd();
 					finish();
 				}
 			}
@@ -117,6 +146,72 @@ class MusicBeatTransition extends MusicBeatSubstate {
 			transitionSprite.setGraphicSize(transitionCamera.width, transitionCamera.height);
 			transitionSprite.updateHitbox();
 		}
+	}
+
+	/** Builds the grid of black squares and runs the wave that fills (transOut) or clears (transIn) the screen. */
+	function startTileTransition() {
+		final width = transitionCamera.width;
+		final height = transitionCamera.height;
+		final size:Int = Std.int(Math.max(4, Math.floor(width * tileFactor)));
+		final cols = Math.ceil(width / size);
+		final rows = Math.ceil(height / size);
+		final count = cols * rows;
+
+		// A literal tileStagger would take many seconds on a full grid, so it is compressed
+		// to fit tileTotal; set tileTotal to 0 to keep the raw delay.
+		final stagger = tileTotal > 0
+			? Math.min(tileStagger, Math.max(0, (tileTotal - tileDuration) / Math.max(1, count - 1)))
+			: tileStagger;
+		tileWaveTime = (count - 1) * stagger + tileDuration;
+
+		// one shared solid-black graphic for every tile
+		final graphic = FlxGraphic.fromBitmapData(new BitmapData(size, size, true, 0xFF000000), false, 'cneTransitionTile$size', true);
+
+		for (row in 0...rows) {
+			for (col in 0...cols) {
+				var tile = new FlxSprite(col * size, row * size, graphic);
+				tile.centerOrigin();
+				tile.antialiasing = true;
+				tile.visible = false;
+				add(tile);
+				tiles.push(tile);
+				tileDelays.push((row * cols + col) * stagger);
+			}
+		}
+
+		var progress = {v: 0.0};
+		transitionTween = FlxTween.tween(progress, {v: 1.0}, tileWaveTime, {
+			ease: FlxEase.linear,
+			onUpdate: function(_) applyTileProgress(progress.v),
+			onComplete: function(_) finish()
+		});
+		applyTileProgress(0);
+	}
+
+	/** `global` runs from 0 (nothing yet) to 1 (wave finished); every tile eases its own slice of it. */
+	function applyTileProgress(global:Float) {
+		final time = global * tileWaveTime;
+		for (i in 0...tiles.length) {
+			var local = (time - tileDelays[i]) / tileDuration;
+			if (local < 0) local = 0;
+			else if (local > 1) local = 1;
+			final eased = FlxEase.cubeOut(local); // fast at first, then slow
+			final scaleFactor = transOut ? eased : 1 - eased;
+			final tile = tiles[i];
+			tile.scale.set(scaleFactor, scaleFactor);
+			tile.angle = 45 * (1 - scaleFactor);
+			tile.visible = scaleFactor > 0.002;
+		}
+	}
+
+	/** Called when the player skips: snap the wave to its final frame before the state switch. */
+	function skipToEnd() {
+		if (!tileTransition || tiles.length == 0) return;
+		if (transitionTween != null) {
+			transitionTween.cancel();
+			transitionTween = null;
+		}
+		applyTileProgress(1);
 	}
 
 	public function finish() {
