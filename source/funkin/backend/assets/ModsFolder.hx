@@ -120,7 +120,7 @@ class ModsFolder {
 			}
 		}
 		// a script_key.txt inside the mod (usually mods/<name>/data/) is picked up
-		// by the engine as well, so mods can ship their own keys
+		// by the engine as well, so a mod can ship the key of its own encrypted pack
 		ScriptCrypto.addKeyFile('$path/data/script_key.txt');
 		ScriptCrypto.addKeyFile('$path/script_key.txt');
 		return loadLibraryFromFolder('$path'.toLowerCase(), '$path', force, modName);

@@ -220,7 +220,6 @@ class Script extends FlxBasic implements IFlxDestroyable
 		"hscript",
 		"hsc",
 		"hxs",
-		"hxb", // encrypted CNES container (source or bytecode)
 		"pack", // combined file
 		"lua" /** ACTUALLY NOT SUPPORTED, ONLY FOR THE MESSAGE **/];
 
@@ -271,7 +270,7 @@ class Script extends FlxBasic implements IFlxDestroyable
 		{
 			return switch (Path.extension(path).toLowerCase())
 			{
-				case "hx" | "hscript" | "hsc" | "hxs" | "hxb":
+				case "hx" | "hscript" | "hsc" | "hxs":
 					new HScript(path);
 				case "pack":
 					var arr = Assets.getText(path).split("________PACKSEP________");

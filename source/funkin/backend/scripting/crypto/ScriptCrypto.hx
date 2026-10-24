@@ -8,29 +8,19 @@ import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 
 /**
- * Encrypted script container shared by the packer (editor) and the runtime.
+ * Key handling and crypto helpers for encrypted mod packs.
  *
- * Layout (little endian):
- *   0..3    magic "CNES"
- *   4       format version (1)
- *   5       payload mode (0 = plain source text, 1 = bytecode chunk)
- *   6..7    reserved
- *   8..23   random salt (16)
- *   24..35  random nonce (12)
- *   36..39  ciphertext length
- *   40..    ChaCha20 ciphertext
- *   ...     HMAC-SHA256 over everything above (32 bytes)
- *
- * Keys are derived from a password with an iterated SHA-256 KDF. The password
- * defaults to a built-in constant but can be overridden at runtime by placing
- * a file named `script_key.txt` next to the executable, or by calling
- * `ScriptCrypto.setPassword()` before scripts are loaded.
+ * It resolves the password/key a mod pack is protected with and provides the
+ * primitives the pack container needs (iterated SHA-256 KDF, HMAC-SHA256, SHA-256,
+ * random bytes, key tokens). The key defaults to a built-in constant but can be
+ * overridden at runtime by placing a file named `script_key.txt` next to the
+ * executable, or by calling `ScriptCrypto.setPassword()` at start up.
  *
  * What this protects against (read before relying on it):
- *   - STATIC protection only. The script is not plain text on disk, cannot be
- *     edited by accident, and the HMAC-SHA256 tag detects any tampering.
- *   - NOT runtime protection. The engine must execute the script, so in memory it
- *     is plain again and can be dumped from the process.
+ *   - STATIC protection only. The pack is not readable on disk, cannot be opened
+ *     by an archive tool, and the HMAC-SHA256 tag detects any tampering.
+ *   - NOT runtime protection. The engine has to decrypt the pack to load it, so
+ *     the files are readable in the cache folder while the game runs.
  *   - DEFAULT_PASSWORD is compiled into the executable, so anyone with the engine
  *     and a disassembler can read it. It stops casual browsing and nothing more;
  *     ship a real key with script_key.txt or setPassword().
@@ -41,20 +31,7 @@ import haxe.io.BytesBuffer;
  * resist offline brute force.
  */
 class ScriptCrypto {
-	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x53]; // "CNES"
-	public static inline var VERSION:Int = 1;
-	public static inline var MODE_SOURCE:Int = 0;
-	public static inline var MODE_BYTECODE:Int = 1;
-	/**
-	 * Bytecode followed by an encrypted copy of the original source. The VM runs
-	 * the bytecode; the source is only used when the VM cannot execute the script,
-	 * so an encrypted script can never lose behaviour it had as plain text.
-	 */
-	public static inline var MODE_BOTH:Int = 2;
-
-	static inline var HEADER_SIZE:Int = 40;
-	static inline var TAG_SIZE:Int = 32;
-	static inline var SALT_SIZE:Int = 16;
+	/** Nonce size of the counter based DRBG that randomBytes() uses. */
 	static inline var NONCE_SIZE:Int = 12;
 	static inline var KDF_ROUNDS:Int = 2048;
 	static inline var DEFAULT_PASSWORD:String = "CNE::script::v1::d0nt_t0uch_th3_sky";
@@ -481,76 +458,4 @@ class ScriptCrypto {
 		return new Hmac(SHA256).make(macKey, data);
 	}
 
-	public static function isContainer(data:Bytes):Bool {
-		if (data == null || data.length < HEADER_SIZE + TAG_SIZE) return false;
-		for (i in 0...4)
-			if (data.get(i) != MAGIC[i]) return false;
-		return true;
-	}
-
-	public static function pack(payload:Bytes, mode:Int, ?pass:String, ?scriptName:String):Bytes {
-		if (pass == null) pass = getPassword(scriptName);
-		var salt = randomBytes(SALT_SIZE);
-		var nonce = randomBytes(NONCE_SIZE);
-		var keys = deriveKeys(pass, salt);
-		var cipher = ChaCha20.xorBytes(keys.enc, nonce, 1, payload);
-
-		var buf = new BytesBuffer();
-		for (v in MAGIC) buf.addByte(v);
-		buf.addByte(VERSION);
-		buf.addByte(mode);
-		buf.addByte(0);
-		buf.addByte(0);
-		buf.add(salt);
-		buf.add(nonce);
-		var len = cipher.length;
-		buf.addByte(len & 0xFF);
-		buf.addByte((len >>> 8) & 0xFF);
-		buf.addByte((len >>> 16) & 0xFF);
-		buf.addByte((len >>> 24) & 0xFF);
-		buf.add(cipher);
-		var body = buf.getBytes();
-
-		var tag = hmacTag(keys.mac, body);
-		var out = new BytesBuffer();
-		out.add(body);
-		out.add(tag);
-		return out.getBytes();
-	}
-
-	public static function unpack(data:Bytes, ?pass:String, ?scriptName:String):{mode:Int, payload:Bytes} {
-		if (pass == null) pass = getPassword(scriptName);
-		if (!isContainer(data))
-			throw "ScriptCrypto: not an encrypted script container";
-		if (data.get(4) != VERSION)
-			throw 'ScriptCrypto: unsupported container version ' + data.get(4);
-
-		var salt = data.sub(8, SALT_SIZE);
-		var nonce = data.sub(24, NONCE_SIZE);
-
-		var len = data.get(36) | (data.get(37) << 8) | (data.get(38) << 16) | (data.get(39) << 24);
-		if (len < 0 || HEADER_SIZE + len + TAG_SIZE != data.length)
-			throw "ScriptCrypto: corrupted container (bad length)";
-
-		var body = data.sub(0, HEADER_SIZE + len);
-		var tagBytes = data.sub(HEADER_SIZE + len, TAG_SIZE);
-
-		var keys = deriveKeys(pass, salt);
-		var expected = hmacTag(keys.mac, body);
-		if (!constantTimeEquals(expected, tagBytes))
-			throw "ScriptCrypto: integrity check failed (wrong key or corrupted file)";
-
-		var cipher = data.sub(HEADER_SIZE, len);
-		return {
-			mode: data.get(5),
-			payload: ChaCha20.xorBytes(keys.enc, nonce, 1, cipher)
-		};
-	}
-
-	static function constantTimeEquals(a:Bytes, b:Bytes):Bool {
-		if (a.length != b.length) return false;
-		var diff = 0;
-		for (i in 0...a.length) diff |= a.get(i) ^ b.get(i);
-		return diff == 0;
-	}
 }
