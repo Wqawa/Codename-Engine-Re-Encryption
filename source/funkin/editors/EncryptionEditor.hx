@@ -104,17 +104,26 @@ class EncryptionEditor extends UIState {
 	public var packModeText:UIText;
 	public var currentPackMode:Int = 0;
 
-	// pack restore: decrypts a sealed pack back into a plain zip. The work runs on
-	// a worker thread, so these fields are read by update() while it writes them.
-	public var restoreBarBg:FlxSprite;
-	public var restoreBar:FlxSprite;
-	public var restoreText:UIText;
-	public var restoring:Bool = false;
-	public var restoreProgress:Float = 0;
-	public var restoreDone:Bool = false;
-	public var restoreError:String = null;
-	public var restoreOut:String = null;
-	public var restoreName:String = "";
+	// pack jobs: sealing a mod pack or unwrapping one again. Both run on a worker
+	// thread, so update() only reads these plain values while it writes them.
+	static inline var JOB_NONE:Int = 0;
+	static inline var JOB_ENCRYPT:Int = 1;
+	static inline var JOB_DECRYPT:Int = 2;
+	public var jobBarBg:FlxSprite;
+	public var jobBar:FlxSprite;
+	public var jobText:UIText;
+	public var jobActive:Bool = false;
+	public var jobKind:Int = JOB_NONE;
+	public var jobProgress:Float = 0;
+	public var jobDone:Bool = false;
+	public var jobError:String = null;
+	public var jobOut:String = null;
+	public var jobName:String = "";
+	/** 0..1 opacity of the progress row; it fades in for a job and out afterwards. */
+	public var jobFade:Float = 0;
+	public var jobFadeTarget:Float = 0;
+	/** seconds the finished result stays readable before the row fades away. */
+	public var jobHold:Float = 0;
 
 	// tab bar: every tab owns a list of widgets that are simply hidden while
 	// another tab is selected, the way the rest of the editor screens work
@@ -131,6 +140,8 @@ class EncryptionEditor extends UIState {
 	public var helpBar:UIScrollBar;
 	public var helpScroll:Float = 0;
 	public var helpHeight:Float = 0;
+	/** frames left to keep re-measuring the help text while its font is still settling. */
+	var helpMeasureFrames:Int = 0;
 	var helpViewX:Float = 20;
 	var helpViewY:Float = 100;
 	var helpViewW:Float = 100;
@@ -239,8 +250,12 @@ class EncryptionEditor extends UIState {
 			tintButton(tabs[i], i == index ? 0xFFFFFFFF : 0xFF8A8A96);
 
 		applyScroll();
-		applyHelpScroll();
-		if (index == TAB_HELP) status("Help - scroll the text with the mouse wheel.");
+		if (index == TAB_HELP) {
+			// the text may only have its final height now that the tab is on screen
+			helpMeasureFrames = 0;
+			refreshHelpLayout(true);
+			status("Help - scroll the text with the mouse wheel.");
+		} else applyHelpScroll();
 	}
 
 	function tintButton(btn:UIButton, color:Int) {
@@ -327,56 +342,60 @@ class EncryptionEditor extends UIState {
 		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
 		track(g, new UIButton(440, CONTENT_Y + 430, "Choose encrypted .zip and Decrypt...", decryptModPack, 440, 40));
 
-		// restore progress, laid out like the loading screen the game shows when it
-		// decrypts a pack at start up
-		track(g, restoreText = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "No pack is being decrypted.", 13, 0xFF9BE28C, false));
-		track(g, restoreBarBg = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
-		track(g, restoreBar = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
+		// pack job progress, laid out like the loading screen the game shows when it
+		// decrypts a pack at start up. The row is invisible until a job needs it and
+		// updateJob() fades it in and out, so it never sits there as dead UI.
+		track(g, jobText = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFF9BE28C, false));
+		track(g, jobBarBg = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
+		track(g, jobBar = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
 		// scaling around the left edge keeps the bar growing to the right
-		restoreBar.origin.set(0, 0);
-		restoreBar.scale.x = 0.001;
-		restoreBarBg.visible = restoreBar.visible = false;
+		jobBar.origin.set(0, 0);
+		jobBar.scale.x = 0.001;
+		jobText.alpha = jobBarBg.alpha = jobBar.alpha = 0;
+		jobBarBg.visible = jobBar.visible = false;
 	}
 
 	static var HELP_BODY:String =
 		"WHAT THIS TOOL DOES\n\n"
-		+ "The Scripts tab turns HScript files into protected .hxb containers. The Mod Pack tab wraps a zip\n"
-		+ "mod into a CNEZ container (or turns it into a standard AES-256 password zip), turns a key into a\n"
-		+ "shareable token and back, and unwraps a sealed pack into a plain zip again.\n\n"
-		+ "scripts - three modes, picked with the radio buttons\n\n"
-		+ "  - source only: the text is encrypted, a key is needed to load it.\n"
-		+ "  - VM bytecode only: compiled to the CNE virtual machine, runs without any key, no readable source.\n"
-		+ "  - both (default): bytecode plus an encrypted copy of the source, a key is needed.\n\n"
-		+ "Select several files at once: every file becomes its own block in the scrollable preview (the\n"
-		+ "file name is on the first line of each block and stays in the preview title) and a multi file save\n"
-		+ "writes them all into one folder as name_encrypted.hxb / name_decrypted.hx.\n\n"
-		+ "keys\n\n"
-		+ "The key comes from the Password field, script_key.txt, or the built-in engine key. A custom key\n"
-		+ "must also be written into script_key.txt (next to the executable), otherwise the engine cannot\n"
-		+ "open the files again. File > Reload Key File re-reads the file without restarting.\n\n"
-		+ "script_key.txt accepts two formats:\n\n"
-		+ "  - one key for everything: nothing but the key on the first line.\n"
-		+ "  - one key per file: name = key per line, where name is a file name, a name without extension,\n"
-		+ "    a mod relative path, or * as fallback. Lines starting with # or // are comments.\n\n"
-		+ "key tokens (mod packs only)\n\n"
-		+ "A token (CNEK1-...) is the key rewritten as different text, made on the Mod Pack tab above the\n"
-		+ "pack exporter. It is what players paste into the prompt that opens an encrypted zip mod; encrypted\n"
-		+ ".hx scripts keep using the plain key. Copy Key / Copy Token put either one on the clipboard.\n\n"
-		+ "zip mod packs\n\n"
-		+ "Encrypted packs are asked for a key before the mod loads, with the option to play without mods.\n"
-		+ "Two export formats, picked with the radio buttons on the Mod Pack tab:\n"
-		+ "  - enhanced: a CNEZ container. No archive tool can open it, only the engine can (needs the key).\n"
-		+ "  - standard: a normal zip whose entries are AES-256 encrypted (WinZip AES). 7-Zip, WinRAR and\n"
-		+ "    Bandizip open it with the password - and so does the engine, so players only type it once.\n"
-		+ "Both formats go back to a plain zip the same way: the Choose encrypted .zip and Decrypt... button\n"
-		+ "  asks for the key of the pack and writes a normal <name>_decrypted.zip. A progress bar shows\n"
-		+ "  what it is doing, so a big pack does not freeze the editor.\n\n"
-		+ "Plain zips load as before. Password zips from other tools load too (ZipCrypto and AES-128/192/256):\n"
-		+ "the password is asked at startup and the engine keeps a readable copy in .CNE_mods/\n"
-		+ "  (hidden, and deleted when the game closes).\n\n"
-		+ "tips\n\n"
-		+ "While a text field is focused, Backspace edits the text and ESC only drops the focus.\n"
-		+ "ESC again leaves the editor. Scroll long text with the mouse wheel over it.\n";
+		+ "The Scripts tab turns .hx / .hscript files into protected .hxb containers, and back.\n"
+		+ "The Mod Pack tab seals a zip mod into a CNEZ container or an AES-256 password zip, unwraps\n"
+		+ "either one into a plain zip again, and turns keys into shareable tokens.\n"
+		+ "\n"
+		+ "scripts - three modes, picked with the radio buttons\n"
+		+ "\n"
+		+ "  source only: the text is encrypted, a key is needed to load it.\n"
+		+ "  bytecode: compiled for the CNE virtual machine, runs without a key, no readable source.\n"
+		+ "  both (default): bytecode plus an encrypted copy of the source, a key is needed.\n"
+		+ "\n"
+		+ "Pick several files at once - each becomes a block in the preview, and a multi file save\n"
+		+ "writes name_encrypted.hxb / name_decrypted.hx into one folder.\n"
+		+ "\n"
+		+ "keys\n"
+		+ "\n"
+		+ "The key comes from the Password field, script_key.txt, or the built-in engine key. A custom\n"
+		+ "key must also be in script_key.txt next to the executable, or the engine cannot open the\n"
+		+ "files again. File > Reload Key File re-reads it without a restart. script_key.txt holds\n"
+		+ "either one key on its first line, or one \"name = key\" per line, where name is a file name,\n"
+		+ "a name without extension, a mod relative path, or * as fallback; # and // start a comment.\n"
+		+ "\n"
+		+ "key tokens (mod packs): a token (CNEK1-...) is the key rewritten as different text. Players\n"
+		+ "paste it into the prompt that opens an encrypted zip mod. Copy Key / Copy Token put either\n"
+		+ "one on the clipboard; encrypted .hx scripts keep using the plain key.\n"
+		+ "\n"
+		+ "mod pack formats\n"
+		+ "\n"
+		+ "  CNEZ container: only the engine can open it, the key is required.\n"
+		+ "  AES-256 zip: 7-Zip, WinRAR and Bandizip open it with the password, and so does the\n"
+		+ "  engine, so players only type the password once.\n"
+		+ "\n"
+		+ "Encrypting and decrypting both run in the background with a progress bar and write a new\n"
+		+ "file next to the source: name_encrypted.zip, name_password.zip or name_decrypted.zip.\n"
+		+ "Plain zips load as before; password zips from other tools load too (ZipCrypto, AES-128/192/\n"
+		+ "256) - the password is asked at startup and the readable copy stays in the hidden\n"
+		+ ".CNE_mods folder, which is deleted when the game closes.\n"
+		+ "\n"
+		+ "tips: while a text field is focused Backspace edits it and ESC only drops the focus, ESC\n"
+		+ "again leaves the editor. The mouse wheel scrolls this page and the preview.\n";
 
 	function buildHelpTab() {
 		var g = tabGroups[TAB_HELP];
@@ -392,22 +411,56 @@ class EncryptionEditor extends UIState {
 
 		track(g, helpText = new UIText(helpViewX, helpViewY, helpViewW, HELP_BODY, 13, 0xFFE0E0E8, false));
 		helpText.wordWrap = true;
-		helpHeight = Math.ceil(helpText.textField.textHeight) + 8;
 		helpScroll = 0;
+		// the height of a wrapped text is only final once the font has been laid out,
+		// so the page measures itself again on the first frames it is on screen
+		refreshHelpLayout(true);
+	}
 
-		if (helpHeight > helpViewH) {
-			var length = helpHeight - helpViewH;
-			var size = (helpViewH / helpHeight) * helpViewH;
-			if (size < 24) size = 24;
-			if (size > helpViewH) size = helpViewH;
-			helpBar = new UIScrollBar(FlxG.width - 40, helpViewY, length, -size * 0.5, size, 20, Std.int(helpViewH));
-			helpBar.alpha = 1;
-			helpBar.onChange = function(v) {
-				setHelpScroll(v);
-				if (helpBar != null) helpBar.start = helpScroll - helpBar.size * 0.5;
-			};
-			track(g, helpBar);
+	/**
+	 * Measures the help text and creates, resizes or drops the scroll bar to match.
+	 * A stale measurement is what used to leave the bar with a wrong thumb, or no
+	 * bar at all on a page taller than the window.
+	 */
+	function refreshHelpLayout(force:Bool = false) {
+		if (helpText == null) return;
+
+		var h = Math.ceil(helpText.textField.textHeight) + 8;
+		if (!force && Math.abs(h - helpHeight) < 1) return;
+		helpHeight = h;
+
+		var maxScroll = helpHeight - helpViewH;
+		if (maxScroll < 0) maxScroll = 0;
+
+		if (maxScroll <= 0) {
+			if (helpBar != null) {
+				tabGroups[TAB_HELP].remove(helpBar);
+				remove(helpBar, true);
+				helpBar.destroy();
+				helpBar = null;
+			}
+			setHelpScroll(0);
+			return;
 		}
+
+		var size = (helpViewH / helpHeight) * helpViewH;
+		if (size < 24) size = 24;
+		if (size > helpViewH) size = helpViewH;
+
+		if (helpBar == null) {
+			helpBar = new UIScrollBar(FlxG.width - 40, helpViewY, maxScroll, -size * 0.5, size, 20, Std.int(helpViewH));
+			helpBar.alpha = 1;
+			// the thumb is placed by setHelpScroll, so the wheel and a drag agree
+			helpBar.onChange = function(v) setHelpScroll(v);
+			track(tabGroups[TAB_HELP], helpBar);
+			helpBar.visible = currentTab == TAB_HELP;
+			helpBar.active = currentTab == TAB_HELP;
+		} else {
+			helpBar.length = maxScroll;
+			helpBar.size = size;
+		}
+
+		setHelpScroll(helpScroll);
 	}
 
 	function isMouseOverHelp():Bool {
@@ -421,6 +474,8 @@ class EncryptionEditor extends UIState {
 		if (value < 0) value = 0;
 		if (value > maxScroll) value = maxScroll;
 		helpScroll = value;
+		// also move the thumb when the wheel scrolled, not only when it was dragged
+		if (helpBar != null) helpBar.start = helpScroll - helpBar.size * 0.5;
 		applyHelpScroll();
 	}
 
@@ -452,7 +507,14 @@ class EncryptionEditor extends UIState {
 	public override function update(elapsed:Float) {
 		super.update(elapsed);
 		handleBackInput();
-		updateRestore();
+		updateJob(elapsed);
+
+		// the wrapped help text settles its height over the first frames it is shown,
+		// so keep measuring for a moment and resize the scroll bar when it changes
+		if (currentTab == TAB_HELP && helpMeasureFrames < 12) {
+			helpMeasureFrames++;
+			refreshHelpLayout();
+		}
 
 		if (FlxG.mouse.wheel != 0 && !fileDialogOpen) {
 			if (currentTab == TAB_SCRIPTS && isMouseOverPreview())
@@ -602,6 +664,10 @@ class EncryptionEditor extends UIState {
 	 * CNEZ container (strong) or a standard AES-256 password zip.
 	 */
 	function encryptModPack() {
+		if (jobActive) {
+			status("Wait for the current pack job to finish - watch the progress bar.");
+			return;
+		}
 		fileDialogOpen = true;
 		FileDialog.openFile(FlxG.stage.window, "Choose the mod pack (.zip) to encrypt", function(files, filter) {
 			if (files == null || files.length == 0) {
@@ -644,18 +710,7 @@ class EncryptionEditor extends UIState {
 		FileDialog.saveFile(FlxG.stage.window, standard ? "Save AES-256 Password Zip" : "Save Encrypted Mod Pack", function(outPath, filter) {
 			fileDialogOpen = false;
 			if (outPath == null || outPath.length == 0) return;
-			try {
-				if (standard) {
-					ZipAes.encryptZip(path, outPath, key);
-					status("Password zip saved to " + outPath + ". 7-Zip / WinRAR open it with the key; the engine asks players for the same password or a token.");
-				} else {
-					var bytes = ModPackCrypto.pack(File.getBytes(path), key);
-					File.saveBytes(outPath, bytes);
-					status("Encrypted mod pack saved to " + outPath + " (" + bytes.length + " bytes). Put the key or a key token into the readme.");
-				}
-			} catch(e:Dynamic) {
-				status("Failed to save: " + Std.string(e));
-			}
+			startPackJob(JOB_ENCRYPT, path, outPath, key, standard);
 		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
 	}
 
@@ -668,8 +723,8 @@ class EncryptionEditor extends UIState {
 	 * progress screen when it has to decrypt a pack at start up.
 	 */
 	function decryptModPack() {
-		if (restoring) {
-			status("Still decrypting " + restoreName + " - watch the progress bar.");
+		if (jobActive) {
+			status("Wait for the current pack job to finish - watch the progress bar.");
 			return;
 		}
 		fileDialogOpen = true;
@@ -698,50 +753,61 @@ class EncryptionEditor extends UIState {
 		FileDialog.saveFile(FlxG.stage.window, "Save the decrypted (plain) mod pack", function(outPath, filter) {
 			fileDialogOpen = false;
 			if (outPath == null || outPath.length == 0) return;
-			startRestore(path, outPath, container, packKey(path));
+			startPackJob(JOB_DECRYPT, path, outPath, packKey(path), false);
 		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
 	}
-	/** Starts the worker thread that unwraps the pack into `outPath`. */
-	function startRestore(srcPath:String, outPath:String, container:Bool, key:String) {
-		if (restoring) return;
-		restoring = true;
-		restoreDone = false;
-		restoreError = null;
-		restoreProgress = 0;
-		restoreOut = outPath;
-		restoreName = Path.withoutDirectory(srcPath);
 
-		if (restoreBarBg != null) restoreBarBg.visible = true;
-		if (restoreBar != null) {
-			restoreBar.visible = true;
-			restoreBar.scale.x = 0.001;
+	/**
+	 * Runs an encrypt or a decrypt job on a worker thread. Both go through the same
+	 * progress row, so the editor never freezes on a 100+ MB pack.
+	 */
+	function startPackJob(kind:Int, srcPath:String, outPath:String, key:String, standard:Bool) {
+		if (jobActive) return;
+
+		jobActive = true;
+		jobKind = kind;
+		jobDone = false;
+		jobError = null;
+		jobProgress = 0;
+		jobOut = outPath;
+		jobName = Path.withoutDirectory(srcPath);
+		jobHold = 0;
+		jobFadeTarget = 1;
+		if (jobText != null) {
+			jobText.color = 0xFF9BE28C;
+			jobText.text = "0%  -  reading " + jobName + "...";
 		}
-		if (restoreText != null) {
-			restoreText.color = 0xFF9BE28C;
-			restoreText.text = "0%  -  reading " + restoreName + "...";
-		}
-		status("Decrypting " + restoreName + " ...");
+		status((kind == JOB_ENCRYPT ? "Encrypting " : "Decrypting ") + jobName + " ...");
 
 		var work = function() {
 			try {
-				if (container) {
+				if (kind == JOB_ENCRYPT) {
+					if (standard) {
+						ZipAes.encryptZip(srcPath, outPath, key, function(p:Float) jobProgress = p * 0.98);
+					} else {
+						var data = File.getBytes(srcPath);
+						jobProgress = 0.03;
+						var bytes = ModPackCrypto.pack(data, key, function(p:Float) jobProgress = 0.03 + p * 0.92);
+						File.saveBytes(outPath, bytes);
+					}
+				} else if (ModPackCrypto.isEncryptedPackFile(srcPath)) {
 					var data = File.getBytes(srcPath);
-					var plain = ModPackCrypto.unpack(data, key, function(p:Float) restoreProgress = p * 0.9);
-					restoreProgress = 0.95;
+					var plain = ModPackCrypto.unpack(data, key, function(p:Float) jobProgress = p * 0.9);
+					jobProgress = 0.95;
 					File.saveBytes(outPath, plain);
 				} else {
-					var cached = ZipPassword.extractToCache(srcPath, key, function(p:Float) restoreProgress = p * 0.85);
+					var cached = ZipPassword.extractToCache(srcPath, key, function(p:Float) jobProgress = p * 0.85);
 					if (cached == null) throw "nothing was decrypted";
-					restoreProgress = 0.9;
+					jobProgress = 0.9;
 					// copy, do not move: the game may still be reading that copy
 					File.copy(cached, outPath);
 				}
-				restoreProgress = 1;
+				jobProgress = 1;
 			} catch (e:Dynamic) {
-				restoreError = Std.string(e);
-				restoreProgress = 1;
+				jobError = Std.string(e);
+				jobProgress = 1;
 			}
-			restoreDone = true;
+			jobDone = true;
 		};
 
 		#if target.threaded
@@ -750,41 +816,66 @@ class EncryptionEditor extends UIState {
 		work();
 		#end
 	}
-	/** Draws the bar and reports the result once the worker is done. */
-	function updateRestore() {
-		if (!restoring) return;
 
-		var p = restoreProgress;
+	/** Fades the progress row in and out, and reports the result once the worker is done. */
+	function updateJob(elapsed:Float) {
+		if (jobFade != jobFadeTarget) {
+			var step = elapsed * 6;
+			if (step > 1) step = 1;
+			jobFade = FlxMath.lerp(jobFade, jobFadeTarget, step);
+			if (Math.abs(jobFade - jobFadeTarget) < 0.01) jobFade = jobFadeTarget;
+		}
+
+		var p = jobProgress;
 		if (p < 0) p = 0;
 		if (p > 1) p = 1;
-		if (restoreBar != null) restoreBar.scale.x = Math.max(0.001, p);
 		var percent = Std.int(p * 100) + "%";
+		var verb = jobKind == JOB_ENCRYPT ? "encrypting" : "decrypting";
 
-		if (!restoreDone) {
-			if (restoreBarBg != null) restoreBarBg.visible = true;
-			if (restoreText != null) restoreText.text = percent + "  -  decrypting " + restoreName + " ...";
-			return;
+		if (jobActive) {
+			if (jobBar != null) jobBar.scale.x = Math.max(0.001, p);
+			if (jobText != null) jobText.text = percent + "  -  " + verb + " " + jobName + " ...";
 		}
 
-		restoring = false;
-		if (restoreError != null) {
-			if (restoreText != null) {
-				restoreText.color = 0xFFFF6B6B;
-				restoreText.text = "Failed: " + restoreError;
+		if (jobActive && jobDone) {
+			jobActive = false;
+			jobHold = 2.5; // keep the result readable, then let the row fade away
+			if (jobError != null) {
+				if (jobText != null) {
+					jobText.color = 0xFFFF6B6B;
+					jobText.text = "Failed: " + jobError;
+				}
+				status("Could not " + verb + " " + jobName + ": " + jobError);
+			} else {
+				if (jobBar != null) jobBar.scale.x = 1;
+				var size = 0.0;
+				try size = sys.FileSystem.stat(jobOut).size catch (e:Dynamic) {}
+				var mb = Std.int(size / 1048576);
+				if (jobText != null) jobText.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + mb + " MB).";
+				status((jobKind == JOB_ENCRYPT ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + mb + " MB).");
 			}
-			status("Could not decrypt " + restoreName + ": " + restoreError);
-			return;
+		} else if (!jobActive && jobHold > 0) {
+			jobHold -= elapsed;
+			if (jobHold <= 0) {
+				jobHold = 0;
+				jobFadeTarget = 0;
+			}
 		}
 
-		var size = 0.0;
-		try size = sys.FileSystem.stat(restoreOut).size catch (e:Dynamic) {}
-		if (restoreText != null) {
-			restoreText.color = 0xFF9BE28C;
-			restoreText.text = "100%  -  " + restoreName + " is a plain zip again (" + Std.int(size / 1048576) + " MB).";
+		var shown = jobFade > 0.001;
+		if (jobText != null) {
+			jobText.alpha = jobFade;
+			jobText.visible = shown;
 		}
-		status("Decrypted " + restoreName + " to " + restoreOut + " (" + Std.int(size / 1048576) + " MB). It is a plain zip again.");
+		if (jobBarBg != null) {
+			jobBarBg.alpha = jobFade;
+			jobBarBg.visible = shown;
+		}
+		if (jobBar != null) {
+			jobBar.alpha = jobFade;
+			jobBar.visible = shown;
+		}
 	}
-
 	// ---------------------------------------------------------------- file input
 
 	function openScriptDialog() {

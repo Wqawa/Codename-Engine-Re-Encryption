@@ -107,7 +107,7 @@ class ZipAes {
 	 * compressed bytes are carried over untouched, so nothing is re-compressed
 	 * and the output can be opened by any tool that knows WinZip AES.
 	 */
-	public static function encryptZip(srcPath:String, outPath:String, pass:String):Void {
+	public static function encryptZip(srcPath:String, outPath:String, pass:String, ?onProgress:Float->Void):Void {
 		#if sys
 		if (pass == null || pass.length == 0) throw "ZipAes: missing password";
 
@@ -183,6 +183,8 @@ class ZipAes {
 
 				pos += 30 + name.length + (isDir ? 0 : (extra == null ? 0 : extra.length)) + data.length;
 				count++;
+				// one entry per call: a pack has hundreds of them, so the bar moves
+				if (onProgress != null && entries.length > 0) onProgress(count / entries.length);
 			}
 
 			var cd = central.getBytes();
@@ -209,6 +211,7 @@ class ZipAes {
 
 		if (FileSystem.exists(outPath)) FileSystem.deleteFile(outPath);
 		FileSystem.rename(tmp, outPath);
+		if (onProgress != null) onProgress(1);
 		#end
 	}
 

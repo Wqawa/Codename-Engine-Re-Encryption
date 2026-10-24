@@ -147,14 +147,17 @@ class ModPackCrypto {
 
 	// ------------------------------------------------------------ container
 
-	public static function pack(zipBytes:Bytes, ?pass:String):Bytes {
+	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
 		var salt = ScriptCrypto.randomBytes(SALT_SIZE);
 		var nonce = ScriptCrypto.randomBytes(NONCE_SIZE);
 		var keys = ScriptCrypto.deriveKeys(pass, salt);
-		var cipher = ChaCha20.xorBytes(keys.enc, nonce, 1, zipBytes);
+		// the cipher pass is the slow half, so it reports the progress it makes
+		var cipher = onProgress == null
+			? ChaCha20.xorBytes(keys.enc, nonce, 1, zipBytes)
+			: ChaCha20.xorBytes(keys.enc, nonce, 1, zipBytes, function(p:Float) onProgress(0.05 + 0.9 * p));
 
 		var buf = new BytesBuffer();
 		for (v in MAGIC) buf.addByte(v);
@@ -175,6 +178,7 @@ class ModPackCrypto {
 		var out = new BytesBuffer();
 		out.add(body);
 		out.add(ScriptCrypto.hmacTag(keys.mac, body));
+		if (onProgress != null) onProgress(1);
 		return out.getBytes();
 	}
 
