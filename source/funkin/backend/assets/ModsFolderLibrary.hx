@@ -1,5 +1,6 @@
 package funkin.backend.assets;
 
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import openfl.utils.AssetLibrary;
 import lime.media.AudioBuffer;
 import lime.graphics.Image;
@@ -142,9 +143,16 @@ class ModsFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 			var file = new haxe.io.Path(_parsedAsset);
 			if(file.file.startsWith("LIB_")) {
 				var library = file.file.substr(4);
+				// A protected state script is called "LIB_<mod>_protected.hxb"; keep the
+				// suffix on the resolved path so it still points at the file on disk.
+				var suffix = "";
+				if (library.endsWith(ScriptCrypto.PROTECTED_SUFFIX)) {
+					suffix = ScriptCrypto.PROTECTED_SUFFIX;
+					library = library.substr(0, library.length - suffix.length);
+				}
 				if(library != modName) return false;
 
-				_parsedAsset = file.dir + "." + file.ext;
+				_parsedAsset = file.dir + suffix + "." + file.ext;
 			}
 		}
 		return true;

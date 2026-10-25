@@ -1,6 +1,8 @@
 package funkin.editors.charter;
 
 import flixel.math.FlxPoint;
+import funkin.backend.scripting.Script;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import haxe.io.Path;
 
 class CharterNoteTypesList extends UISubstateWindow {
@@ -51,8 +53,10 @@ class CharterNoteTypesList extends UISubstateWindow {
 
 	public function getNoteTypesList(?mods:Bool = false) {
 		var list:Array<String> = [];
-		for (path in Paths.getFolderContent(pathString, true, mods ? MODS : BOTH)) if(Path.extension(path) == "hx") {
-				var file:String = Path.withoutDirectory(path);
+		// Not just ".hx": encrypted mods ship "foo_protected.hxb", and the note type
+		// name the charter writes into the chart is the one without that suffix.
+		for (path in Paths.getFolderContent(pathString, true, mods ? MODS : BOTH)) if(Script.scriptExtensions.contains(Path.extension(path).toLowerCase())) {
+				var file:String = ScriptCrypto.unprotectName(Path.withoutDirectory(path));
 				list.pushOnce(file);
 			}
 

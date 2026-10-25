@@ -7,6 +7,7 @@ import lime.graphics.Image;
 import lime.media.AudioBuffer;
 import lime.text.Font;
 import lime.utils.Bytes;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import openfl.utils.AssetLibrary;
 import sys.io.File;
 
@@ -119,9 +120,16 @@ class ZipFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 			var file = new haxe.io.Path(_parsedAsset);
 			if(file.file.startsWith("LIB_")) {
 				var library = file.file.substr(4);
+				// See ModsFolderLibrary: "LIB_<mod>_protected.hxb" resolves to the
+				// protected file inside the pack instead of failing the mod name check.
+				var suffix = "";
+				if (library.endsWith(ScriptCrypto.PROTECTED_SUFFIX)) {
+					suffix = ScriptCrypto.PROTECTED_SUFFIX;
+					library = library.substr(0, library.length - suffix.length);
+				}
 				if(library != modName) return false;
 
-				_parsedAsset = file.dir + "." + file.ext;
+				_parsedAsset = file.dir + suffix + "." + file.ext;
 			}
 		}
 

@@ -9,6 +9,7 @@ import funkin.backend.scripting.bytecode.Chunk;
 import funkin.backend.scripting.bytecode.OpMap;
 import funkin.backend.scripting.bytecode.ScriptContainer;
 import funkin.backend.scripting.bytecode.VM;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 
 class HScript extends Script {
 	public var interp:Interp;
@@ -59,10 +60,10 @@ class HScript extends Script {
 				if(Path.extension(rawPath).toLowerCase() == ScriptContainer.EXTENSION) {
 					// Protected container: the password comes from the key files / the resolved CNEK1- token.
 					var packed = ScriptContainer.unpack(Assets.getBytes(rawPath), null, fileName);
+					code = packed.source;
+					containerFlags = packed.flags;
 					bytecode = packed.chunk;
 					opMap = packed.map;
-					containerFlags = packed.flags;
-					code = packed.source;
 				} else code = Assets.getText(rawPath);
 			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');
@@ -111,12 +112,15 @@ class HScript extends Script {
 	}
 	private function _importFailedCallback(cl:Array<String>, prefix:String):Bool {
 		var assetsPath = 'assets/$prefix${cl.join("/")}';
-		for(hxExt in ["hx", "hscript", "hsc", "hxs"]) {
-			var p = '$assetsPath.$hxExt';
+		// A module shipped inside an encrypted mod is named "name_protected.hxb"; without this
+		// the import of such a module fails and the whole addon/mod script silently dies.
+		for(suffix in ["", ScriptCrypto.PROTECTED_SUFFIX])
+		for(hxExt in ["hx", "hscript", "hsc", "hxs", ScriptContainer.EXTENSION]) {
+			var p = '$assetsPath$suffix.$hxExt';
 			if (__importedPaths.exists(p))
 				return true; // no need to reimport again
 			if (Assets.exists(p)) {
-				var code = Assets.getText(p);
+				var code = _importSource(p);
 				var expr:Expr = null;
 				try {
 					if (code != null && code.length > 0) {
@@ -137,6 +141,24 @@ class HScript extends Script {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Source of a module that an "import" pulled in: a plain script is just its text, a
+	 * protected container has to be unpacked first. Only source-mode containers can be
+	 * imported (bytecode has no module-level expression to hand to the interpreter).
+	 */
+	private function _importSource(p:String):String {
+		if (Path.extension(p).toLowerCase() != ScriptContainer.EXTENSION) return Assets.getText(p);
+		try {
+			var packed = ScriptContainer.unpack(Assets.getBytes(p), null, p);
+			if (packed.source == null || packed.source.length == 0)
+				Logs.warn('Cannot import "$p": the container holds bytecode only');
+			return packed.source;
+		} catch (e:Dynamic) {
+			Logs.error('Error while reading $p: ${Std.string(e)}');
+		}
+		return null;
 	}
 
 	private function _errorHandler(error:Error) {

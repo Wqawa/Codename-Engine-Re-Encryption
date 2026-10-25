@@ -39,6 +39,25 @@ class ScriptCrypto {
 	/** Set by setPassword(); overrides every key file. */
 	public static var password:String = null;
 
+	/**
+	 * Suffix the Encryption Editor puts on a protected script: "name.hx" becomes
+	 * "name_protected.hxb". The engine has to strip it whenever it looks a script up
+	 * by name, otherwise data/notes/foo_protected.hxb can never answer for "foo".
+	 */
+	public static inline var PROTECTED_SUFFIX:String = "_protected";
+
+	/**
+	 * Removes PROTECTED_SUFFIX from a file name. Works with or without extension,
+	 * and returns the name unchanged when the suffix is not there.
+	 */
+	public static function unprotectName(name:String):String {
+		if (name == null) return null;
+		var ext = haxe.io.Path.extension(name);
+		var stem = (ext.length > 0) ? name.substr(0, name.length - ext.length - 1) : name;
+		if (StringTools.endsWith(stem, PROTECTED_SUFFIX)) stem = stem.substr(0, stem.length - PROTECTED_SUFFIX.length);
+		return (ext.length > 0) ? '$stem.$ext' : stem;
+	}
+
 	/** Single key read from a key file that has no "name = key" lines. */
 	static var singleKey:String = null;
 	/** Per-script keys read from the "name = key" lines ("*" = fallback). */
@@ -311,9 +330,9 @@ class ScriptCrypto {
 			var stem = dot > 0 ? base.substr(0, dot) : base;
 
 			var candidates = [full, base, stem, stem + ".hx", stem + ".hxb", stem + ".hscript"];
-			// "_encrypted" / "_decrypted" copies made by the editor still map to the
-			// key of the script they came from.
-			for (suffix in ["_encrypted", "_decrypted"]) {
+			// "_encrypted" / "_decrypted" / "_protected" copies made by the editor still
+			// map to the key of the script they came from.
+			for (suffix in ["_encrypted", "_decrypted", PROTECTED_SUFFIX]) {
 				if (StringTools.endsWith(stem, suffix)) {
 					var bare = stem.substr(0, stem.length - suffix.length);
 					candidates.push(bare);

@@ -19,6 +19,7 @@ import funkin.backend.chart.ChartData;
 import funkin.backend.chart.EventsData;
 import funkin.backend.scripting.DummyScript;
 import funkin.backend.scripting.Script;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.scripting.ScriptPack;
 import funkin.backend.scripting.events.*;
 import funkin.backend.scripting.events.gameplay.*;
@@ -792,7 +793,8 @@ class PlayState extends MusicBeatState
 					for (event in SONG.events) songEvents.pushOnce(event.name);
 
 					for (file in Paths.getFolderContent('data/events/', true, fromMods ? MODS : BOTH)) {
-						var fileName:String = CoolUtil.getFilename(file);
+						// "Change Character_protected.hxb" is the script for "Change Character".
+						var fileName:String = ScriptCrypto.unprotectName(CoolUtil.getFilename(file));
 						if (EventsData.eventsList.contains(fileName) && songEvents.contains(fileName)) {
 							addScript(file);
 						}

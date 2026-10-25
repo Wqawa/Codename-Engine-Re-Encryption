@@ -9,6 +9,7 @@ import funkin.backend.utils.XMLUtil.XMLImportedScriptInfo;
 import funkin.backend.system.interfaces.IBeatReceiver;
 import funkin.backend.scripting.DummyScript;
 import funkin.backend.scripting.Script;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.scripting.events.stage.*;
 import funkin.backend.system.interfaces.IBeatReceiver;
 import haxe.io.Path;
@@ -401,6 +402,7 @@ class Stage extends FlxBasic implements IBeatReceiver {
 		var list:Array<String> = [];
 		var extensions:Array<String> = ["xml"];
 		if (!xmlOnly) extensions.push("hx");
+		if (!xmlOnly) extensions.push("hxb"); // encrypted stage scripts
 
 		if(includeFolders) {
 			for (path in Paths.getFolderDirectories(folder, true, mods ? MODS : BOTH)) {
@@ -413,7 +415,8 @@ class Stage extends FlxBasic implements IBeatReceiver {
 			var extension = Path.extension(path);
 			if (extensions.contains(extension)) {
 				// list.pushOnce("test");
-				list.pushOnce(Path.withoutExtension(path));
+				// "foo_protected.hxb" is the stage called "foo".
+				list.pushOnce(ScriptCrypto.unprotectName(Path.withoutExtension(path)));
 			}
 		}
 

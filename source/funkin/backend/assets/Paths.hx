@@ -14,6 +14,7 @@ import animate.FlxAnimateFrames.FlxAnimateSpritemapCollection;
 
 import funkin.backend.assets.ModsFolder;
 import funkin.backend.scripting.Script;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 
 using StringTools;
 
@@ -177,12 +178,33 @@ class Paths
 	public static inline function script(key:String, ?library:String, isAssetsPath:Bool = false) {
 		var scriptPath = isAssetsPath ? key : getPath(key, library);
 		if (!Assets.exists(scriptPath)) {
+			var basePath = scriptPath;
 			var p:String;
-			for(ex in Script.scriptExtensions) {
-				if (Assets.exists(p = scriptPath + '.' + ex)) {
-					scriptPath = p;
-					break;
+			// Some call sites keep a foreign extension in the key ("data/events/Foo.ui"), which
+			// actually refers to the script "data/events/Foo".
+			var stems:Array<String> = [basePath];
+			var keyExt = Path.extension(basePath).toLowerCase();
+			if (keyExt.length > 0 && !Script.scriptExtensions.contains(keyExt))
+				stems.push(Path.withoutExtension(basePath));
+
+			for(stem in stems) {
+				for(ex in Script.scriptExtensions) {
+					if (Assets.exists(p = stem + '.' + ex)) {
+						scriptPath = p;
+						break;
+					}
 				}
+				// The Encryption Editor writes "name_protected.hxb", so a script looked up by
+				// its plain name has to be able to find that variant too.
+				if (scriptPath == basePath) {
+					for(ex in Script.scriptExtensions) {
+						if (Assets.exists(p = stem + ScriptCrypto.PROTECTED_SUFFIX + '.' + ex)) {
+							scriptPath = p;
+							break;
+						}
+					}
+				}
+				if (scriptPath != basePath) break;
 			}
 		}
 		return scriptPath;
