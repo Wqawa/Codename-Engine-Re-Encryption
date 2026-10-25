@@ -77,6 +77,7 @@ class MainMenuState extends MusicBeatState
 		FlxG.camera.follow(camFollow, null, 0.06);
 
 		versionText = new FunkinText(5, FlxG.height - 2, 0, [
+			Flags.FORK_VERSION_MESSAGE, // Codename Engine Re-Encryption's own version
 			Flags.VERSION_MESSAGE,
 			TU.translate("mainMenu.commit", [Flags.COMMIT_NUMBER, Flags.COMMIT_HASH]),
 			TU.translate("mainMenu.openMods", [controls.getKeyName(SWITCHMOD)]),
