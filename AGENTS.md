@@ -1,7 +1,7 @@
 # AGENTS.md — 协作规则（本仓库）
 
 本仓库是 Codename Engine 1.1.0（官方代码）+ 从用户 1.0.1 分支迁移来的加密/打包功能。
-分支 `migration/crypto-1.1.0`；baseline 提交 `112aa91`（纯 1.1.0），迁移提交 `e9ac49b`。
+分支只有 `main`（本地与远端同名）；baseline 提交 `112aa91`（纯 1.1.0，已打 tag `baseline/upstream-1.1.0`），迁移提交 `e9ac49b`。
 
 ## 0. 文档地图（改文档前先看这里）
 
@@ -59,6 +59,7 @@ haxelib run lime build windows -nocolor   # 构建前先关掉运行中的 Coden
 
 ## 5. 回滚
 
-- 引擎仓库：`git checkout main` 或 `git reset --hard 112aa91`。
+- 引擎仓库：回退单个提交用 `git revert <sha>`；整树回到纯 1.1.0 用 `git reset --hard baseline/upstream-1.1.0`。
+- 远端只保留 `main`（2026-10 清理）。原 17 个远端分支（`archive/*`、`al-mobile`、`old`、`strum-divorce` 等）的 SHA 已保存为本地 tag `backup/remote/<原分支名>`；需要恢复某个分支时执行 `git push origin backup/remote/<原分支名>:refs/heads/<原分支名>`。
 - 迁移来源仓库：`D:/FNF/FNF code/_mig`（`558aa9a` = upstream v1.0.1，`7cd0863` = 用户改动树）。
 - 用户 1.0.1 参考树：`D:/FNF/FNF code/old`。
