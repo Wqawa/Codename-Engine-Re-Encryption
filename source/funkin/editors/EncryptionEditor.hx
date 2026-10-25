@@ -85,14 +85,18 @@ class EncryptionEditor extends UIState {
 	public var tokenKeyBox:UITextBox;
 	public var tokenTokenBox:UITextBox;
 
-	// Scripts tab: one checkbox per layer, plus the two numeric knobs
-	public var scKey:UICheckbox;
-	public var scVM:UICheckbox;
+	// Scripts tab: the protection mode is a required either/or (radio pair, same
+	// widget as the Mod Pack tab), the remaining two layers are optional, plus the
+	// two numeric knobs
+	public var scModeKey:UIRadioButton;
+	public var scModeVM:UIRadioButton;
 	public var scOffset:UICheckbox;
 	public var scSplit:UICheckbox;
 	public var scOffsetBits:UITextBox;
 	public var scSplitCount:UITextBox;
 	public var scSummary:UIText;
+	/** 0 = key encryption, 1 = VM bytecode. Exactly one is active at all times. */
+	public var scriptMode:Int = 0;
 
 	// help tab
 	public var helpText:UIText;
@@ -267,31 +271,39 @@ class EncryptionEditor extends UIState {
 
 		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Protect a script (.hx -> .hxb)", 18, 0xFFFFE066, false));
 		var desc = new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
-			"Every layer below can be switched on by itself, and they combine: one for a quick seal, all four when\n"
-			+ "people are likely to try opening the file. The engine reads .hxb transparently, so a protected script\n"
-			+ "is a drop in replacement for the .hx it came from - same name, different extension.",
+			"Pick one protection mode first - it is required, exactly one of the two. The engine reads .hxb\n"
+			+ "transparently, so a protected script is a drop in replacement for the .hx it came from - same name,\n"
+			+ "different extension. Key mode also keeps a copy of the source, so Decrypt can turn the file back\n"
+			+ "into .hx. VM mode only stores bytecode, so the game runs it but Decrypt has nothing to write out.",
 			12, 0xFFB0B0BE, false);
 		desc.wordWrap = true;
 		track(g, desc);
 
-		track(g, scKey = new UICheckbox(30, CONTENT_Y + 112, "Key encryption - ChaCha20 + HMAC tag, needs the key", false, 540));
-		track(g, scVM = new UICheckbox(30, CONTENT_Y + 144, "VM bytecode - compiled, with a per file opcode permutation", false, 540));
-		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 176, "Byte offset - the whole payload rotated by N bits", false, 540));
-		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 208, "Split - cut into pieces, shuffled, padding in between", false, 540));
+		track(g, new UIText(30, CONTENT_Y + 108, FlxG.width - 60, "Protection mode - pick one (required):", 14, 0xFFFFE066, false));
+		track(g, scModeKey = new UIRadioButton(30, CONTENT_Y + 136,
+			"Key encryption - ChaCha20 + HMAC tag, needs the key (source can be restored)", true, "scriptMode", 620));
+		track(g, scModeVM = new UIRadioButton(30, CONTENT_Y + 168,
+			"VM bytecode - compiled, with a per file opcode permutation (bytecode only)", false, "scriptMode", 620));
 
-		track(g, new UIText(30, CONTENT_Y + 246, 260, "Offset bits (1-16):", 14, 0xFFFFFFFF, false));
-		track(g, scOffsetBits = new UITextBox(260, CONTENT_Y + 242, "8", 90));
-		track(g, new UIText(400, CONTENT_Y + 246, 260, "Split pieces (2-16):", 14, 0xFFFFFFFF, false));
-		track(g, scSplitCount = new UITextBox(600, CONTENT_Y + 242, "4", 90));
+		track(g, new UIText(30, CONTENT_Y + 204, FlxG.width - 60, "Extra layers - optional, they stack on the mode above:", 14, 0xFFFFE066, false));
+		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 230, "Byte offset - the whole payload rotated by N bits", false, 540));
+		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 262, "Split - cut into pieces, shuffled, padding in between", false, 540));
 
-		track(g, new UIButton(30, CONTENT_Y + 296, "Choose .hx scripts and Encrypt...", encryptScripts, 420, 40));
-		track(g, new UIButton(460, CONTENT_Y + 296, "Choose .hxb and Decrypt...", decryptScripts, 440, 40));
+		track(g, new UIText(30, CONTENT_Y + 300, 260, "Offset bits (1-16):", 14, 0xFFFFFFFF, false));
+		track(g, scOffsetBits = new UITextBox(260, CONTENT_Y + 296, "8", 90));
+		track(g, new UIText(400, CONTENT_Y + 300, 260, "Split pieces (2-16):", 14, 0xFFFFFFFF, false));
+		track(g, scSplitCount = new UITextBox(600, CONTENT_Y + 296, "4", 90));
 
-		track(g, scSummary = new UIText(30, CONTENT_Y + 348, FlxG.width - 60, "", 13, 0xFFC8C8D2, false));
+		track(g, new UIButton(30, CONTENT_Y + 348, "Choose .hx scripts and Encrypt...", encryptScripts, 420, 40));
+		track(g, new UIButton(460, CONTENT_Y + 348, "Choose .hxb and Decrypt...", decryptScripts, 440, 40));
+
+		track(g, scSummary = new UIText(30, CONTENT_Y + 400, FlxG.width - 60, "", 13, 0xFFC8C8D2, false));
 		scSummary.wordWrap = true;
 
-		scKey.onChecked = function(_) refreshScriptSummary();
-		scVM.onChecked = function(_) refreshScriptSummary();
+		// clicking the radio that is already selected would uncheck it, so both
+		// handlers route through selectScriptMode instead of only reading .checked
+		scModeKey.onChecked = function(_) selectScriptMode(0);
+		scModeVM.onChecked = function(_) selectScriptMode(1);
 		scOffset.onChecked = function(_) refreshScriptSummary();
 		scSplit.onChecked = function(_) refreshScriptSummary();
 
@@ -308,17 +320,25 @@ class EncryptionEditor extends UIState {
 		refreshScriptSummary();
 	}
 
+	/** Selects the script protection mode (0 = key, 1 = VM); exactly one stays on. */
+	function selectScriptMode(index:Int) {
+		scriptMode = index == 1 ? 1 : 0;
+		setRadio(scModeKey, scriptMode == 0);
+		setRadio(scModeVM, scriptMode == 1);
+		refreshScriptSummary();
+	}
+
 	function refreshScriptSummary() {
 		if (scSummary == null) return;
+		var mode = scriptMode == 1 ? "VM bytecode" : "key";
 		var parts:Array<String> = [];
-		if (scKey.checked) parts.push("key");
-		if (scVM.checked) parts.push("VM bytecode");
 		if (scOffset.checked) parts.push("offset " + intField(scOffsetBits, 8) + " bit");
 		if (scSplit.checked) parts.push("split x" + intField(scSplitCount, 4));
-		if (parts.length == 0)
-			scSummary.text = "No layer selected - the file would be stored as plain text. Pick at least one.";
-		else
-			scSummary.text = "Layers: " + parts.join(" + ") + ".  Output: name_protected.hxb next to the source.";
+		var extra = parts.length == 0 ? "no extra layer" : parts.join(" + ");
+		var restore = scriptMode == 1
+			? "Bytecode only, so Decrypt cannot write the source back out."
+			: "The source travels inside the file, so Decrypt can restore it.";
+		scSummary.text = "Mode: " + mode + " + " + extra + ". " + restore + "  Output: name_protected.hxb next to the source.";
 	}
 
 	/** Reads a number from a text box, clamped to [min, max]; a bad value falls back to def. */
@@ -329,16 +349,19 @@ class EncryptionEditor extends UIState {
 	}
 
 	function scriptOptions():PackOptions {
+		var useKey = scriptMode == 0;
 		return {
-			useKey: scKey.checked,
-			useVM: scVM.checked,
+			useKey: useKey,
+			useVM: !useKey,
 			useOffset: scOffset.checked,
 			offsetBits: intField(scOffsetBits, 8),
 			useSplit: scSplit.checked,
 			splitCount: intField(scSplitCount, 4),
-			// a source fallback is only embedded when it is encrypted as well,
-			// otherwise it would be readable straight out of the container
-			fallbackSource: scKey.checked && scVM.checked,
+			// A source fallback is only ever embedded when it is encrypted as well,
+			// otherwise it would be readable straight out of the container. Keeping
+			// it off now that the modes are exclusive: key mode already stores the
+			// source as the payload, and VM mode has no key to seal a copy with.
+			fallbackSource: false,
 			pass: null,
 			scriptName: null
 		};
@@ -351,8 +374,8 @@ class EncryptionEditor extends UIState {
 		}
 		refreshScriptSummary();
 		var opts = scriptOptions();
-		if (!opts.useKey && !opts.useVM && !opts.useOffset && !opts.useSplit) {
-			status("Pick at least one layer first, otherwise nothing would be protected.");
+		if (!opts.useKey && !opts.useVM) {
+			status("Pick a protection mode first - key encryption or VM bytecode.");
 			return;
 		}
 		fileDialogOpen = true;
@@ -426,7 +449,8 @@ class EncryptionEditor extends UIState {
 						var data = File.getBytes(path);
 						var restored = ScriptContainer.unpack(data, key, Path.withoutDirectory(path));
 						if (restored.source == null)
-							throw Path.withoutDirectory(path) + ": this container holds bytecode only (no source fallback)";
+							throw Path.withoutDirectory(path)
+								+ ": this container holds bytecode only (no source fallback). Re-pack in Key mode to keep the source.";
 						var out = scriptOutPath(path, "hx", "_decrypted");
 						File.saveContent(out, restored.source);
 						jobOut = out;
@@ -490,20 +514,27 @@ class EncryptionEditor extends UIState {
 		+ "\n"
 		+ "the Scripts tab\n"
 		+ "\n"
-		+ "Pick one or more .hx files, switch on the layers you want and it writes name_protected.hxb\n"
-		+ "next to the source. The engine loads .hxb like any other script, so the .hx can be deleted\n"
-		+ "afterwards and the protected file takes its place. Choose .hxb and Decrypt turns it back.\n"
+		+ "Pick one or more .hx files, pick a protection mode, switch on any extra layer you want and\n"
+		+ "it writes name_protected.hxb next to the source. The engine loads .hxb like any other\n"
+		+ "script, so the .hx can be deleted afterwards and the protected file takes its place.\n"
 		+ "\n"
-		+ "  key encryption: ChaCha20 plus an HMAC tag, the same key rules as above.\n"
-		+ "  VM bytecode: compiled to bytecode, with a per file random opcode permutation, so a\n"
-		+ "  disassembly of one script does not describe the next.\n"
+		+ "  protection mode - required, exactly one of the two:\n"
+		+ "  key encryption: ChaCha20 plus an HMAC tag, the same key rules as above. The payload\n"
+		+ "  is the source, so Decrypt can turn the file back into .hx.\n"
+		+ "  VM bytecode: compiled with a per file random opcode permutation, so a disassembly of\n"
+		+ "  one script does not describe the next. Compiling drops the source text, so the file\n"
+		+ "  runs but Decrypt has nothing to write out.\n"
+		+ "\n"
+		+ "  extra layers - optional, they stack on the mode above:\n"
 		+ "  byte offset: the payload is rotated by N bits, which stops a plain file signature.\n"
 		+ "  split: the payload is cut into pieces, shuffled, with random padding in between.\n"
+		+ "  Both are pure byte shuffles: the numbers needed to undo them sit in the plain header,\n"
+		+ "  so they never keep a file from being restored.\n"
 		+ "\n"
-		+ "A .hxb can hold the source, the bytecode, or both. Both means the engine falls back to the\n"
-		+ "source when the bytecode fails, so a newer engine feature cannot brick the script - but the\n"
-		+ "source then travels inside the file, so it is only embedded when key encryption is on.\n"
-		+ "Decrypting a bytecode only file gives an error: there is no source to write out.\n"
+		+ "Why a mode and not both: the source copy is only ever embedded when it is encrypted as\n"
+		+ "well (an unencrypted copy would be readable straight out of the file), and a VM pack has\n"
+		+ "no key to seal it with. So: key mode is the restorable one, VM mode is the one that only\n"
+		+ "the game can read.\n"
 		+ "\n"
 		+ "Encrypting and decrypting both run in the background with a progress bar and write a new\n"
 		+ "file next to the source: name_encrypted.zip, name_password.zip or name_decrypted.zip.\n"
