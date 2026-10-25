@@ -3,6 +3,22 @@
 本仓库是 Codename Engine 1.1.0（官方代码）+ 从用户 1.0.1 分支迁移来的加密/打包功能。
 分支 `migration/crypto-1.1.0`；baseline 提交 `112aa91`（纯 1.1.0），迁移提交 `e9ac49b`。
 
+## 0. 文档地图（改文档前先看这里）
+
+| 文件 | 内容 | 归属 |
+| --- | --- | --- |
+| `README.md` | 仓库门面：本 fork 是什么、新增了什么、构建方法、上游 Usage Info / Credits | 本 fork 维护（英文） |
+| `docs/RE-ENCRYPTION.md` | 加密功能说明书：容器格式、脚本四层、密钥与 token、编辑器用法、能力边界 | 本 fork 维护（中文，源码注释为英文） |
+| `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
+| `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
+| `building/README.md` | 上游编译指南 | **上游，不改正文** |
+
+文档规则：
+
+- 上游文档**只允许在开头加一段"Upstream document, kept unmodified"来源说明**，正文一律不动——这样以后和上游 diff 时不会产生噪声。
+- 上游文档描述的是基座引擎，不代表本 fork 有能力差异；fork 新增功能只写进 `README.md` 与 `docs/RE-ENCRYPTION.md`。
+- `docs/RE-ENCRYPTION.md` 里的格式/数值/路径必须能在源码注释里找到对应（容器布局、KDF 轮数、缓存目录名等），改了源码就同步改文档。
+
 ## 1. 不要大动官方代码
 
 - 优先把功能做成**新增文件/新增分支**（如 `ModPackCrypto.hx`、`ZipPassword.hx`），而不是重写官方实现。

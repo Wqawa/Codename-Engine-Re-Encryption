@@ -1,4 +1,9 @@
 # The Charter Update
+
+> [!NOTE]
+> **Upstream document, kept unmodified.** This file describes Codename Engine 1.1.0 (commit `112aa91`).
+> It does not cover this fork's additions — see [docs/RE-ENCRYPTION.md](docs/RE-ENCRYPTION.md) for those.
+
 ## All major chart editors are finished as of this update (finally...)
 ## Engine goes from alpha to beta state : D
 

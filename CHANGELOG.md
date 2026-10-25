@@ -1,5 +1,10 @@
 # v0.4.0 - First (proper) beta release
 
+> [!NOTE]
+> **Upstream document, kept unmodified.** This file describes Codename Engine 1.1.0 (commit `112aa91`).
+> It does not cover this fork's additions — see [docs/RE-ENCRYPTION.md](docs/RE-ENCRYPTION.md) for those.
+
+
 This changelog lists every change that has been added since the last update (including public changes).
 
 ## Flags System
