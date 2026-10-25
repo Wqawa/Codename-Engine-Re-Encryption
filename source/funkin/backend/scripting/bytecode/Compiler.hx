@@ -409,7 +409,7 @@ class Compiler
 				compileExpr(idxE);
 				emit(Op.GET_INDEX);
 			case EArrayDecl(items, wantedType):
-				compileArrayDecl(items);
+				compileArrayDecl(items, wantedType);
 			case ENew(cl, params, paramType):
 				for (p in params)
 					compileExpr(p);
@@ -764,8 +764,46 @@ class Compiler
 
 	// ------------------------------------------------------------------ arrays/objects
 
-	function compileArrayDecl(items:Array<Expr>):Void
+	/**
+	 * hscript's interpreter builds a real Map when an array literal carries a map type hint
+	 * (`var m:Map<String, T> = []`), because the parser stores that hint on EArrayDecl.
+	 * Without honouring it here the literal becomes an Array and later map calls die with
+	 * "Null Function Pointer", so an empty hinted literal is emitted as the matching
+	 * haxe.ds map class instead (Op.NEW keeps the bytecode format unchanged).
+	 */
+	static function mapClassForHint(wantedType:hscript.Expr.CType):String
 	{
+		if (wantedType == null)
+			return null;
+		return switch (wantedType)
+		{
+			case CTPath(["Map"], params) if (params != null && params.length > 0):
+				switch (params[0])
+				{
+					case CTPath(["String"], _): "haxe.ds.StringMap";
+					case CTPath(["Int"], _): "haxe.ds.IntMap";
+					case _: "haxe.ds.ObjectMap";
+				}
+			case CTPath(["StringMap"], _): "haxe.ds.StringMap";
+			case CTPath(["IntMap"], _): "haxe.ds.IntMap";
+			case CTPath(["ObjectMap"], _): "haxe.ds.ObjectMap";
+			case CTPath(["EnumMap" | "EnumValueMap"], _): "haxe.ds.EnumValueMap";
+			case _: null;
+		}
+	}
+
+	function compileArrayDecl(items:Array<Expr>, ?wantedType:hscript.Expr.CType):Void
+	{
+		if (items.length == 0)
+		{
+			var mapClass = mapClassForHint(wantedType);
+			if (mapClass != null)
+			{
+				emitII(Op.NEW, chunk.addString(mapClass), 0);
+				return;
+			}
+		}
+
 		var isMap = false;
 		if (items.length > 0)
 		{

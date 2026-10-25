@@ -32,6 +32,14 @@ class ScriptContainer {
 	public static inline var EXTENSION:String = "hxb";
 
 	public static inline var VERSION:Int = 2;
+	/**
+	 * Revision of the bytecode compiler that produced a container, stored in header byte 10.
+	 * Revision 0 are all packs written before this byte existed: their compiler dropped the
+	 * map type hint on empty literals ("var m:Map<String, T> = []" became an Array), which
+	 * makes the VM die with "Null Function Pointer". Such packs are run from their source
+	 * fallback instead. Bump this whenever the emitted bytecode semantics change.
+	 */
+	public static inline var CODE_REV:Int = 1;
 	public static inline var HEADER_SIZE:Int = 64;
 	public static inline var TAG_SIZE:Int = 32;
 	public static inline var SALT_SIZE:Int = 16;
@@ -131,7 +139,7 @@ class ScriptContainer {
 		return build(payload, flags, 0, opts);
 	}
 
-	static function build(payload:Bytes, flags:Int, opcodeSeed:Int, ?opts:PackOptions):Bytes {
+	static function build(payload:Bytes, flags:Int, opcodeSeed:Int, ?opts:PackOptions, ?codeRev:Int):Bytes {
 		if (opts == null) opts = {};
 
 		var salt = ScriptCrypto.randomBytes(SALT_SIZE);
@@ -182,6 +190,7 @@ class ScriptContainer {
 		header.set(7, splitCount);
 		header.set(8, offset & 0xFF);
 		header.set(9, (offset >>> 8) & 0xFF);
+		header.set(10, codeRev == null ? CODE_REV : codeRev);
 		putI32(header, 12, opcodeSeed);
 		putI32(header, 16, splitSeed);
 		header.blit(20, salt, 0, salt.length);
@@ -206,6 +215,8 @@ class ScriptContainer {
 
 		var flags = data.get(5);
 		if (flags & ~KNOWN_FLAGS != 0) throw "Script container: unknown layers 0x" + StringTools.hex(flags);
+
+		var codeRev = data.get(10);
 
 		var offsetBits = data.get(6);
 		var splitCount = data.get(7);
@@ -251,7 +262,7 @@ class ScriptContainer {
 			payload = content.sub(0, content.length);
 		}
 
-		var result:PackedScript = {flags: flags, mode: MODE_SOURCE, opcodeSeed: opcodeSeed, map: null};
+		var result:PackedScript = {flags: flags, mode: MODE_SOURCE, opcodeSeed: opcodeSeed, codeRev: codeRev, map: null};
 		if (flags & FLAG_VM != 0) {
 			var map = new OpMap(opcodeSeed);
 			var chunkLen = payload.length;
@@ -388,6 +399,8 @@ typedef PackedScript = {
 	var flags:Int;
 	var mode:Int;
 	var opcodeSeed:Int;
+	/** Bytecode compiler revision that produced the container, 0 for legacy packs. */
+	var codeRev:Int;
 	var ?chunk:Chunk;
 	var ?source:String;
 	var ?map:OpMap;

@@ -62,8 +62,17 @@ class HScript extends Script {
 					var packed = ScriptContainer.unpack(Assets.getBytes(rawPath), null, fileName);
 					code = packed.source;
 					containerFlags = packed.flags;
-					bytecode = packed.chunk;
-					opMap = packed.map;
+					if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
+						// Legacy bytecode came from a compiler that ignored the map type hint on empty
+						// literals, so the VM would die with "Null Function Pointer". The container still
+						// carries its source (FALLBACK), so run that instead until it is re-packed.
+						Logs.warn('$fileName: pack was built by an older bytecode compiler, running its source fallback');
+						bytecode = null;
+						opMap = null;
+					} else {
+						bytecode = packed.chunk;
+						opMap = packed.map;
+					}
 				} else code = Assets.getText(rawPath);
 			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');
