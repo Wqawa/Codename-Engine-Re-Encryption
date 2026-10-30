@@ -1,5 +1,6 @@
 package funkin.backend.scripting.crypto;
 
+import funkin.backend.scripting.protect.OsEntropy;
 import haxe.crypto.Base64;
 import haxe.crypto.Hmac;
 import haxe.crypto.Hmac.HashMethod;
@@ -381,43 +382,20 @@ class ScriptCrypto {
 	/**
 	 * Random bytes for salts and nonces.
 	 *
-	 * Preferred source is the OS entropy pool (/dev/urandom). Windows has no
-	 * portable equivalent in plain Haxe, and neither do HTML5 targets, so those use
-	 * a ChaCha20 DRBG seeded once from several independent time / environment /
-	 * Std.random sources. Salts and nonces do not need to be secret, only
-	 * unpredictable, which both paths provide.
+	 * Preferred source is the OS entropy pool: RtlGenRandom on Windows (through
+	 * OsEntropy, because plain Haxe has no portable Windows equivalent) and
+	 * /dev/urandom everywhere else. Targets without either (HTML5) use a ChaCha20
+	 * DRBG seeded once from several independent time / environment / Std.random
+	 * sources. Salts and nonces do not need to be secret, only unpredictable,
+	 * which both paths provide - but the OS pool is the one that is actually
+	 * unpredictable, so it is always tried first.
 	 */
 	public static function randomBytes(n:Int):Bytes {
 		var out = Bytes.alloc(n);
-		#if sys
-		if (readOsEntropy(out)) return out;
-		#end
+		if (OsEntropy.fill(out)) return out;
 		fillFromDrbg(out);
 		return out;
 	}
-
-	#if sys
-	/** Fills `out` from the OS entropy source; false when this platform has none. */
-	static function readOsEntropy(out:Bytes):Bool {
-		if (Sys.systemName() == "Windows") return false;
-		var handle = null;
-		try {
-			handle = sys.io.File.read("/dev/urandom", true);
-			var got = 0;
-			while (got < out.length) {
-				var chunk = handle.read(out.length - got);
-				if (chunk == null || chunk.length == 0) break;
-				out.blit(got, chunk, 0, chunk.length);
-				got += chunk.length;
-			}
-			handle.close();
-			return got == out.length;
-		} catch (e:Dynamic) {
-			try if (handle != null) handle.close() catch (e2:Dynamic) {}
-			return false;
-		}
-	}
-	#end
 
 	static var drbgKey:Bytes = null;
 	static var drbgNonce:Bytes = null;

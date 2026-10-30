@@ -128,6 +128,11 @@ OFFSET / SPLIT 是纯字节洗牌，参数（位数、段数、种子）就明�
 KDF 是自制的迭代 SHA-256（`KDF_ROUNDS = 2048`），**不是** PBKDF2 / Argon2，未经密码学审计。
 它足以让脚本对普通用户不可读；若密钥必须抵抗离线爆破，请换成标准 KDF。
 
+salt / nonce 来自系统熵源：Windows 用 `RtlGenRandom`（`SystemFunction036`，经
+`scripting/protect/OsEntropy.hx` → `utils/native/Windows.hx` 的 `GetProcAddress` 调用，
+不新增头文件与链接库），其它平台读 `/dev/urandom`；两者都不可用时才回落到 ChaCha20 DRBG
+（时间 / 环境变量 / `Std.random` 播种，强度较弱，只作为兜底）。
+
 ### 4.2 `script_key.txt` 格式
 
 - 首行一个 key = 全局默认；

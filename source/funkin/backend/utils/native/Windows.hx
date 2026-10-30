@@ -291,5 +291,35 @@ final class Windows {
 	{
 		return 0;
 	}
+
+	/**
+	 * Fills `out` from the system CSPRNG (RtlGenRandom / SystemFunction036, the
+	 * generator behind CryptGenRandom). Returns false when the call fails, so the
+	 * caller can fall back to its own generator; it never returns true with a half
+	 * filled buffer, because a partly predictable salt or nonce is worse than a
+	 * slow one.
+	 *
+	 * Resolved through GetProcAddress instead of bcrypt.h/bcrypt.lib so this file
+	 * needs no extra header and no extra link library (same approach as
+	 * hideThreadFromDebugger above). haxe.io.Bytes keeps its data in an
+	 * Array<unsigned char>, not a raw pointer, so the buffer goes through getBase().
+	 */
+	@:functionCode('
+		if (out->length <= 0) return false;
+		unsigned char *buffer = (unsigned char *)out->b->getBase();
+		if (buffer == NULL) return false;
+
+		typedef BOOLEAN (WINAPI *pfnRtlGenRandom)(PVOID, ULONG);
+		HMODULE advapi = GetModuleHandleA("advapi32.dll");
+		if (advapi == NULL) advapi = LoadLibraryA("advapi32.dll");
+		if (advapi == NULL) return false;
+		pfnRtlGenRandom genRandom = (pfnRtlGenRandom)GetProcAddress(advapi, "SystemFunction036");
+		if (genRandom == NULL) return false;
+		return genRandom(buffer, (ULONG)out->length) != FALSE;
+	')
+	public static function fillRandomBytes(out:haxe.io.Bytes):Bool
+	{
+		return false;
+	}
 }
 #end
