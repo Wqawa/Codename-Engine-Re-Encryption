@@ -584,7 +584,6 @@ class PlayState extends MusicBeatState
 	@:noCompletion @:dox(hide) private var _endSongCalled:Bool = false;
 
 	@:dox(hide) var __vocalSyncTimer:Float = 1.0;
-	@:dox(hide) var __vocalSyncThreshold:Float = 12.0;
 
 	private function get_accuracy():Float {
 		if (accuracyPressedNotes <= 0) return -1;
@@ -1351,13 +1350,13 @@ class PlayState extends MusicBeatState
 	function checkDesyncVocals():Void
 	{
 		final instTime = FlxG.sound.music.getActualTime();
-		var isOffsync = vocals.loaded && Math.abs(instTime - vocals.getActualTime()) > __vocalSyncThreshold;
+		var isOffsync = vocals.loaded && Math.abs(instTime - vocals.getActualTime()) > Flags.VOCAL_OFFSET_VIOLATION_THRESHOLD;
 
-		if (vocals.loaded && Math.abs(instTime - vocals.getActualTime()) > __vocalSyncThreshold)
+		if (vocals.loaded && Math.abs(instTime - vocals.getActualTime()) > Flags.VOCAL_OFFSET_VIOLATION_THRESHOLD)
 			resyncVocals();
 		else {
 			for (strumLine in strumLines.members) {
-				if (strumLine.vocals.loaded && Math.abs(instTime - strumLine.vocals.getActualTime()) > __vocalSyncThreshold) {
+				if (strumLine.vocals.loaded && Math.abs(instTime - strumLine.vocals.getActualTime()) > Flags.VOCAL_OFFSET_VIOLATION_THRESHOLD) {
 					resyncVocals();
 					break;
 				}

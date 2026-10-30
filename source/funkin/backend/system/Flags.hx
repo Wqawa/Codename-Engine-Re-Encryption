@@ -79,9 +79,6 @@ class Flags {
 	@:lazy public static var PATHS_CACHE_LIFETIME:Null<Int> = null;
 	public static var PATHS_CACHE_RESET_ON_SWITCH_STATE:Bool = true;
 
-	// turn this true to debug shaders, or off for releasing mods.
-	public static var SHADERS_CACHE_RESET_ON_SWITCH_STATE:Bool = false;
-
 	public static var GAME_WIDTH:Int = 1280;
 	public static var GAME_HEIGHT:Int = 720;
 
@@ -172,9 +169,7 @@ class Flags {
 
 	public static var DEFAULT_NOTE_MS_LIMIT:Float = 1500;
 	public static var DEFAULT_NOTE_SCALE:Float = 0.7;
-	#if MODCHARTING_FEATURES
 	public static var DEFAULT_MODCHART_HOLD_SUBDIVISIONS:Int = 4;
-	#end
 
 	public static var SUSTAINS_AS_ONE_NOTE:Null<Bool> = null;
 
@@ -245,7 +240,7 @@ class Flags {
 	public static var DEFAULT_STRUM_AMOUNT:Int = 4;
 	public static var DEFAULT_CAMERA_FOLLOW_SPEED:Float = 0.04;
 
-	public static var VOCAL_OFFSET_VIOLATION_THRESHOLD:Float = 25;
+	public static var VOCAL_OFFSET_VIOLATION_THRESHOLD:Float = 12.0;
 
 	// Usage: Codename Credits
 	public static var MAIN_DEVS_COLOR:FlxColor = 0xFF9C35D5;
@@ -433,9 +428,6 @@ class Flags {
 				if (!(parsed = parse(name, value))) customFlags.set(name, value);
 				if (!overridenFlags.exists(name)) overridenFlags.set(name, parsed);
 		}
-		#if MODCHARTING_FEATURES
-		Options.modchartingHoldSubdivisions = DEFAULT_MODCHART_HOLD_SUBDIVISIONS;
-		#end
 	}
 
 	/**
