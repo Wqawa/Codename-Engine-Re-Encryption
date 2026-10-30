@@ -1,6 +1,7 @@
 # Re-Encryption 功能说明
 
-本文件描述 **Codename Engine Re-Encryption** 相对上游 Codename Engine 1.1.0（commit `112aa91`）
+本文件描述 **Codename Engine Re-Encryption** 相对上游 Codename Engine 1.1.0（基线 `112aa91`，
+当前已并入上游 `afe74668`）
 新增的内容保护功能：加密的 mod 包、带密码的 zip、受保护的脚本，以及打包/解包它们的游戏内工具。
 
 > **先读这一条**：本功能提供的是 **静态保护**，不是运行时保护。

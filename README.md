@@ -12,7 +12,8 @@ can do, this fork can do; the only differences are the additions listed below.
 
 ```text
 upstream baseline   112aa91   clean Codename Engine 1.1.0
-working branch      migration/crypto-1.1.0
+upstream merged     afe74668   upstream main (the 1.1.0 RC line)
+working branch      main
 ```
 
 > [!NOTE]

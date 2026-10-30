@@ -1,7 +1,7 @@
 # AGENTS.md — 协作规则（本仓库）
 
 本仓库是 Codename Engine 1.1.0（官方代码）+ 从用户 1.0.1 分支迁移来的加密/打包功能。
-分支只有 `main`（本地与远端同名）；baseline 提交 `112aa91`（纯 1.1.0，已打 tag `baseline/upstream-1.1.0`），迁移提交 `e9ac49b`。
+分支只有 `main`（本地与远端同名）；baseline 提交 `112aa91`（纯 1.1.0，已打 tag `baseline/upstream-1.1.0`），迁移提交 `e9ac49b`；上游 `main` 已在 `130391f4` 并入（`afe74668`，2026-10-31）。
 
 ## 0. 文档地图（改文档前先看这里）
 

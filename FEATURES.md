@@ -1,7 +1,7 @@
 # Codename Engine features
 
 > [!NOTE]
-> **Upstream document, kept unmodified.** This file describes Codename Engine 1.1.0 (commit `112aa91`).
+> **Upstream document, kept unmodified.** This file describes Codename Engine 1.1.0 (commit `afe74668`).
 > It does not cover this fork's additions — see [docs/RE-ENCRYPTION.md](docs/RE-ENCRYPTION.md) for those.
 
 This markdown file contains most of the main features Codename has, separated into multiple categories.
