@@ -8,7 +8,8 @@
       2. point haxelib at the repository-local .haxelib folder
       3. make sure the vendored libraries and the lime native ndll are there
       4. make sure a MSVC toolchain (Visual Studio Build Tools) exists
-      5. run "haxelib run lime build windows -nocolor"
+      5. run "haxelib run lime build windows -nocolor", with hxcpp's compile cache
+         enabled so a rebuild only compiles what actually changed
       6. check that the exe is newer than the build start, translate known errors
 
     Nothing outside the repository is modified unless a toolchain (or the
@@ -23,6 +24,10 @@
 param(
     # Build without reusing intermediate objects (lime build ... -clean)
     [switch]$Clean,
+    # Do not reuse hxcpp's compile cache
+    [switch]$NoCache,
+    # Where the compile cache lives (default: %LOCALAPPDATA%\cne-hxcpp-cache)
+    [string]$CacheDir,
     # Build the debug configuration instead of release
     [switch]$Debug,
     # Print every action instead of running it
@@ -684,6 +689,31 @@ try {
     if ($Debug) { $buildArgs += '-debug' }
     if ($Clean) { $buildArgs += '-clean' }
 
+    # hxcpp keeps a cache of compiled objects keyed by a hash of the source file,
+    # the compiler arguments, the dependency hash and the compiler version. Its own
+    # incremental check compares timestamps, so anything that rewrites the generated
+    # sources - a define change, a -clean, a touched project.xml - makes it recompile
+    # all ~3700 translation units, which is the ~40 min rebuild. With the cache on,
+    # even that pass only compiles what really changed and copies the rest.
+    if (-not $NoCache) {
+        $cacheRoot = if ($CacheDir) { $CacheDir } else { Join-Path $env:LOCALAPPDATA 'cne-hxcpp-cache' }
+        if ([string]::IsNullOrWhiteSpace($cacheRoot)) {
+            $cacheRoot = Join-Path $script:RepoRoot 'export\.hxcpp-cache'
+        }
+        if (-not $DryRun) {
+            if (-not (Test-Path -LiteralPath $cacheRoot)) {
+                [void](New-Item -ItemType Directory -Path $cacheRoot -Force)
+            }
+        }
+        # "-DNAME=VALUE" in one token on purpose: lime's parser stores the whole
+        # argument as the define name when -D and NAME=VALUE arrive separately, which
+        # turned the cache path into "<path>=<path>".
+        $buildArgs += "-DHXCPP_COMPILE_CACHE=$cacheRoot"
+        Write-Log "compile cache: $cacheRoot" 'INFO'
+    } else {
+        Write-Log 'compile cache disabled (-NoCache)' 'INFO'
+    }
+
     Write-Log "configuration: $configuration$(if ($Clean) { ' (clean)' })"
     $started = Get-Date
     $code = Invoke-Tool -FilePath (Get-HaxelibExe) -Arguments $buildArgs `
@@ -720,9 +750,15 @@ try {
     }
 
     $warnings = 0
+    $compiledFiles = 0
     if (Test-Path -LiteralPath $script:LogFile) {
-        $warnings = @(Get-Content -LiteralPath $script:LogFile | Where-Object { $_ -match 'WARNING' }).Count
+        $logLines = Get-Content -LiteralPath $script:LogFile
+        $warnings = @($logLines | Where-Object { $_ -match 'WARNING' }).Count
+        # hxcpp prints "- [ 12.3%] src/....cpp" for every translation unit it builds;
+        # a few means the incremental path worked, thousands means a full rebuild.
+        $compiledFiles = @($logLines | Where-Object { $_ -match '^-\s+\[\s*[0-9.]+%\]\s+src/' }).Count
     }
+    Write-Log "compiled: $compiledFiles translation unit(s) in this run" 'INFO'
     Write-Log "warnings: $warnings (the deprecated-API noise from upstream code is normal)" 'INFO'
 
     Write-Host ''

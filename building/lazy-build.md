@@ -20,7 +20,7 @@ export\release\windows\bin\CodenameEngine.exe
 | 2/6 库 | 把 haxelib 指向仓库自带的 `.haxelib` | 文件夹被删了会自动调上游的 `setup-windows.bat`（按 `libs.xml` 重新下载全部库）；连它也没有就报错，让你从仓库还原 | |
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64） | 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
-| 5/6 编译 | `haxelib run lime build windows -nocolor` | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
+| 5/6 编译 | `haxelib run lime build windows -nocolor`，并打开 hxcpp 的编译缓存 | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
 | 6/6 验收 | 检查 exe 是否存在、时间戳是否比本次构建新、统计 warning | 失败时把日志里第一批 `error:` 行摘出来，并给出对应处理建议 |
 
 ## 双击前要知道的
@@ -29,15 +29,31 @@ export\release\windows\bin\CodenameEngine.exe
 - 如果本机没有 MSVC：会下载 VS Build Tools 安装器（`%TEMP%\vs_BuildTools.exe`），**必须用管理员权限运行它**，选"使用 C++ 的桌面开发"工作负载。这一步几个 GB，脚本不会偷偷替你装完——它只在管理员窗口里才会执行安装。
 - 已经装好 Haxe 4.3.x 的机器（比如本机 `D:\FNF\Haxe\4.3.7`）会直接复用，不下载任何东西。
 - 控制台里出现成片的 `Warning: ... is deprecated` 是上游代码的正常噪声，不影响产物。
-- 脚本只写这三处：`export\`（lime 的产物）、`building\logs\`（日志）、`building\toolchain\`（下载的工具链）。不动机器上已有的 Haxe / 系统 PATH / 注册表。
+- 脚本只写这几处：`export\`（lime 的产物）、`building\logs\`（日志）、`building\toolchain\`（下载的工具链）、
+  `%LOCALAPPDATA%\cne-hxcpp-cache`（hxcpp 编译缓存，用 `-CacheDir` 可改位置）。不动机器上已有的 Haxe / 系统 PATH / 注册表。
+
+## 为什么有时候要编 40 分钟
+
+hxcpp 的增量判断看的是 `.obj` 与生成的 `.cpp` 谁更新。只要它认为"全都得重编"，就会把大约 3700 个翻译单元
+从头编一遍（本机约 40 分钟）。触发条件包括：改了 `project.xml` 的 define、加/删了 `.hx` 文件（模块列表变了）、
+PCH 失效、`-Clean`、换 Haxe / hxcpp 版本、`.haxelib` 里的库动过。**普通的改代码 + 增量只有几秒到一分钟**
+（日志里只出现 4 个文件就是这种情况）。
+
+脚本默认打开 hxcpp 的编译缓存（`-D HXCPP_COMPILE_CACHE=...`）：缓存键是"源文件内容 + 编译参数 + 依赖哈希 +
+编译器版本"的 md5，所以即使 hxcpp 判定要全量重编，没变过的文件也只是从缓存里拷 `.obj`，不再跑 `cl.exe`。
+第一次（缓存是空的）仍然要全量编一遍，之后就快了。
+
+缓存目录默认 `%LOCALAPPDATA%\cne-hxcpp-cache`，可以随便删（删了下次会重新填，只是慢一次）。
 
 ## 参数
 
 命令行用法（`Build.bat` 后面直接跟参数）：
 
 ```bat
-Build.bat                     :: 正常增量构建
+Build.bat                     :: 正常增量构建（编译缓存默认开）
 Build.bat -Clean              :: 清掉中间产物全量重编（改了 project.xml / 碰到诡异链接错误时用）
+Build.bat -NoCache            :: 关掉编译缓存，排查"缓存里是旧的 obj"这类怪问题时用
+Build.bat -CacheDir "D:\hxcpp-cache"   :: 把编译缓存放到别处
 Build.bat -Debug              :: 编 debug 版，产物在 export\debug\windows\bin\
 Build.bat -RebuildLime        :: 强制重编 lime 原生库（缺 MSVC 会失败）
 Build.bat -DryRun             :: 只打印它会做什么，一个文件都不改
