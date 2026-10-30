@@ -1,3 +1,10 @@
+> **Upstream document, kept unmodified.** Everything below is Codename Engine's original build
+> guide, reproduced verbatim. This fork adds a one-click Windows entry point *(added by the fork,
+> not upstream)*: double-click [`Build.bat`](Build.bat) in this folder, or read
+> [`lazy-build.md`](lazy-build.md). It finds or downloads Haxe + Neko, verifies the vendored
+> `.haxelib` libraries and `lime.ndll`, checks MSVC, builds, and reports the result — the manual
+> steps in the guide below still work exactly as described.
+
 # Compiling Codename Engine
 Do you want to turn your source code into a playable build to play? Then you want to **compile the source code**, follow this guide.
 > **Open the instructions for your platform.**

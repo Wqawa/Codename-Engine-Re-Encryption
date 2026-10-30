@@ -2,22 +2,22 @@
 rem ---------------------------------------------------------------------------
 rem  Double click this file to build Codename Engine for Windows.
 rem
-rem  It forwards everything to tools\lazy-build\lazy-build.ps1, which finds or
+rem  It forwards everything to lazy-build.ps1 next to it, which finds or
 rem  downloads Haxe + Neko, checks the vendored .haxelib libraries and the lime
 rem  native library, checks MSVC, builds, and reports the result.
 rem
 rem  Examples:  Build.bat -Clean     Build.bat -Debug     Build.bat -DryRun
-rem  Full help: tools\lazy-build\README.md
+rem  Full help: lazy-build.md
 rem ---------------------------------------------------------------------------
 setlocal
 chcp 65001 >nul
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
-set "SCRIPT=%~dp0tools\lazy-build\lazy-build.ps1"
+set "SCRIPT=%~dp0lazy-build.ps1"
 
 if not exist "project.xml" (
     echo.
-    echo  [X] project.xml not found - Build.bat must stay in the repository root.
+    echo  [X] project.xml not found - this folder must stay inside the repository.
     echo.
     pause
     exit /b 1

@@ -52,6 +52,7 @@ working branch      migration/crypto-1.1.0
 | [CHANGELOG.md](CHANGELOG.md) | Upstream v0.4.0 changelog | Upstream |
 | [PATCHNOTES.md](PATCHNOTES.md) | Upstream "Charter Update" patch notes | Upstream |
 | [building/README.md](building/README.md) | How to compile the engine | Upstream |
+| [building/lazy-build.md](building/lazy-build.md) | One-click Windows build (what `building/Build.bat` does, parameters, troubleshooting) | **This fork** |
 
 The three upstream documents are kept unmodified as a reference for what the base engine contains;
 they do not describe this fork's additions.
@@ -70,9 +71,9 @@ haxelib run lime build windows -nocolor
 The result is `export/release/windows/bin/CodenameEngine.exe`. Only a clean compile is verified by
 the maintainer; in-game behaviour is tested manually.
 
-A one-click alternative lives in [`Build.bat`](Build.bat) (repository root): it finds or downloads
+A one-click alternative lives in [`building/Build.bat`](building/Build.bat): it finds or downloads
 Haxe + Neko, checks the vendored `.haxelib` libraries and the lime native library, checks MSVC,
-builds, and reports the result. Details: [`tools/lazy-build/README.md`](tools/lazy-build/README.md).
+builds, and reports the result. Details: [`building/lazy-build.md`](building/lazy-build.md).
 
 ---
 

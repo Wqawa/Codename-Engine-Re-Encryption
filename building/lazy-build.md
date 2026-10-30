@@ -1,6 +1,6 @@
 # 懒人编译包（Windows）
 
-双击仓库根目录的 `Build.bat`（就在 `project.xml` 旁边），等它跑完，产物就在：
+双击本文件夹里的 `Build.bat`（`building\` 在 `project.xml` 旁边），等它跑完，产物就在：
 
 ```
 export\release\windows\bin\CodenameEngine.exe
@@ -8,13 +8,15 @@ export\release\windows\bin\CodenameEngine.exe
 
 不需要开命令行、不需要先装 Haxe、不需要 Developer Prompt。**前提**：仓库里自带的 `.haxelib` 文件夹还在（本仓库的第三方库是随仓库一起的，不重新下载）。
 
-`Build.bat` 只是个转发器，真正干活的是同目录下的 `tools\lazy-build\lazy-build.ps1`，说明和日志也都在 `tools\lazy-build\`。
+`Build.bat` 只是个转发器，真正干活的是同目录下的 `lazy-build.ps1`，日志与下载的工具链也都在 `building\` 下。
+
+> 本文件是本 fork 新增的说明。上游原本的编译指南是同目录的 [`README.md`](README.md)，正文保持原样未改。
 
 ## 它会依次做六件事
 
 | 步骤 | 做什么 | 缺东西时怎么办 |
 | --- | --- | --- |
-| 1/6 工具链 | 找 Haxe 4.3.x 和 Neko | 找不到就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `tools\lazy-build\toolchain\` 解压使用（**不需要装进系统**） |
+| 1/6 工具链 | 找 Haxe 4.3.x 和 Neko | 找不到就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `building\toolchain\` 解压使用（**不需要装进系统**） |
 | 2/6 库 | 把 haxelib 指向仓库自带的 `.haxelib` | 文件夹被删了就报错并停下（不会偷偷去下载一堆库） |
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64） | 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
@@ -23,11 +25,11 @@ export\release\windows\bin\CodenameEngine.exe
 
 ## 双击前要知道的
 
-- 第一次跑如果本机没有 Haxe：会下载约 12 MB + Neko 约 3 MB，缓存在 `tools\lazy-build\toolchain\downloads\`。
+- 第一次跑如果本机没有 Haxe：会下载 Haxe 11.5 MB + Neko 1.7 MB，缓存在 `building\toolchain\downloads\`。
 - 如果本机没有 MSVC：会下载 VS Build Tools 安装器（`%TEMP%\vs_BuildTools.exe`），**必须用管理员权限运行它**，选"使用 C++ 的桌面开发"工作负载。这一步几个 GB，脚本不会偷偷替你装完——它只在管理员窗口里才会执行安装。
 - 已经装好 Haxe 4.3.x 的机器（比如本机 `D:\FNF\Haxe\4.3.7`）会直接复用，不下载任何东西。
 - 控制台里出现成片的 `Warning: ... is deprecated` 是上游代码的正常噪声，不影响产物。
-- 脚本只写这三处：`export\`（lime 的产物）、`tools\lazy-build\logs\`（日志）、`tools\lazy-build\toolchain\`（下载的工具链）。不动机器上已有的 Haxe / 系统 PATH / 注册表。
+- 脚本只写这三处：`export\`（lime 的产物）、`building\logs\`（日志）、`building\toolchain\`（下载的工具链）。不动机器上已有的 Haxe / 系统 PATH / 注册表。
 
 ## 参数
 
@@ -47,9 +49,15 @@ Build.bat -HaxeHome "D:\Haxe\4.3.7\haxe"   :: 指定 Haxe 目录
 
 `-DryRun` 是排查"脚本到底想干什么"的最快方式，安全。
 
+也可以不用 bat，直接跑脚本（同样会自己切到仓库根）：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File building\lazy-build.ps1 -DryRun
+```
+
 ## 离线 / 内网机器
 
-把这两个 zip 提前放进 `tools\lazy-build\toolchain\downloads\`，脚本会直接复用，不再联网：
+把这两个 zip 提前放进 `building\toolchain\downloads\`，脚本会直接复用，不再联网：
 
 - `haxe-4.3.7-win64.zip`（https://github.com/HaxeFoundation/haxe/releases/tag/4.3.7）
 - `neko-2.3.0-win64.zip`（https://github.com/HaxeFoundation/neko/releases/tag/v2-3-0）
@@ -61,7 +69,7 @@ MSVC 与 VS Build Tools 无法离线绕过，内网机器请提前装好"使用 
 | 症状（日志里） | 原因 | 处理 |
 | --- | --- | --- |
 | `'haxe' 不是内部或外部命令` / 脚本说找不到 Haxe | 本机没装或不认识 | 什么都不用做，脚本会下载；或 `-HaxeHome` 指过去 |
-| `Could not find haxelib "flixel" ...` | 不在仓库根编译，或 `.haxelib` 被删 | 确认双击的是仓库根目录的 `Build.bat`（脚本会自己 `cd` 到仓库根）；`.haxelib` 丢了要从仓库还原 |
+| `Could not find haxelib "flixel" ...` | 不在仓库根编译，或 `.haxelib` 被删 | 确认双击的是 `building\Build.bat`（脚本会自己 `cd` 到仓库根）；`.haxelib` 丢了要从仓库还原 |
 | `LNK1104: cannot open file ... CodenameEngine.exe` | 游戏正在运行，exe 被占用 | 关掉游戏，或让脚本帮你关（它会问一句） |
 | `Could not load lime.ndll` / `lime.n: ... not found` | 原生库缺失或架构不符 | `Build.bat -RebuildLime` |
 | `cl.exe` 找不到 / `Cannot find msvc` | 没装 C++ 工具链 | 装 VS Build Tools 的"使用 C++ 的桌面开发" |
@@ -71,7 +79,7 @@ MSVC 与 VS Build Tools 无法离线绕过，内网机器请提前装好"使用 
 
 ## 日志
 
-每次运行写一份 `tools\lazy-build\logs\build-<日期>-<时间>.log`，包含脚本决策、完整命令、lime/hxcpp 原始输出。反馈问题请带上这份日志。
+每次运行写一份 `building\logs\build-<日期>-<时间>.log`，包含脚本决策、完整命令、lime/hxcpp 原始输出。反馈问题请带上这份日志。
 
 ## 手动等价命令（脚本坏了时兜底）
 
@@ -87,3 +95,4 @@ haxelib run lime build windows -nocolor
 - 只认 Haxe 4.3.x；4.2.x 会被提示"需要 4.3.x"并改建自己的工具链（本项目现有依赖按 4.3.x 验证过）。
 - 不自动 `haxelib install` 缺失的第三方库：库随仓库走，凭空重建一份可能版本对不上，宁可报错让你还原 `.haxelib`。
 - 32 位（`-x86_32`）构建脚本不处理 `ndll\Windows\lime.ndll` 的检查，只检查 `Windows64`。
+- `building\toolchain\` 与 `building\logs\` 已被 `building\.gitignore` 排除，删掉它们不影响仓库（下次运行会重新下载）。

@@ -12,6 +12,8 @@
 | `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
 | `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |
+| `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、检查库/ndll/MSVC、编译、报错翻译 | 本 fork 新增（中文说明，脚本注释为英文） |
+| `building/.gitignore` | 排除 `building/toolchain/`（下载的工具链）与 `building/logs/` | 本 fork 新增 |
 
 文档规则：
 
@@ -51,6 +53,10 @@
 10. **不吹**：不写"已完全修复/100% 安全"这类无依据的结论。
 
 ## 4. 构建备忘
+
+一键（推荐，会自己找/装 Haxe+Neko、查库与 ndll、查 MSVC）：双击 `building/Build.bat`，详见 `building/lazy-build.md`。
+
+手动：
 
 ```powershell
 $env:Path='D:\FNF\Haxe\4.3.7\haxe;D:\FNF\Haxe\4.3.7\neko;'+$env:Path

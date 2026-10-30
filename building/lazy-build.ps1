@@ -1,4 +1,4 @@
-<#
+﻿<#
     lazy-build.ps1 - one-click Windows build for this repository.
 
     Everything this fork needs to go from "fresh machine" to
@@ -15,7 +15,7 @@
     Visual Studio Build Tools) is missing and has to be installed.
 
     Run it through Build.bat, or directly:
-      pwsh -NoProfile -ExecutionPolicy Bypass -File tools/lazy-build/lazy-build.ps1
+      pwsh -NoProfile -ExecutionPolicy Bypass -File building/lazy-build.ps1
 #>
 
 # no [CmdletBinding()] on purpose: its common parameter -Debug would collide
@@ -435,7 +435,8 @@ function Resolve-RepoRoot {
     if ($RepoRoot) {
         $candidate = (Resolve-Path -LiteralPath $RepoRoot).Path
     } else {
-        $candidate = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+        # this script lives in <repo>\building, so the checkout is one level up
+        $candidate = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
     }
     if (-not (Test-Path -LiteralPath (Join-Path $candidate 'project.xml'))) {
         throw "not a Codename Engine checkout: project.xml not found in $candidate"
@@ -636,7 +637,7 @@ try {
     if (-not $DryRun) {
         $haxeExe = Join-Path $script:HaxePath 'haxe.exe'
         $version = Get-HaxeVersionOf $haxeExe
-        if (-not $version) { throw "haxe.exe at $haxeExe does not run - delete tools\lazy-build\toolchain and try again" }
+        if (-not $version) { throw "haxe.exe at $haxeExe does not run - delete building\toolchain and try again" }
         Write-Log "haxe --version -> $version" 'OK'
     }
 
