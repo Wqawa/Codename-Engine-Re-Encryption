@@ -99,11 +99,9 @@ class ModsFolder {
 				Logs.warn('Decrypting "$packPath" without the progress screen (no prepare pass was scheduled for it).');
 			var zipPath = ModPackCrypto.zipPathToLoad(packPath);
 			if (zipPath == null) {
-				var problem = ModPackCrypto.packProblem(packPath);
-				if (problem != null)
-					Logs.warn('Skipping mod pack "$packPath": ' + problem);
-				else
-					Logs.warn('Skipping encrypted mod pack "$packPath": it needs a password that was not given.');
+				// Every scheme this fork understands (CNEZ, ZipCrypto, WinZip AES) only fails
+				// for a missing or wrong key, so there is no separate "unsupported format" case.
+				Logs.warn('Skipping encrypted mod pack "$packPath": it needs a password that was not given.');
 				return null;
 			}
 			try {

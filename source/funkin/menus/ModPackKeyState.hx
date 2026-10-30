@@ -71,14 +71,6 @@ class ModPackKeyState extends UIState {
 				break;
 			}
 		}
-
-		for (p in packs) {
-			var problem = ModPackCrypto.packProblem(p);
-			if (problem != null) {
-				showError(problem);
-				break;
-			}
-		}
 	}
 
 	function showError(msg:String) {

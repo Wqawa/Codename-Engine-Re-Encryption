@@ -50,7 +50,16 @@ class ScriptContainer {
 	public static inline var FLAG_VM:Int = 2;
 	public static inline var FLAG_OFFSET:Int = 4;
 	public static inline var FLAG_SPLIT:Int = 8;
-	/** Bytecode plus an encrypted copy of the source, used as a VM fallback. */
+	/**
+	 * Bytecode plus a copy of the source, run when the VM cannot. The copy sits inside
+	 * the payload, so it is only encrypted when FLAG_KEY is set as well.
+	 *
+	 * Writer side is reachable only through PackOptions.fallbackSource, which the editor
+	 * deliberately leaves off: the protection modes are exclusive now, and a VM pack has
+	 * no key to seal a source copy with. The reader keeps honouring the flag because
+	 * containers built before that change still carry it, and ignoring it would make
+	 * those scripts fall back to nothing at all.
+	 */
 	public static inline var FLAG_FALLBACK:Int = 16;
 
 	static inline var KNOWN_FLAGS:Int = FLAG_KEY | FLAG_VM | FLAG_OFFSET | FLAG_SPLIT | FLAG_FALLBACK;
