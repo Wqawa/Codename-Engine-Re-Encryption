@@ -1,0 +1,3 @@
+# build logs, downloaded toolchain and cached installers stay out of git
+logs/
+toolchain/

@@ -70,6 +70,10 @@ haxelib run lime build windows -nocolor
 The result is `export/release/windows/bin/CodenameEngine.exe`. Only a clean compile is verified by
 the maintainer; in-game behaviour is tested manually.
 
+A one-click alternative lives in [`Build.bat`](Build.bat) (repository root): it finds or downloads
+Haxe + Neko, checks the vendored `.haxelib` libraries and the lime native library, checks MSVC,
+builds, and reports the result. Details: [`tools/lazy-build/README.md`](tools/lazy-build/README.md).
+
 ---
 
 ## Upstream
