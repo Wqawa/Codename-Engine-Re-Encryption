@@ -303,13 +303,111 @@ class ShaderTypeException extends Exception {
 
 #if REGION /* Backward Compatibility */
 class ShaderTemplates {
-	public static final vertHeader:String #if !macro = FlxGraphicsShader.classGLVertexPragmas.get("header") #end;
+	// cne-flixel does not expose the shader region tables upstream reads here
+	// (FlxGraphicsShader has no classGLVertexPragmas), so the GLSL text stays inline,
+	// exactly as it was before the 1.1.0 update. Restore the lookups once the lib has them.
+	public static final vertHeader:String = "attribute float openfl_Alpha;
+attribute vec4 openfl_ColorMultiplier;
+attribute vec4 openfl_ColorOffset;
+attribute vec4 openfl_Position;
+attribute vec2 openfl_TextureCoord;
 
-	public static final vertBody:String #if !macro = FlxGraphicsShader.classGLVertexPragmas.get("body") #end;
+varying float openfl_Alphav;
+varying vec4 openfl_ColorMultiplierv;
+varying vec4 openfl_ColorOffsetv;
+varying vec2 openfl_TextureCoordv;
 
-	public static final fragHeader:String #if !macro = FlxGraphicsShader.classGLFragmentPragmas.get("header") #end;
+uniform mat4 openfl_Matrix;
+uniform bool openfl_HasColorTransform;
+uniform vec2 openfl_TextureSize;
 
-	public static final fragBody:String #if !macro = FlxGraphicsShader.classGLFragmentPragmas.get("body") #end;
+attribute float alpha;
+attribute vec4 colorMultiplier;
+attribute vec4 colorOffset;
+uniform bool hasColorTransform;";
+
+	public static final vertBody:String = "openfl_TextureCoordv = openfl_TextureCoord;
+
+if (hasColorTransform)
+{
+	openfl_Alphav = openfl_Alpha * colorMultiplier.a;
+	if (openfl_HasColorTransform)
+	{
+		openfl_ColorOffsetv = (openfl_ColorOffset / 255.0 * colorMultiplier) + (colorOffset / 255.0);
+		openfl_ColorMultiplierv = openfl_ColorMultiplier * vec4(colorMultiplier.rgb, 1.0);
+	}
+	else
+	{
+		openfl_ColorOffsetv = colorOffset / 255.0;
+		openfl_ColorMultiplierv = vec4(colorMultiplier.rgb, 1.0);
+	}
+}
+else
+{
+	openfl_Alphav = openfl_Alpha * alpha;
+	if (openfl_HasColorTransform)
+	{
+		openfl_ColorOffsetv = (openfl_ColorOffset + colorOffset) / 255.0;
+		openfl_ColorMultiplierv = openfl_ColorMultiplier;
+	}
+	else
+	{
+		openfl_ColorOffsetv = colorOffset / 255.0;
+		openfl_ColorMultiplierv = vec4(1.0);
+	}
+}";
+
+	public static final fragHeader:String = "varying float openfl_Alphav;
+varying vec4 openfl_ColorMultiplierv;
+varying vec4 openfl_ColorOffsetv;
+varying vec2 openfl_TextureCoordv;
+
+uniform bool openfl_HasColorTransform;
+uniform vec2 openfl_TextureSize;
+uniform sampler2D bitmap;
+uniform bool hasTransform;
+uniform bool hasColorTransform;
+uniform bool premultiplyAlpha;
+
+vec4 apply_flixel_transform(vec4 color)
+{
+	if (!hasTransform) return color;
+	else if (color.a <= 0.0 || openfl_Alphav == 0.0) return vec4(0.0);
+
+	// this is just solely for ASTC compressed textures.
+	// ...also in flixel_texture2D, it also converts to linear alpha anyway.
+	if (!premultiplyAlpha) color.rgb /= color.a;
+
+	color = clamp(openfl_ColorOffsetv + (color * openfl_ColorMultiplierv), 0.0, 1.0);
+	return vec4(color.rgb * color.a * openfl_Alphav, color.a * openfl_Alphav);
+}
+#define applyFlixelEffects(color) apply_flixel_transform(color)
+
+vec4 flixel_texture2D(sampler2D bitmap, vec2 coord)
+{
+	return apply_flixel_transform(texture2D(bitmap, coord));
+}
+
+uniform vec4 _camSize;
+
+float map(float value, float min1, float max1, float min2, float max2) {
+	return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+}
+
+vec2 getCamPos(vec2 pos) {
+	vec4 size = _camSize / vec4(openfl_TextureSize, openfl_TextureSize);
+	return vec2(map(pos.x, size.x, size.x + size.z, 0.0, 1.0), map(pos.y, size.y, size.y + size.w, 0.0, 1.0));
+}
+vec2 camToOg(vec2 pos) {
+	vec4 size = _camSize / vec4(openfl_TextureSize, openfl_TextureSize);
+	return vec2(map(pos.x, 0.0, 1.0, size.x, size.x + size.z), map(pos.y, 0.0, 1.0, size.y, size.y + size.w));
+}
+vec4 textureCam(sampler2D bitmap, vec2 pos) {
+	return flixel_texture2D(bitmap, camToOg(pos));
+}";
+
+	public static final fragBody:String = "gl_FragColor = flixel_texture2D(bitmap, openfl_TextureCoordv);
+if (gl_FragColor.a == 0.0) discard;";
 
 	public static final vertBackCompatVarList:Array<EReg> = [
 		~/attribute float alpha/,
