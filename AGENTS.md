@@ -12,6 +12,8 @@
 | `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
 | `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |
+| `building/cne-windows.bat` / `setup-windows.bat` / `generate-docs-windows.bat` / `libs.xml` | 上游 CLI 与库清单（`cne build/test/release/setup/run/optimize`） | **上游，不改** |
+| `building/*-unix.sh` | 上游 unix 辅助脚本 | **本 fork 已删除**（只维护 Windows；恢复见下） |
 | `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、检查库/ndll/MSVC、编译、报错翻译 | 本 fork 新增（中文说明，脚本注释为英文） |
 | `building/.gitignore` | 排除 `building/toolchain/`（下载的工具链）与 `building/logs/` | 本 fork 新增 |
 

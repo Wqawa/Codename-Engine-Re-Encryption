@@ -4,6 +4,12 @@
 > [`lazy-build.md`](lazy-build.md). It finds or downloads Haxe + Neko, verifies the vendored
 > `.haxelib` libraries and `lime.ndll`, checks MSVC, builds, and reports the result — the manual
 > steps in the guide below still work exactly as described.
+>
+> **Second fork note (not upstream):** this fork is developed and tested on Windows only, so the
+> unix helper scripts (`cne-unix.sh`, `setup-unix.sh`, `generate-docs-unix.sh`) were removed.
+> The Linux/macOS instructions below still reference `setup-unix.sh`; that file no longer exists
+> here, so install the libraries listed in [`libs.xml`](libs.xml) with `haxelib` by hand instead.
+> Restore the scripts with `git checkout 012a6423 -- building/*.sh` if you need them.
 
 # Compiling Codename Engine
 Do you want to turn your source code into a playable build to play? Then you want to **compile the source code**, follow this guide.

@@ -460,15 +460,22 @@ function Initialize-HaxelibRepository {
 
     if (-not (Test-Path -LiteralPath $repo)) {
         Write-Log "the vendored library folder is missing: $repo" 'WARN'
-        Write-Log 'this folder ships with the repository; without it the libraries must be downloaded' 'WARN'
-        if ($DryRun) {
-            Write-Log '[dryrun] haxelib newrepo + haxelib install for the libraries in project.xml' 'DRY'
-            return
+        # upstream ships a setup helper that installs everything listed in
+        # building/libs.xml - use it instead of guessing library versions
+        $setupHelper = Join-Path $PSScriptRoot 'setup-windows.bat'
+        if (-not (Test-Path -LiteralPath $setupHelper)) {
+            if ($DryRun) {
+                Write-Log '[dryrun] haxelib newrepo + haxelib install for the libraries in project.xml' 'DRY'
+                return
+            }
+            throw "the vendored .haxelib folder is gone and $setupHelper is missing too - restore .haxelib from the repository"
         }
-        New-Item -ItemType Directory -Path $repo -Force | Out-Null
-        [void](Invoke-Tool -FilePath (Get-HaxelibExe) -Arguments @('newrepo') -Label 'haxelib newrepo')
-        Write-Log 'empty repository created - install the libraries from project.xml with: haxelib install <name>' 'ERR'
-        throw 'the vendored .haxelib folder is gone; restore it from the repository (it is not rebuilt automatically)'
+        Write-Log 'falling back to the upstream setup helper (downloads every library in building/libs.xml)' 'WARN'
+        $code = Invoke-Tool -FilePath $setupHelper -Label 'cne setup (libraries)'
+        if ($DryRun) { return }
+        if (-not (Test-Path -LiteralPath $repo)) {
+            throw "the setup helper finished (exit $code) but $repo still does not exist - restore .haxelib from the repository"
+        }
     }
 
     $env:HAXELIB_PATH = $repo

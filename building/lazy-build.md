@@ -17,7 +17,7 @@ export\release\windows\bin\CodenameEngine.exe
 | 步骤 | 做什么 | 缺东西时怎么办 |
 | --- | --- | --- |
 | 1/6 工具链 | 找 Haxe 4.3.x 和 Neko | 找不到就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `building\toolchain\` 解压使用（**不需要装进系统**） |
-| 2/6 库 | 把 haxelib 指向仓库自带的 `.haxelib` | 文件夹被删了就报错并停下（不会偷偷去下载一堆库） |
+| 2/6 库 | 把 haxelib 指向仓库自带的 `.haxelib` | 文件夹被删了会自动调上游的 `setup-windows.bat`（按 `libs.xml` 重新下载全部库）；连它也没有就报错，让你从仓库还原 | |
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64） | 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
 | 5/6 编译 | `haxelib run lime build windows -nocolor` | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
@@ -88,6 +88,28 @@ $env:Path='D:\FNF\Haxe\4.3.7\haxe;D:\FNF\Haxe\4.3.7\neko;'+$env:Path
 cd 'D:\FNF\FNF code\Codename-Engine_Re-Encryption'
 haxelib run lime build windows -nocolor
 ```
+
+## 和上游 `cne` 命令行（`cne-windows.bat`）的关系
+
+`building\cne-windows.bat` 是上游自带的 CLI 入口（两行，跑 `commandline\Main.hx`），子命令：
+
+| 子命令 | 实际执行 | 说明 |
+| --- | --- | --- |
+| `setup` | 按 `building\libs.xml` 安装所有库 | 本脚本在 `.haxelib` 缺失时会自动调它（`setup-windows.bat`） |
+| `release` | `haxelib run lime build windows` | **等价于 `Build.bat` 不带参数时做的事** |
+| `build` / `test` | `lime build`/`test` + `-DTEST_BUILD` | 开发构建：不拷资源，直接从源码目录读 assets，只能在源码目录里跑 |
+| `run` | `lime run windows` | 跑上一次的构建 |
+| `optimize` | 压缩 JSON | 与编译无关 |
+
+- `Build.bat` ≈ `cne-windows.bat release`，但多了五件事：找/装 Haxe+Neko、查 `.haxelib`、查 `lime.ndll`、查 MSVC、把输出写进日志并翻译报错。它**不需要** `haxe` 在 PATH 里。
+- `cne-windows.bat` 自己**不找工具链**，里面直接写 `@haxe ...`，所以必须先把 Haxe 放进 PATH。用本脚本下过工具链的话，这样临时加上：
+
+  ```bat
+  set "PATH=%~dp0toolchain\haxe-4.3.7\haxe_20250509143529_e0b355c;%~dp0toolchain\neko-2.3.0\neko-2.3.0-win64;%PATH%"
+  building\cne-windows.bat release
+  ```
+
+- 本 fork 只维护 Windows：上游的 `cne-unix.sh`、`setup-unix.sh`、`generate-docs-unix.sh` 已删除（要恢复：`git checkout 012a6423 -- building/*.sh`）。因此 `building\README.md` 里提到 `setup-unix.sh` 的 Linux/macOS 步骤在本仓库不能照抄。
 
 ## 已知限制
 
