@@ -49,6 +49,22 @@ final class WindowUtils {
 	public static var onClosing:Void->Void;
 
 	/**
+	 * Handlers asked while the close request is still being dispatched, before the
+	 * window is allowed to go. Returning true keeps it open, so a feature that has to
+	 * ask the player something (unsaved edits, a pending merge) can veto the close
+	 * itself instead of racing it from its own window listener.
+	 *
+	 * See `WindowUtils.addCloseVeto`. `onClosing` still runs afterwards, so code that
+	 * only reacts to the close keeps working unchanged.
+	**/
+	public static var onCloseVeto:Array<Void->Bool> = [];
+
+	public static function addCloseVeto(handler:Void->Bool):Void {
+		if (handler == null || onCloseVeto.contains(handler)) return;
+		onCloseVeto.push(handler);
+	}
+
+	/**
 	 * Resets the preventClosing to keep prevent the main game application window from closing.
 	 * see WindowUtils.preventClosing
 	**/
@@ -57,7 +73,11 @@ final class WindowUtils {
 
 	@:dox(hide) public static function init() {
 		Lib.application.window.onClose.add(function () {
-			if (preventClosing && !__triedClosing) {
+			var vetoed = false;
+			for (handler in onCloseVeto)
+				if (handler()) vetoed = true;
+
+			if (vetoed || (preventClosing && !__triedClosing)) {
 				Lib.application.window.onClose.cancel();
 				__triedClosing = true;
 			}

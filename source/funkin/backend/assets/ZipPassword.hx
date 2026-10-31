@@ -202,53 +202,9 @@ class ZipPassword {
 					throw "ZipPassword: corrupted entry " + e.name;
 				}
 
-				var name = Bytes.ofString(e.name);
-				var size = payload.length;
-				// Keep the UTF-8 name flag of the original archive, and set it for a name
-				// that needs it: the bytes written below are always UTF-8, so dropping the
-				// flag made non-ASCII file names unreadable. The data descriptor flag (0x8)
-				// is not needed any more because sizes are written into the header.
-				var flags = ((e.flags & 0x800) != 0 || !isAscii(e.name)) ? 0x800 : 0;
-
-				var local = new BytesBuffer();
-				writeU32(local, 0x04034B50);
-				writeU16(local, 20);
-				writeU16(local, flags);
-				writeU16(local, method);
-				writeU16(local, e.time);
-				writeU16(local, e.date);
-				writeU32(local, crc);
-				writeU32(local, size);
-				writeU32(local, usize);
-				writeU16(local, name.length);
-				writeU16(local, 0);
-				local.add(name);
-
-				output.write(local.getBytes());
-				if (size > 0) output.write(payload);
-
-				var head = new BytesBuffer();
-				writeU32(head, 0x02014B50);
-				writeU16(head, 20);
-				writeU16(head, 20);
-				writeU16(head, flags);
-				writeU16(head, method);
-				writeU16(head, e.time);
-				writeU16(head, e.date);
-				writeU32(head, crc);
-				writeU32(head, size);
-				writeU32(head, usize);
-				writeU16(head, name.length);
-				writeU16(head, 0);
-				writeU16(head, 0);
-				writeU16(head, 0);
-				writeU16(head, 0);
-				writeU32(head, 0);
-				writeU32(head, pos);
-				head.add(name);
-				central.add(head.getBytes());
-
-				pos += 30 + name.length + size;
+				// The data descriptor flag (0x8) is not needed any more: sizes are written
+				// into the header, and writeEntry keeps the UTF-8 name flag.
+				pos += writeEntry(output, central, e.name, e.time, e.date, method, crc, payload, usize, pos);
 				count++;
 			}
 
@@ -480,6 +436,62 @@ class ZipPassword {
 			if (name.charCodeAt(i) > 0x7F) return false;
 		return true;
 	}
+
+	#if sys
+	/**
+	 * Writes one entry - local header, payload, then its central directory record - and
+	 * returns the number of bytes written, which is what the next entry's offset is
+	 * advanced by. Shared by the readable-copy rewrite and by the staging merge, so the
+	 * layout lives in exactly one place.
+	 */
+	public static function writeEntry(output:haxe.io.Output, central:BytesBuffer, name:String, time:Int, date:Int, method:Int, crc:Int,
+			data:haxe.io.Bytes, usize:Int, offset:Int):Int {
+		var nameBytes = Bytes.ofString(name);
+		// The UTF-8 name flag is set for a name that needs it: the bytes written are
+		// always UTF-8, and dropping the flag made non-ASCII file names unreadable.
+		var flags = isAscii(name) ? 0 : 0x800;
+
+		var local = new BytesBuffer();
+		writeU32(local, 0x04034B50);
+		writeU16(local, 20);
+		writeU16(local, flags);
+		writeU16(local, method);
+		writeU16(local, time);
+		writeU16(local, date);
+		writeU32(local, crc);
+		writeU32(local, data.length);
+		writeU32(local, usize);
+		writeU16(local, nameBytes.length);
+		writeU16(local, 0);
+		local.add(nameBytes);
+
+		output.write(local.getBytes());
+		if (data.length > 0) output.write(data);
+
+		var head = new BytesBuffer();
+		writeU32(head, 0x02014B50);
+		writeU16(head, 20);
+		writeU16(head, 20);
+		writeU16(head, flags);
+		writeU16(head, method);
+		writeU16(head, time);
+		writeU16(head, date);
+		writeU32(head, crc);
+		writeU32(head, data.length);
+		writeU32(head, usize);
+		writeU16(head, nameBytes.length);
+		writeU16(head, 0);
+		writeU16(head, 0);
+		writeU16(head, 0);
+		writeU16(head, 0);
+		writeU32(head, 0);
+		writeU32(head, offset);
+		head.add(nameBytes);
+		central.add(head.getBytes());
+
+		return 30 + nameBytes.length + data.length;
+	}
+	#end
 
 	static function normalizePath(path:String):String {
 		if (path == null) return "";

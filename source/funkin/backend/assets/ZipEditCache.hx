@@ -104,91 +104,59 @@ class ZipEditCache {
 	// ------------------------------------------------------------ close prompt
 
 	static var installed:Bool = false;
+	/** True while the save warning is showing because of the staged files, not an editor. */
+	static var ownsWarning:Bool = false;
 
 	/**
-	 * Asks about the staged files when the window is closed, the way the editors ask
-	 * before dropping unsaved work.
+	 * Asks about the staged files when the window closes.
 	 *
-	 * This registers its own window listener instead of chaining onto
-	 * WindowUtils.onClosing: that callback runs after the window already passed its
-	 * "should I close?" check, and SaveWarning.init() leaves WindowUtils.preventClosing
-	 * false, so by then the close is on its way and a late cancel does nothing.
-	 * Cancelling from here runs while the event is still being dispatched, which is
-	 * early enough to keep the window open.
+	 * The prompt is the engine's own save warning, not a second dialog: the close veto
+	 * keeps the window open, `SaveWarning.showWarning` makes the existing onClosing hook
+	 * pop the warning, and its "save and exit" button runs `saveFunc`, which is where the
+	 * merge goes. Editors keep working through the same mechanism.
 	 */
 	public static function installClosingPrompt():Void {
 		if (installed) return;
 		installed = true;
-		var app = openfl.Lib.application;
-		if (app == null) return;
-		app.window.onClose.add(function() {
-			if (pendingMod() == null) return;
-			app.window.onClose.cancel();
-			promptOnClose();
+		funkin.backend.utils.WindowUtils.addCloseVeto(function() {
+			var mod = pendingMod();
+			if (mod == null) {
+				releaseWarning();
+				#if sys
+				if (FileSystem.exists(root))
+					Logs.trace('zip edits: nothing staged for "${Std.string(ModsFolder.currentModFolder)}"', VERBOSE);
+				#end
+				return false;
+			}
+			// An editor that already asked owns the prompt: its save writes into
+			// [zip]temp, and the merge is offered on the next close.
+			if (funkin.editors.SaveWarning.showWarning) return false;
+
+			funkin.editors.SaveWarning.selectionClass = null;
+			funkin.editors.SaveWarning.saveFunc = function() mergeStaged(mod);
+			funkin.editors.SaveWarning.showWarning = true; // also keeps preventClosing on
+			ownsWarning = true;
+			return true;
 		});
 	}
 
-	/** Shows the merge prompt; does nothing when nothing is staged for the current mod. */
-	public static function promptOnClose():Void {
-		var mod = pendingMod();
-		if (mod == null) {
-			#if sys
-			// A staging folder that exists but is not attributed to the loaded mod is the
-			// case worth a line in the log, since that is exactly when no prompt appears.
-			if (FileSystem.exists(root))
-				Logs.trace('zip edits: nothing staged for "${Std.string(ModsFolder.currentModFolder)}"', INFO);
-			#end
-			return;
+	/** Merges and clears the warning state, so the exit that follows is not held up. */
+	static function mergeStaged(mod:String):Void {
+		try {
+			Logs.trace(merge(mod), INFO);
+		} catch (e:Dynamic) {
+			// left staged on purpose: a failed merge must not lose the work
+			Logs.error('Could not merge the staged changes into "$mod": ' + e);
 		}
-		var state = flixel.FlxG.state;
-		if (state == null) return;
-		// An editor that has its own unsaved work already owns this close: its dialog
-		// saves into [zip]temp, so the merge offer comes up on the next close instead of
-		// stacking two prompts on top of each other.
-		if (funkin.editors.SaveWarning.showWarning) return;
+		releaseWarning();
+	}
 
-		// the window has to stay open while the player decides
-		funkin.backend.utils.WindowUtils.preventClosing = true;
-		funkin.backend.utils.WindowUtils.resetClosing();
-
-		state.openSubState(new funkin.editors.ui.UIWarningSubstate(
-			"Unsaved mod changes",
-			'The changes made to "$mod" are still waiting in the [zip]temp folder.\n'
-			+ 'Merging writes them into the pack, so they are there the next time it loads.',
-			[
-				{
-					label: "Keep editing",
-					color: 0x969533,
-					onClick: function(_) {
-						funkin.backend.utils.WindowUtils.preventClosing = true;
-						funkin.backend.utils.WindowUtils.resetClosing();
-					}
-				},
-				{
-					label: "Close without merging",
-					color: 0x969533,
-					onClick: function(_) {
-						// the staged files stay in [zip]temp, so nothing is lost
-						funkin.backend.utils.WindowUtils.preventClosing = false;
-						openfl.system.System.exit(0);
-					}
-				},
-				{
-					label: "Merge and close",
-					color: 0x969533,
-					onClick: function(_) {
-						try {
-							var summary = merge(mod);
-							Logs.trace('$summary', INFO);
-						} catch (e:Dynamic) {
-							// left staged on purpose: a failed merge must not lose the work
-							Logs.error('Could not merge the staged changes into "$mod": ' + e);
-						}
-						funkin.backend.utils.WindowUtils.preventClosing = false;
-						openfl.system.System.exit(0);
-					}
-				}
-			], false));
+	/** Hands the save warning back when it was only on because of the staged files. */
+	static function releaseWarning():Void {
+		if (!ownsWarning) return;
+		ownsWarning = false;
+		funkin.editors.SaveWarning.showWarning = false;
+		funkin.editors.SaveWarning.saveFunc = null;
 	}
 
 	// -------------------------------------------------------------- merging
@@ -292,7 +260,7 @@ class ZipEditCache {
 					usize = e.usize;
 				}
 
-				pos += writeEntry(output, central, name, e.time, e.date, method, crc, raw, usize, pos);
+				pos += ZipPassword.writeEntry(output, central, name, e.time, e.date, method, crc, raw, usize, pos);
 				count++;
 			}
 
@@ -303,7 +271,7 @@ class ZipEditCache {
 				var packed = deflate(plain);
 				var crc = ZipPassword.crc32(plain);
 				var time = 0, date = 0x21; // 1980-01-01, the zip epoch
-				pos += writeEntry(output, central, file, time, date, packed.method, crc, packed.data, plain.length, pos);
+				pos += ZipPassword.writeEntry(output, central, file, time, date, packed.method, crc, packed.data, plain.length, pos);
 				count++;
 			}
 
@@ -329,52 +297,6 @@ class ZipEditCache {
 		}
 	}
 
-	/** One local header + data + central directory record; returns the bytes written. */
-	static function writeEntry(output:haxe.io.Output, central:BytesBuffer, name:String, time:Int, date:Int, method:Int, crc:Int,
-			data:Bytes, usize:Int, offset:Int):Int {
-		var nameBytes = Bytes.ofString(name);
-		var flags = ZipPassword.isAscii(name) ? 0 : 0x800;
-
-		var local = new BytesBuffer();
-		ZipPassword.writeU32(local, 0x04034B50);
-		ZipPassword.writeU16(local, 20);
-		ZipPassword.writeU16(local, flags);
-		ZipPassword.writeU16(local, method);
-		ZipPassword.writeU16(local, time);
-		ZipPassword.writeU16(local, date);
-		ZipPassword.writeU32(local, crc);
-		ZipPassword.writeU32(local, data.length);
-		ZipPassword.writeU32(local, usize);
-		ZipPassword.writeU16(local, nameBytes.length);
-		ZipPassword.writeU16(local, 0);
-		local.add(nameBytes);
-
-		output.write(local.getBytes());
-		if (data.length > 0) output.write(data);
-
-		var head = new BytesBuffer();
-		ZipPassword.writeU32(head, 0x02014B50);
-		ZipPassword.writeU16(head, 20);
-		ZipPassword.writeU16(head, 20);
-		ZipPassword.writeU16(head, flags);
-		ZipPassword.writeU16(head, method);
-		ZipPassword.writeU16(head, time);
-		ZipPassword.writeU16(head, date);
-		ZipPassword.writeU32(head, crc);
-		ZipPassword.writeU32(head, data.length);
-		ZipPassword.writeU32(head, usize);
-		ZipPassword.writeU16(head, nameBytes.length);
-		ZipPassword.writeU16(head, 0);
-		ZipPassword.writeU16(head, 0);
-		ZipPassword.writeU16(head, 0);
-		ZipPassword.writeU16(head, 0);
-		ZipPassword.writeU32(head, 0);
-		ZipPassword.writeU32(head, offset);
-		head.add(nameBytes);
-		central.add(head.getBytes());
-
-		return 30 + nameBytes.length + data.length;
-	}
 
 	/** Deflates a staged file; falls back to storing it when that does not help. */
 	static function deflate(data:Bytes):{data:Bytes, method:Int} {

@@ -20,7 +20,9 @@ class SaveWarning {
 	public static function triggerWarning(?closingWindow:Bool = false) {
 		if (warningFunc != null) warningFunc(closingWindow);
 
-		if (FlxG.state != null && FlxG.state is UIState) {
+		// Not limited to UIState: the window can be closed from any state, and callers
+		// other than the editors (a pending mod merge, for one) rely on this prompt too.
+		if (FlxG.state != null) {
 			FlxG.state.openSubState(new UIWarningSubstate(TU.translate("saveWarning.warningTitle"), TU.translate("saveWarning.warningDesc"),
 			[
 				{
