@@ -19,8 +19,9 @@ import sys.io.FileOutput;
  * the "encrypted" bit and the standard reader refuses them. This class checks
  * the password cheaply (only the 12 byte encryption header is decrypted), then
  * rebuilds a readable copy of the archive inside the mod cache folder. The copy
- * is stored uncompressed, which costs disk space but keeps the rewrite fast and
- * streaming (no whole-archive buffer in memory).
+ * keeps every entry's original compression and its already deflated bytes - only
+ * the encryption header is stripped - so it is about the size of the pack itself
+ * and no decompression happens while it is written.
  *
  * AES protected zips (method 99, what 7-Zip and WinRAR write for "AES-256") are
  * handled by ZipAes.
@@ -32,6 +33,13 @@ class ZipPassword {
 	static inline function get_cacheFolder():String return ModPackCrypto.cacheFolder;
 
 	public static inline var FLAG_ENCRYPTED:Int = 0x1;
+
+	/**
+	 * Entries up to this size are inflated once while the copy is written, purely to
+	 * check their CRC. Scripts, charts and configs live in that range; the large media
+	 * files, which are most of the bytes, are copied without ever being decompressed.
+	 */
+	static inline var VERIFY_MAX_USIZE:Int = 1048576;
 
 	/** True when at least one entry of the zip needs a password. */
 	public static function isProtected(path:String):Bool {
@@ -164,15 +172,38 @@ class ZipPassword {
 			for (e in entries) {
 				if (onProgress != null) onProgress(done / entryCount);
 				done++;
-				var data = readEntryData(input, e, pass);
-				var crc = crc32(data);
-				// AES (AE-2) entries carry 0 in the crc field; their HMAC already proved integrity
-				if (e.method != 99 && data.length > 0 && (e.flags & 0x8) == 0) {
-					if (crc != e.crc) throw "ZipPassword: corrupted entry " + e.name;
+				// Only the encryption header is stripped: the entry keeps its original
+				// compression method and its already deflated bytes, so nothing is
+				// re-compressed and the copy is about the size of the pack itself.
+				var entry = readRawEntry(input, e, pass);
+				var method = entry.method;
+				var payload = entry.data;
+				var crc = e.crc;
+				var usize = e.usize;
+
+				// The copy keeps the entry's method, so only what this reader can hand to
+				// the engine (stored or deflated) may end up in it.
+				if (method != 0 && method != 8)
+					throw "ZipPassword: unsupported compression method " + method;
+
+				if (e.method == 99 || crc == 0) {
+					// WinZip AE-2 writes 0 in the crc field (its auth code covers the data),
+					// so a copy that other tools can read needs a real crc: inflate once.
+					var plain = method == 8 ? inflate(payload, usize) : payload;
+					crc = crc32(plain);
+					usize = plain.length;
+				} else if (method == 8 && usize <= VERIFY_MAX_USIZE) {
+					// Sanity check while it is still cheap: scripts, charts and configs are
+					// small, and catching a bad entry here beats an obscure failure later when
+					// the engine reads the cached copy. Big media is left to the CRC stored in
+					// the archive - inflating it here is exactly what this rewrite avoids.
+					if (crc32(inflate(payload, usize)) != crc) throw "ZipPassword: corrupted entry " + e.name;
+				} else if (method == 0 && payload.length != usize) {
+					throw "ZipPassword: corrupted entry " + e.name;
 				}
 
 				var name = Bytes.ofString(e.name);
-				var size = data.length;
+				var size = payload.length;
 				// Keep the UTF-8 name flag of the original archive, and set it for a name
 				// that needs it: the bytes written below are always UTF-8, so dropping the
 				// flag made non-ASCII file names unreadable. The data descriptor flag (0x8)
@@ -183,30 +214,30 @@ class ZipPassword {
 				writeU32(local, 0x04034B50);
 				writeU16(local, 20);
 				writeU16(local, flags);
-				writeU16(local, 0);
+				writeU16(local, method);
 				writeU16(local, e.time);
 				writeU16(local, e.date);
 				writeU32(local, crc);
 				writeU32(local, size);
-				writeU32(local, size);
+				writeU32(local, usize);
 				writeU16(local, name.length);
 				writeU16(local, 0);
 				local.add(name);
 
 				output.write(local.getBytes());
-				if (size > 0) output.write(data);
+				if (size > 0) output.write(payload);
 
 				var head = new BytesBuffer();
 				writeU32(head, 0x02014B50);
 				writeU16(head, 20);
 				writeU16(head, 20);
 				writeU16(head, flags);
-				writeU16(head, 0);
+				writeU16(head, method);
 				writeU16(head, e.time);
 				writeU16(head, e.date);
 				writeU32(head, crc);
 				writeU32(head, size);
-				writeU32(head, size);
+				writeU32(head, usize);
 				writeU16(head, name.length);
 				writeU16(head, 0);
 				writeU16(head, 0);
@@ -255,7 +286,13 @@ class ZipPassword {
 
 	// ------------------------------------------------------------------- zip io
 
-	static function readEntryData(f:FileInput, e:ZipEntry, pass:String):Bytes {
+	/**
+	 * Reads one entry and strips its encryption, leaving the payload exactly as the
+	 * archive stores it: still deflated, not yet inflated. `method` is the compression
+	 * method the payload actually uses, which differs from the entry's own method for
+	 * WinZip AES entries (they report 99 and carry the real method in the extra field).
+	 */
+	static function readRawEntry(f:FileInput, e:ZipEntry, pass:String):{data:haxe.io.Bytes, method:Int} {
 		#if sys
 		f.seek(dataOffset(f, e), SeekBegin);
 		var raw = e.csize > 0 ? f.read(e.csize) : Bytes.alloc(0);
@@ -271,9 +308,7 @@ class ZipPassword {
 			}
 		}
 
-		if (method == 0) return raw;
-		if (method == 8) return inflate(raw, e.usize);
-		throw "ZipPassword: unsupported compression method " + method;
+		return {data: raw, method: method};
 		#else
 		return null;
 		#end
