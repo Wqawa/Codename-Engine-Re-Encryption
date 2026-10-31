@@ -199,6 +199,15 @@ class ModSwitchMenu extends MusicBeatSubstate {
 			}
 			Options.disabledAddons = newAddonsOff;
 
+			// Switching tears the asset tree down, so anything staged for the pack that is
+			// loaded right now has to be dealt with first - otherwise it is left behind in
+			// .cne/mods/<mod>/ with no pack loading it any more.
+			var staged = funkin.backend.assets.ZipEditCache.pendingMod();
+			if (staged != null) {
+				askBeforeSwitch(staged, mods[curSelected]);
+				return;
+			}
+
 			ModsFolder.switchMod(mods[curSelected]);
 			close();
 		}
@@ -209,6 +218,53 @@ class ModSwitchMenu extends MusicBeatSubstate {
 		} else if (controls.CHANGE_MODE && addons.length > 0)
 			toggleTab(false);
 	}
+	/**
+	 * Asks what to do with the edits staged for the mod that is loaded right now.
+	 *
+	 * haxeFlixel draws one substate, so this prompt replaces the menu instead of stacking
+	 * on top of it - asking for a substate of a substate would simply not be drawn. A
+	 * cancelled prompt therefore lands on the screen underneath, not back in this list;
+	 * the alternative was leaving the edits orphaned, which nobody finds again.
+	 */
+	function askBeforeSwitch(staged:String, target:String):Void {
+		var state = FlxG.state;
+		if (state == null) {
+			ModsFolder.switchMod(target);
+			return;
+		}
+
+		state.openSubState(new funkin.editors.ui.UIWarningSubstate(
+			TU.translate("saveWarning.switchTitle", null, "Unsaved Mod Changes"),
+			TU.translate("saveWarning.switchDesc", null,
+				'The edits made to "$staged" are still waiting in the .cne folder.\n'
+				+ "Merging writes them into the pack before the switch, so they are there next time."),
+			[
+				{
+					label: TU.translate("saveWarning.cancel", null, "Cancel"),
+					color: 0x969533,
+					onClick: function(_) {}
+				},
+				{
+					label: TU.translate("saveWarning.switchWithout", null, "Switch Without Merging"),
+					color: 0x969533,
+					onClick: function(_) ModsFolder.switchMod(target)
+				},
+				{
+					label: TU.translate("saveWarning.mergeAndSwitch", null, "Merge & Switch"),
+					color: 0x969533,
+					onClick: function(_) {
+						try {
+							Logs.trace(funkin.backend.assets.ZipEditCache.merge(staged), INFO);
+						} catch (e:Dynamic) {
+							// a failed merge must not cost the player their edits: they stay staged
+							Logs.error('Could not merge the staged changes into "$staged": ' + e);
+						}
+						ModsFolder.switchMod(target);
+					}
+				}
+			], false));
+	}
+
 	function addonControls(scrollChange:Int) {
 		changeAddon(scrollChange);
 
