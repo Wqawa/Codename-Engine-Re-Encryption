@@ -40,30 +40,38 @@ class ModPackCleanupState extends UIState {
 
 	override function create() {
 		super.create();
-		FlxG.camera.bgColor = 0xFF101017;
+		// This screen runs on the close path, so nothing here may throw: a broken bit of
+		// UI would turn "the game cannot close" into "the game crashes when closing".
+		// When it does fail the exit hook still wipes the same things on the way out.
+		try {
+			FlxG.camera.bgColor = 0xFF101017;
 
-		add(new UIText(40, 60, FlxG.width - 80, "Cleaning up before closing", 26, 0xFFFFE066, false));
-		add(new UIText(40, 100, FlxG.width - 80,
-			"The decrypted mod pack, the keys copied out of it and the video cache only exist while\n"
-			+ "the game runs. They are wiped now, so nothing readable is left behind.",
-			14, 0xFFB0B0BE, false));
+			add(new UIText(40, 60, FlxG.width - 80, "Cleaning up before closing", 26, 0xFFFFE066, false));
+			add(new UIText(40, 100, FlxG.width - 80,
+				"The decrypted mod pack, the keys copied out of it and the video cache only exist while\n"
+				+ "the game runs. They are wiped now, so nothing readable is left behind.",
+				14, 0xFFB0B0BE, false));
 
-		var barWidth = FlxG.width - 80;
-		add(new FlxSprite(40, 160).makeGraphic(barWidth, 22, 0xFF2A2A34));
-		bar = new FlxSprite(43, 163).makeGraphic(Std.int(barWidth - 6), 16, 0xFF61C4FF);
-		// scale around the left edge, otherwise the bar grows from the middle outwards
-		bar.origin.set(0, 0);
-		bar.scale.x = 0.001;
-		add(bar);
+			var barWidth = FlxG.width - 80;
+			add(new FlxSprite(40, 160).makeGraphic(barWidth, 22, 0xFF2A2A34));
+			bar = new FlxSprite(43, 163).makeGraphic(Std.int(barWidth - 6), 16, 0xFF61C4FF);
+			// scale around the left edge, otherwise the bar grows from the middle outwards
+			bar.origin.set(0, 0);
+			bar.scale.x = 0.001;
+			add(bar);
 
-		add(percentText = new UIText(40, 194, FlxG.width - 80, "0%", 15, 0xFF9BE28C, false));
-		add(stageText = new UIText(40, 224, FlxG.width - 80, ModPackCrypto.cleanupLabel, 13, 0xFF7A7A88, false));
-		add(summaryText = new UIText(40, 258, FlxG.width - 80, "", 14, 0xFFFFFFFF, false));
-		add(hintText = new UIText(40, 300, FlxG.width - 80, "The window closes on its own when this is done.", 14,
-			0xFFB0B0BE, false));
-		add(closeButton = new UIButton(40, 336, "Close now", function() quit(), 200, 36));
+			add(percentText = new UIText(40, 194, FlxG.width - 80, "0%", 15, 0xFF9BE28C, false));
+			add(stageText = new UIText(40, 224, FlxG.width - 80, ModPackCrypto.cleanupLabel, 13, 0xFF7A7A88, false));
+			add(summaryText = new UIText(40, 258, FlxG.width - 80, "", 14, 0xFFFFFFFF, false));
+			add(hintText = new UIText(40, 300, FlxG.width - 80, "The window closes on its own when this is done.", 14,
+				0xFFB0B0BE, false));
+			add(closeButton = new UIButton(40, 336, "Close now", function() quit(), 200, 36));
 
-		ModPackCrypto.beginCleanup();
+			ModPackCrypto.beginCleanup();
+		} catch (e:Dynamic) {
+			Logs.error('The cleanup screen could not be built, closing directly: ' + e);
+			quit();
+		}
 	}
 
 	override function update(elapsed:Float) {
