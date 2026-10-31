@@ -107,23 +107,39 @@ class ZipEditCache {
 
 	/**
 	 * Asks about the staged files when the window is closed, the way the editors ask
-	 * before dropping unsaved work. Chained after whatever handler is already installed
-	 * (SaveWarning installs its own at start up), so both keep working.
+	 * before dropping unsaved work.
+	 *
+	 * This registers its own window listener instead of chaining onto
+	 * WindowUtils.onClosing: that callback runs after the window already passed its
+	 * "should I close?" check, and SaveWarning.init() leaves WindowUtils.preventClosing
+	 * false, so by then the close is on its way and a late cancel does nothing.
+	 * Cancelling from here runs while the event is still being dispatched, which is
+	 * early enough to keep the window open.
 	 */
 	public static function installClosingPrompt():Void {
 		if (installed) return;
 		installed = true;
-		var previous = funkin.backend.utils.WindowUtils.onClosing;
-		funkin.backend.utils.WindowUtils.onClosing = function() {
-			if (previous != null) previous();
+		var app = openfl.Lib.application;
+		if (app == null) return;
+		app.window.onClose.add(function() {
+			if (pendingMod() == null) return;
+			app.window.onClose.cancel();
 			promptOnClose();
-		};
+		});
 	}
 
 	/** Shows the merge prompt; does nothing when nothing is staged for the current mod. */
 	public static function promptOnClose():Void {
 		var mod = pendingMod();
-		if (mod == null) return;
+		if (mod == null) {
+			#if sys
+			// A staging folder that exists but is not attributed to the loaded mod is the
+			// case worth a line in the log, since that is exactly when no prompt appears.
+			if (FileSystem.exists(root))
+				Logs.trace('zip edits: nothing staged for "${Std.string(ModsFolder.currentModFolder)}"', INFO);
+			#end
+			return;
+		}
 		var state = flixel.FlxG.state;
 		if (state == null) return;
 		// An editor that has its own unsaved work already owns this close: its dialog
