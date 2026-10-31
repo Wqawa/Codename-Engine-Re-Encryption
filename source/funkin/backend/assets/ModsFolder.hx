@@ -119,8 +119,9 @@ class ModsFolder {
 				}
 				// A pack may ship the key of its own scripts; ScriptCrypto only reads files,
 				// so that key file is copied out of the pack before anything is loaded.
-				registerKeyFilesFromPack(memoryZip != null ? memoryZip : packPath,
-					Path.withoutExtension(Path.withoutDirectory(packPath)));
+				var packName = Path.withoutExtension(Path.withoutDirectory(packPath));
+				if (memoryZip != null) registerKeyFilesFromPack(memoryZip, packName);
+				else registerKeyFilesFromPath(packPath, packName);
 				return loadLibraryFromZip('$path'.toLowerCase(), packPath, force, modName, MODS, overlayFolder, memoryZip);
 			} catch (e:Dynamic) {
 				// a broken or unsupported zip must not take the whole game down
@@ -151,33 +152,48 @@ class ModsFolder {
 	 * Takes the already open SysZip when there is one (an encrypted pack lives in memory)
 	 * and opens the pack itself otherwise.
 	 */
-	static function registerKeyFilesFromPack(source:Dynamic, packName:String):Void {
+	/**
+	 * Copies the key file a packed mod ships for its own scripts (`data/script_key.txt`
+	 * or `script_key.txt`) out of the pack and registers it with ScriptCrypto.
+	 *
+	 * ScriptCrypto resolves keys from files on disk and a zip entry is not a file, so
+	 * without this an encrypted pack whose scripts were sealed with their own key could
+	 * only be opened by putting that script_key.txt next to the executable. The copy
+	 * lands under .cne/keys/ and is removed when the game closes.
+	 */
+	static function registerKeyFilesFromPack(zip:SysZip, packName:String):Void {
 		#if sys
-		if (source == null || packName == null) return;
-		var zip:SysZip = null;
-		var owned = false;
-		try {
-			if (source is SysZip) zip = cast source;
-			else {
-				zip = new SysZip(cast(source, String));
-				owned = true;
-			}
-			var safeName = packName.split("/").join("_").split(":").join("_");
-			for (entry in zip.entries) {
-				var name = entry.fileName.replace("\\", "/").toLowerCase();
-				if (name != "data/script_key.txt" && name != "script_key.txt") continue;
-				var data = zip.unzipEntry(entry);
-				if (data == null || data.length == 0) continue;
-				ModPackCrypto.ensureCacheFolder();
-				var out = ModPackCrypto.cacheFolder + ModPackCrypto.CACHE_PREFIX + safeName + "_key.txt";
+		if (zip == null || packName == null) return;
+		var safeName = funkin.backend.system.RuntimeDirs.sanitize(packName);
+		for (entry in zip.entries) {
+			var name = entry.fileName.replace("\\", "/").toLowerCase();
+			if (name != "data/script_key.txt" && name != "script_key.txt") continue;
+			var data = zip.unzipEntry(entry);
+			if (data == null || data.length == 0) continue;
+			ModPackCrypto.ensureCacheFolder();
+			var out = ModPackCrypto.cacheFolder + ModPackCrypto.CACHE_PREFIX + safeName + "_key.txt";
+			try {
 				sys.io.File.saveBytes(out, data);
 				ModPackCrypto.hideCacheFile(out);
 				ScriptCrypto.addKeyFile(out);
+			} catch (e:Dynamic) {
+				Logs.warn('Could not copy the key file out of "$packName": ' + e);
 			}
-		} catch (e:Dynamic) {
-			Logs.warn('Could not read a key file out of "$packName": ' + e);
 		}
-		if (owned) try zip.dispose() catch (e:Dynamic) {}
+		#end
+	}
+
+	/** Same, for a pack that is not already open in memory. */
+	static function registerKeyFilesFromPath(packPath:String, packName:String):Void {
+		#if sys
+		var zip:SysZip = null;
+		try {
+			zip = new SysZip(packPath);
+			registerKeyFilesFromPack(zip, packName);
+		} catch (e:Dynamic) {
+			Logs.warn('Could not read a key file out of "$packPath": ' + e);
+		}
+		try if (zip != null) zip.dispose() catch (e:Dynamic) {}
 		#end
 	}
 
@@ -191,25 +207,33 @@ class ModsFolder {
 			// every pack in the mod menu, on the main thread), so a pack that is not loaded
 			// yet simply reports no config.
 			var zip:SysZip;
+			var owned:Bool = false;
 			if (ModPackCrypto.needsKey(path)) {
 				if (!ModPackCrypto.hasLoaded(path)) break;
 				zip = ModPackCrypto.zipFor(path);
 			} else {
 				zip = new SysZip(path);
+				owned = true;
 			}
 			if (zip == null) break;
 
-			// A broken pack must not take the whole menu down with it.
+			// A broken pack must not take the whole menu down with it, and the handle has
+			// to be closed on the way out: this runs once per pack every time the mod menu
+			// is built, so leaving it open leaked a file handle per refresh.
+			var config:Map<String, Map<String, String>> = null;
 			try {
 				for (entry in zip.entries) {
 					if (entry.fileName.toLowerCase() == "data/config/modpack.ini") {
 						var bytes = zip.unzipEntry(entry);
-						return IniUtil.parseString(bytes.getString(0, bytes.length));
+						config = IniUtil.parseString(bytes.getString(0, bytes.length));
+						break;
 					}
 				}
 			} catch (e:Dynamic) {
 				Logs.warn('Could not read the config of "$path": ' + e);
 			}
+			if (owned) try zip.dispose() catch (e:Dynamic) {}
+			if (config != null) return config;
 			break; // theoretically once it finds a zip mod, it'll stop even if there's no config
 		}
 

@@ -77,14 +77,31 @@ class ZipFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 	public var videoCacheRemap:Map<String, String> = [];
 	public function getVideoRemap(originalPath:String):String {
 		if (!_videoExtensions.contains(Path.extension(_parsedAsset))) return originalPath;
-		if (videoCacheRemap.exists(originalPath)) return videoCacheRemap.get(originalPath);
+
+		// The cached file can be gone while the map still remembers it: a cleanup pass or
+		// a mod switch clears the video cache, and this library object outlives both.
+		var cached = videoCacheRemap.get(originalPath);
+		if (cached != null && sys.FileSystem.exists(cached)) return cached;
+
+		var folder = funkin.backend.system.RuntimeDirs.modVideos(modName);
+		if (folder == null) return originalPath;
 
 		// We adding the length of the string to counteract folder in folder naming duplicates.
 		// The file lands in the mod's own folder under .cne/mods/ (see RuntimeDirs), so a
 		// packed mod no longer scatters its videos across a shared .temp/.
-		var newPath = funkin.backend.system.RuntimeDirs.modVideos(modName) + _parsedAsset.length + '-zipvideo-'
-			+ _parsedAsset.split("/").pop();
-		File.saveBytes(newPath, unzip(assets[_parsedAsset]));
+		var newPath = folder + _parsedAsset.length + '-zipvideo-' + _parsedAsset.split("/").pop();
+
+		try {
+			var bytes = unzip(assets[_parsedAsset]);
+			if (bytes == null) return originalPath;
+			File.saveBytes(newPath, bytes);
+		} catch (e:Dynamic) {
+			// Hand the original path back instead: hxvlc falls back to Assets.getBytes for
+			// it, which is slower but still plays. Never take the whole game down for a
+			// video that could not be staged.
+			Logs.warn('Could not stage the video "$originalPath": ' + e);
+			return originalPath;
+		}
 		videoCacheRemap.set(originalPath, newPath);
 		return newPath;
 	}

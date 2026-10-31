@@ -15,3 +15,7 @@ addons/*
 dev-libs/
 *.sum
 .vs/
+
+# agent scratch: session notes and the regenerated upstream diff
+.workbuddy/
+docs/UPSTREAM-DIFF.md

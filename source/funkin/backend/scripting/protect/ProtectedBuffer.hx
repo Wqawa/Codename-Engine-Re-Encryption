@@ -43,6 +43,11 @@ class ProtectedBuffer {
 			key = ScriptCrypto.randomBytes(KEY_SIZE);
 			nonce = ScriptCrypto.randomBytes(NONCE_SIZE);
 			data = ChaCha20.xorBytes(key, nonce, 1, data);
+			// The buffer handed in is still the plaintext: it was just copied into the
+			// wrapped one above, so overwrite it now rather than leaving it for the
+			// collector - that copy is exactly what a memory scanner looks for. Callers
+			// must not touch their buffer after this.
+			SecureBytes.wipe(bytes);
 		}
 	}
 

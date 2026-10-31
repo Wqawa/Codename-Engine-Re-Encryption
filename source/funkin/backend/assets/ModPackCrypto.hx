@@ -540,7 +540,7 @@ class ModPackCrypto {
 		#if sys
 		try {
 			var name = Path.withoutExtension(Path.withoutDirectory(packPath));
-			var safeName = name.split("/").join("_").split(":").join("_");
+			var safeName = funkin.backend.system.RuntimeDirs.sanitize(name);
 			var file = cacheFolder + CACHE_PREFIX + safeName + "_key.txt";
 			if (FileSystem.exists(file)) FileSystem.deleteFile(file);
 		} catch (e:Dynamic) {}
@@ -563,6 +563,9 @@ class ModPackCrypto {
 	/** What was actually removed, shown on the cleanup screen. */
 	public static var cleanupSummary:String = "";
 
+	static var cleanupStep:Int = 0;
+	static var removedCount:Int = 0;
+
 	/** True while closing the window would leave decrypted data or keys behind. */
 	public static function needsCleanup():Bool {
 		if (cleanupDone) return false;
@@ -571,63 +574,72 @@ class ModPackCrypto {
 		return false;
 	}
 
-	/** Runs the wipe on a worker thread; ModPackCleanupState polls the fields above. */
+	/** Starts the wipe; ModPackCleanupState calls stepCleanup() once per frame. */
 	public static function beginCleanup():Void {
 		if (cleaningUp) return;
 		cleaningUp = true;
 		cleanupDone = false;
+		cleanupStep = 0;
+		removedCount = 0;
 		cleanupProgress = 0;
 		cleanupSummary = "";
-		cleanupLabel = "Wiping the decrypted packs";
-		#if target.threaded
-		sys.thread.Thread.create(runCleanup);
-		#else
-		runCleanup();
-		#end
+		cleanupLabel = "Releasing the pack handles";
 	}
 
-	static function runCleanup():Void {
-		var removed:Array<String> = [];
+	/**
+	 * Runs one cleanup step and returns true once everything is done.
+	 *
+	 * Deliberately synchronous, one step per frame. The wipe used to run on a worker
+	 * thread, which disposed buffers the main thread still referenced and took the
+	 * game down when the window was closed; nothing here touches a thread.
+	 */
+	public static function stepCleanup():Bool {
+		if (cleanupDone) return true;
+
 		try {
-			// the big one: every decrypted buffer is overwritten twice and read back
-			releaseZips();
-			cleanupProgress = 0.4;
-
-			#if MOD_SUPPORT
-			cleanupLabel = "Releasing the pack handles";
-			closePackHandles();
-			#end
-			cleanupProgress = 0.55;
-
-			#if sys
-			cleanupLabel = "Removing the copied keys";
-			var keys = countCacheFiles();
-			cleanCache();
-			if (keys > 0) removed.push('$keys key file(s)');
-			cleanupProgress = 0.8;
-
-			cleanupLabel = "Removing the video cache";
-			// .cne/mods/<mod>/ holds the edits the player has not merged yet, so it stays:
-			// only what the engine produced (videos, undo scratch) goes here.
-			try {
-				var videos = 0;
-				for (mod in FileSystem.readDirectory(funkin.backend.system.RuntimeDirs.MODS)) {
-					var dir = funkin.backend.system.RuntimeDirs.MODS + mod + "/videos/";
-					if (FileSystem.exists(dir) && FileSystem.isDirectory(dir)) videos++;
-				}
-				funkin.backend.system.RuntimeDirs.clearVideos();
-				funkin.backend.system.RuntimeDirs.clearTemp();
-				if (videos > 0) removed.push('$videos video cache folder(s)');
-			} catch (e:Dynamic) {}
-			#end
-
-			cleanupProgress = 0.95;
-			cleanupSummary = removed.length == 0 ? "nothing had reached the disk" : removed.join(" and ") + " removed";
+			switch (cleanupStep) {
+				case 0:
+					// The asset libraries hold the very zip handles the wipe is about to
+					// release, so they go first: disposing a buffer that a library still
+					// reads from is what made closing crash.
+					#if MOD_SUPPORT
+					closePackHandles();
+					#end
+					cleanupLabel = "Wiping the decrypted packs";
+					cleanupProgress = 0.2;
+					cleanupStep = 1;
+				case 1:
+					releaseZips();
+					cleanupLabel = "Removing the copied keys";
+					cleanupProgress = 0.55;
+					cleanupStep = 2;
+				case 2:
+					removedCount = countCacheFiles();
+					cleanCache();
+					cleanupLabel = "Removing the video cache";
+					cleanupProgress = 0.75;
+					cleanupStep = 3;
+				case 3:
+					funkin.backend.system.RuntimeDirs.clearVideos();
+					funkin.backend.system.RuntimeDirs.clearTemp();
+					cleanupProgress = 0.9;
+					cleanupStep = 4;
+				default:
+					finishCleanup();
+					return true;
+			}
 		} catch (e:Dynamic) {
-			cleanupSummary = "the cleanup hit an error: " + Std.string(e);
+			finishCleanup("the cleanup stopped early: " + Std.string(e));
+			return true;
 		}
-		cleanupLabel = "Done";
+		return false;
+	}
+
+	static function finishCleanup(?problem:String):Void {
 		cleanupProgress = 1;
+		cleanupLabel = "Done";
+		cleanupSummary = problem != null ? problem
+			: (removedCount == 0 ? "nothing had reached the disk" : '$removedCount key file(s) removed');
 		cleaningUp = false;
 		cleanupDone = true;
 	}

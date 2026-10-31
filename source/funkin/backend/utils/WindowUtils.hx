@@ -74,8 +74,16 @@ final class WindowUtils {
 	@:dox(hide) public static function init() {
 		Lib.application.window.onClose.add(function () {
 			var vetoed = false;
-			for (handler in onCloseVeto)
-				if (handler()) vetoed = true;
+			// One broken handler must not take the close request down with it: an exception
+			// thrown in here escapes into the window event and the game crashes on the way
+			// out, which looked like a null object error on the close key.
+			for (handler in onCloseVeto) {
+				try {
+					if (handler()) vetoed = true;
+				} catch (e:Dynamic) {
+					Logs.error('A close veto handler failed: ' + e);
+				}
+			}
 
 			if (vetoed || (preventClosing && !__triedClosing)) {
 				Lib.application.window.onClose.cancel();

@@ -193,14 +193,31 @@ class Main extends Sprite
 	 * ask about unsaved work before anything is torn down, and saving there exits the
 	 * game through the exit hook, which runs the same wipe.
 	 */
+	static var cleanupQueued:Bool = false;
+
 	static function installModCleanupVeto():Void {
 		WindowUtils.addCloseVeto(function() {
 			if (!funkin.backend.assets.ModPackCrypto.needsCleanup()) return false;
 			// already wiping: hold the window until the pass reports done
 			if (funkin.backend.assets.ModPackCrypto.cleaningUp) return true;
+			if (cleanupQueued) return true;
+			// the staged-edit prompt owns this close while it is up
 			if (SaveWarning.showWarning) return false;
 			if (FlxG.state == null) return false;
-			FlxG.switchState(new funkin.menus.ModPackCleanupState());
+
+			// The window event fires outside the update loop; switching state from here
+			// left the engine halfway between two states. Queue it for the next frame.
+			cleanupQueued = true;
+			try {
+				FlxG.signals.preUpdate.addOnce(function() {
+					cleanupQueued = false;
+					if (FlxG.state == null) return;
+					FlxG.switchState(new funkin.menus.ModPackCleanupState());
+				});
+			} catch (e:Dynamic) {
+				cleanupQueued = false;
+				Logs.error('Could not queue the cleanup screen: ' + e);
+			}
 			return true;
 		});
 	}

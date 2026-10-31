@@ -172,15 +172,29 @@ class ZipEditCache {
 		var files = listFiles(mod);
 		if (files.length == 0) return 'nothing to merge';
 
-		var plain = plainCopyOf(pack);
-		var merged = plain + '.merged';
+		// Everything written on the way lives in .cne/temp/ and is removed afterwards: the
+		// merge used to leave a plain .CNE_merge_*.zip in the key folder and a .old next to
+		// the pack, and a failed run never cleaned either up.
+		var work = funkin.backend.system.RuntimeDirs.TEMP;
+		funkin.backend.system.RuntimeDirs.ensure(work);
+
+		var stem = funkin.backend.system.RuntimeDirs.sanitize(mod);
+		var merged = work + 'merge_' + stem + '.zip';
+		var plain = pack;
+		var plainIsCopy = false;
+
 		try {
+			if (ModPackCrypto.isEncryptedPackFile(pack) || ZipPassword.isProtected(pack)) {
+				plain = plainCopyOf(pack, work + 'source_' + stem + '.zip');
+				plainIsCopy = true;
+			}
 			writeMerged(plain, folder(mod, false), files, merged);
 			replaceWith(pack, merged);
 		} catch (e:Dynamic) {
-			try if (FileSystem.exists(merged)) FileSystem.deleteFile(merged) catch (e2:Dynamic) {}
+			dropTempFiles(plain, plainIsCopy, merged);
 			throw e;
 		}
+		dropTempFiles(plain, plainIsCopy, merged);
 
 		// only drop what really made it into the pack
 		for (file in files) {
@@ -193,25 +207,33 @@ class ZipEditCache {
 	}
 
 	#if sys
+	/** Removes the intermediate files a merge wrote, whatever happened to the merge. */
+	static function dropTempFiles(plain:String, plainIsCopy:Bool, merged:String):Void {
+		if (plainIsCopy && plain != null) {
+			try if (FileSystem.exists(plain)) FileSystem.deleteFile(plain) catch (e:Dynamic) {}
+		}
+		for (file in [merged, merged + '.cnez', merged + '.aes']) {
+			try if (FileSystem.exists(file)) FileSystem.deleteFile(file) catch (e:Dynamic) {}
+		}
+	}
+
 	/**
-	 * Path of a plain (readable) zip holding the pack's current contents. An encrypted
-	 * pack is unwrapped into the cache folder first, with the key it is already unlocked
-	 * with; a plain pack is used as it is.
+	 * Writes a plain (readable) zip holding the pack's current contents to `out` and
+	 * returns its path, with the key the pack is already unlocked with. A pack that is
+	 * neither wrapped nor password protected is returned as it is, without a copy.
 	 */
-	static function plainCopyOf(pack:String):String {
+	static function plainCopyOf(pack:String, out:String):String {
 		if (ModPackCrypto.isEncryptedPackFile(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);
 			if (key == null) throw 'the pack is locked: no key opens ${Path.withoutDirectory(pack)}';
-			var zip = ModPackCrypto.unpack(File.getBytes(pack), key);
-			var out = ModPackCrypto.cacheFolder + ModPackCrypto.CACHE_PREFIX + 'merge_' + Path.withoutExtension(Path.withoutDirectory(pack)) + '.zip';
-			ModPackCrypto.ensureCacheFolder();
-			File.saveBytes(out, zip);
+			File.saveBytes(out, ModPackCrypto.unpack(File.getBytes(pack), key));
 			return out;
 		}
 		if (ZipPassword.isProtected(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);
 			if (key == null) throw 'the pack is locked: no password opens ${Path.withoutDirectory(pack)}';
-			return ZipPassword.extractToCache(pack, key);
+			File.saveBytes(out, ZipPassword.readableCopyBytes(pack, key));
+			return out;
 		}
 		return pack;
 	}
@@ -236,12 +258,16 @@ class ZipEditCache {
 				var isStaged = staged.exists(name.toLowerCase());
 				staged.remove(name.toLowerCase());
 
+				// A staged file can disappear between the scan and the merge (a cleanup pass,
+				// the player emptying the folder by hand). Keep the pack's own copy then,
+				// instead of throwing away the whole merge.
+				var plain = isStaged ? readStaged(overlay, name) : null;
+
 				var raw:Bytes;
 				var method:Int;
 				var crc:Int;
 				var usize:Int;
-				if (isStaged) {
-					var plain = File.getBytes(overlay + name);
+				if (plain != null) {
 					var packed = deflate(plain);
 					raw = packed.data;
 					method = packed.method;
@@ -263,7 +289,8 @@ class ZipEditCache {
 			// staged files the pack does not have yet
 			for (file in files) {
 				if (!staged.exists(file.toLowerCase())) continue;
-				var plain = File.getBytes(overlay + file);
+				var plain = readStaged(overlay, file);
+				if (plain == null) continue;
 				var packed = deflate(plain);
 				var crc = ZipPassword.crc32(plain);
 				var time = 0, date = 0x21; // 1980-01-01, the zip epoch
@@ -293,6 +320,17 @@ class ZipEditCache {
 		}
 	}
 
+
+	/** Reads a staged file, or null when it disappeared since the folder was scanned. */
+	static function readStaged(overlay:String, name:String):Bytes {
+		try {
+			var path = overlay + name;
+			if (!FileSystem.exists(path)) return null;
+			return File.getBytes(path);
+		} catch (e:Dynamic) {
+			return null;
+		}
+	}
 
 	/** Deflates a staged file; falls back to storing it when that does not help. */
 	static function deflate(data:Bytes):{data:Bytes, method:Int} {

@@ -42,15 +42,55 @@ class RuntimeDirs {
 	/** Folders earlier builds wrote to; swept on sight. */
 	public static var legacyFolders:Array<String> = ['./.CNE_mods/', './.cne_mods/', './[zip]temp/', './.temp/'];
 
-	/** Creates `path` (and the root) when missing, and keeps both hidden. */
+	/** Creates `path` (and the root) when missing, and keeps every level hidden. */
 	public static function ensure(path:String):Void {
 		#if sys
 		try {
 			if (path == null) return;
 			if (!FileSystem.exists(ROOT)) FileSystem.createDirectory(ROOT);
 			if (!FileSystem.exists(path)) FileSystem.createDirectory(path);
-			hide(ROOT);
+			hideChain(path);
+		} catch (e:Dynamic) {}
+		#end
+	}
+
+	/**
+	 * Hides the root, the folder itself and the folder above it.
+	 *
+	 * Windows hides a directory by attribute, so a child created later is visible again
+	 * even though its parent is hidden: hiding only the root left the inside of .cne
+	 * half visible. This walks the chain every time something is created, and
+	 * hideAll() catches whatever was already there.
+	 */
+	static function hideChain(path:String):Void {
+		#if windows
+		hide(ROOT);
+		hide(path);
+		var parent = path.substr(0, path.lastIndexOf("/", path.length - 2) + 1);
+		if (parent.length > ROOT.length) hide(parent);
+		#end
+	}
+
+	/** Hides everything under the root, including files created by an older build. */
+	public static function hideAll():Void {
+		#if windows
+		try {
+			if (!FileSystem.exists(ROOT)) return;
+			hideTree(ROOT);
+		} catch (e:Dynamic) {}
+		#end
+	}
+
+	static function hideTree(path:String):Void {
+		#if windows
+		try {
 			hide(path);
+			if (!FileSystem.isDirectory(path)) return;
+			for (name in FileSystem.readDirectory(path)) {
+				var child = path + name;
+				if (FileSystem.isDirectory(child)) hideTree(child + "/");
+				else hide(child);
+			}
 		} catch (e:Dynamic) {}
 		#end
 	}
@@ -83,6 +123,8 @@ class RuntimeDirs {
 				FileSystem.deleteDirectory(folder);
 			} catch (e:Dynamic) {}
 		}
+
+		hideAll();
 		#end
 	}
 
@@ -139,19 +181,6 @@ class RuntimeDirs {
 		#end
 	}
 
-	/** Deletes everything underneath the root, plus the root and the old folders. */
-	public static function wipe():Void {
-		#if sys
-		for (folder in [ROOT].concat(legacyFolders)) {
-			try {
-				if (!FileSystem.exists(folder) || !FileSystem.isDirectory(folder)) continue;
-				funkin.backend.utils.CoolUtil.deleteFolder(folder);
-				FileSystem.deleteDirectory(folder);
-			} catch (e:Dynamic) {}
-		}
-		#end
-	}
-
 	/** Empties the temporary side: editor undo data, updater scratch. */
 	public static function clearTemp():Void {
 		#if sys
@@ -171,16 +200,5 @@ class RuntimeDirs {
 			}
 		} catch (e:Dynamic) {}
 		#end
-	}
-
-	/** True when anything is left on disk, for the cleanup summary. */
-	public static function isEmpty():Bool {
-		#if sys
-		try {
-			if (!FileSystem.exists(ROOT)) return true;
-			return FileSystem.readDirectory(ROOT).length == 0;
-		} catch (e:Dynamic) {}
-		#end
-		return true;
 	}
 }
