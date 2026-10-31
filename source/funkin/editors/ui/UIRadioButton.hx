@@ -93,7 +93,7 @@ class UIRadioButton extends UISprite {
 
 	public override function updateButton() {
 		__rect.set(x, y, field.width + 30, field.height > height ? field.height : height);
-		UIState.state.updateRectButtonHandler(this, __rect, onHovered);
+		registerHover(__rect);
 	}
 
 	public override function toString() {

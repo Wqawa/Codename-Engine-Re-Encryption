@@ -28,16 +28,21 @@ class UISprite extends FlxSprite {
 	public var selectable:Bool = true;
 	public var autoAlpha:Bool = true;
 
-	private inline function get_focused():Bool
-		return UIState.state.currentFocus == cast this;
+	private function get_focused():Bool {
+		var state = UIState.state;
+		return state != null && state.currentFocus == cast this;
+	}
 
-	private inline function set_focused(b:Bool):Bool {
+	private function set_focused(b:Bool):Bool {
+		var state = UIState.state;
+		// no state to hold the focus (a prompt opened on a plain state): nothing to record
+		if (state == null) return b;
 		if (get_focused()) {
 			if (!b)
-				UIState.state.currentFocus = null;
+				state.currentFocus = null;
 		} else {
 			if (b)
-				UIState.state.currentFocus = cast this;
+				state.currentFocus = cast this;
 		}
 		return b;
 	}
@@ -103,7 +108,42 @@ class UISprite extends FlxSprite {
 	}
 
 	public function updateButtonHandler() {
-		UIState.state.updateButtonHandler(this, onHovered);
+		updateSpriteRect();
+		registerHover(__rect);
+	}
+
+	/**
+	 * Reports this sprite's hover for the current frame.
+	 *
+	 * Inside an editor the state is the one that remembers the hovered sprite and runs
+	 * the callback after every widget has reported, which is how overlapping widgets
+	 * agree on who is on top. A prompt opened on a plain state (the mod switch prompt,
+	 * the unsaved changes prompt when the window is closed) has no such state, so each
+	 * widget answers for itself instead of dereferencing a null UIState.
+	 */
+	public function registerHover(rect:FlxRect) {
+		var state = UIState.state;
+		if (state != null) {
+			state.updateRectButtonHandler(this, rect, onHovered);
+			return;
+		}
+		selfHover(rect);
+	}
+
+	static var __hoverPoint:FlxPoint = new FlxPoint();
+
+	/** Hit test against the cameras this sprite was drawn through, no state needed. */
+	function selfHover(rect:FlxRect) {
+		for (camera in __lastDrawCameras) {
+			if (camera == null) continue;
+			var pos = FlxG.mouse.getScreenPosition(camera, __hoverPoint);
+			var left = rect.x - camera.scroll.x * scrollFactor.x;
+			var top = rect.y - camera.scroll.y * scrollFactor.y;
+			if (pos.x > left && pos.x < left + rect.width && pos.y > top && pos.y < top + rect.height) {
+				onHovered();
+				return;
+			}
+		}
 	}
 
 	/**

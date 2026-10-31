@@ -20,7 +20,7 @@ class UISliceSprite extends UISprite {
 	public override function updateButton() {
 		if (incorporeal) return;
 		__rect.set(x, y, bWidth, bHeight);
-		UIState.state.updateRectButtonHandler(this, __rect, onHovered);
+		registerHover(__rect);
 	}
 
 	public function resize(w:Int, h:Int) {
