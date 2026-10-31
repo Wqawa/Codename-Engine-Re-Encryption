@@ -7,7 +7,7 @@
 > **先读这一条**：本功能提供的是 **静态保护**，不是运行时保护。
 > 引擎要加载内容就必须解密，所以游戏运行时明文一定存在于内存里（可选整包会话流包裹，见 2.2），
 > 但不会再落到磁盘上；内置默认密钥编译在 exe 里，反汇编就能拿到。它挡住的是"随手打开压缩包看一眼"
-> 和"去缓存目录拷文件"的人，挡不住有工具和耐心的人。详见文末 [能力边界](#能力边界)。
+> 和"从进程内存里捞明文"的人，挡不住有工具和耐心的人。详见文末 [能力边界](#能力边界)。
 
 ---
 
@@ -60,7 +60,7 @@ magic 与脚本容器的 magic 刻意不同，脚本不可能被当成 mod 包�
 4. 没有可用密钥时，加载器停下来并打开 `ModPackKeyState`（`source/funkin/menus/ModPackKeyState.hx`）：
    玩家输入发布者给的密钥或 `CNEK1-` token，输错则会显示错误并保留"不用 mod 启动"的选项；
 5. 关闭游戏时，只要本次运行解过包，窗口**不会立刻关**：`ModPackCleanupState` 接管，
-   在后台擦掉内存缓冲、释放 zip 句柄、删除复制出来的密钥文件和 `./.temp/` 的视频缓存，
+   在后台擦掉内存缓冲、释放 zip 句柄、删除复制出来的密钥文件和视频缓存，
    完成后等待 3 秒自动退出（也可以点 *Close now* 立即退出）。
    清理期间关闭请求一直被拒绝，避免"擦到一半窗口就没了"。
 
@@ -82,12 +82,25 @@ magic 与脚本容器的 magic 刻意不同，脚本不可能被当成 mod 包�
   所以玩家只需要输一次密码，7-Zip / WinRAR / Bandizip 也能直接打开。
 - **包内自带的 key 文件**：`ScriptCrypto` 只认磁盘上的文件，而 zip 条目不是文件，所以打包 mod 加载时
   `ModsFolder.registerKeyFilesFromPack` 会把包里的 `data/script_key.txt` / `script_key.txt` 复制到
-  隐藏缓存目录并注册。没有这一层，包内脚本用了自定义 key 时就只能把 `script_key.txt` 放到 exe 旁边。
+  `.cne/keys/` 并注册。没有这一层，包内脚本用了自定义 key 时就只能把 `script_key.txt` 放到 exe 旁边。
 
-### 2.4 打包 mod 的改动暂存（`[zip]temp`）
+### 2.4 运行时目录：`./.cne/`
 
-zip 不能原地写，所以编辑器给**打包 mod**保存的东西不再落到 `mods/Name/`，而是
-**exe 同级的 `[zip]temp/<mod>/`**（`assets/ZipEditCache.hx`）：
+引擎运行期需要落盘的东西全部收在一个 exe 同级的隐藏文件夹里（`backend/system/RuntimeDirs.hx`）：
+
+```
+.cne/
+  keys/                包内 script_key.txt 的副本（原 .CNE_mods/）
+  mods/<mod>/          编辑器为打包 mod 暂存的改动（原 [zip]temp/<mod>/）
+  mods/<mod>/videos/   从包里提取的视频（原 .temp/ 的 *-zipvideo-*）
+  temp/                编辑器 undo/redo、更新器临时数据（原 .temp/ 的其余部分）
+```
+
+拆成三个目录时它们都为了同一件事存在——zip 不能原地读写——但放在一起谁也分不清谁。
+旧目录在首次启动时合并：`[zip]temp/<mod>/` 里的改动会**搬**进 `.cne/mods/<mod>/`（那是玩家没合并的工作），
+`.CNE_mods/` 和 `.temp/` 里只有可重建的缓存，直接删。
+
+其中给**打包 mod** 暂存的改动（`assets/ZipEditCache.hx`）：
 
 - 引擎读资源时通过 `OverlayZipFolderLibrary` 把这层文件夹叠在包上——文件夹里有就优先用它；
 - 关闭游戏时若这个目录还有文件，走的还是引擎自带的那套"未保存"提示：`WindowUtils` 新增的
@@ -98,6 +111,7 @@ zip 不能原地写，所以编辑器给**打包 mod**保存的东西不再落�
 - 原包先改名成 `.old` 再换新的，替换失败会还原，暂存文件保持不动——失败不会丢东西。
 
 > 注：`mods/Name/` 与包并存时仍然优先读文件夹（兼容旧布局），只是新保存的内容不再写进去。
+> `.cne/mods/<mod>/videos/` 是只读缓存，合并时会被跳过，不会把整段过场动画重新写进包。
 
 ---
 
@@ -230,8 +244,9 @@ salt / nonce 来自系统熵源：Windows 用 `RtlGenRandom`（`SystemFunction03
 - revision 0 的旧包（空字面量 Map 提示丢失）走源码回落，性能与保护强度都低于新包，建议用新版本重新打包；
 - 解密后的包只在内存里：**每次启动都要重新解密**（没有磁盘缓存了），大包启动慢几秒；
 - 内存占用等于包大小（包裹模式下另加解密时的临时缓冲），32 位构建上大包要注意；
-- 唯一的落盘产物是包内附带的 `script_key.txt`（复制到 `./.CNE_mods/` 供 `ScriptCrypto` 读取，
-  退出时删除）；视频因为 hxvlc 需要真实文件路径，仍会解到 `./.temp/`；
+- 唯一的落盘产物是包内附带的 `script_key.txt`（复制到 `./.cne/keys/` 供 `ScriptCrypto` 读取，
+  退出时删除）；视频走的是上游原本的做法——`ZipFolderLibrary.getVideoRemap` 把它解到磁盘，
+  现在落在 `./.cne/mods/<mod>/videos/`；
 - 密码 zip / AES zip 需要玩家在启动时输入一次密码；
 - 未使用上述功能的项目行为与上游 1.1.0 一致（默认不加密任何东西）。
 

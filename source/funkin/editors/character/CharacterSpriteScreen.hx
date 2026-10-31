@@ -78,9 +78,9 @@ class CharacterSpriteScreen extends UISubstateWindow {
 		CharacterEditor.undos.addToUndo(CCharEditSprite(idCounter));
 	
 		for(i in 0...ogImageSaveDatas.length)
-			CoolUtil.safeSaveFile('./.temp/${idCounter}__undo__/${Type.getClassName(Type.getClass(FlxG.state))}__$i.cneisd', UIImageExplorer.serializeSaveDataGlobal(ogImageSaveDatas[i]));
+			CoolUtil.safeSaveFile(funkin.backend.system.RuntimeDirs.TEMP + '${idCounter}__undo__/${Type.getClassName(Type.getClass(FlxG.state))}__$i.cneisd', UIImageExplorer.serializeSaveDataGlobal(ogImageSaveDatas[i]));
 		
 		for(i in 0...imageList.getSaveDatas().length)
-			CoolUtil.safeSaveFile('./.temp/${idCounter}__redo__/${Type.getClassName(Type.getClass(FlxG.state))}__$i.cneisd', UIImageExplorer.serializeSaveDataGlobal(imageList.getSaveDatas()[i]));
+			CoolUtil.safeSaveFile(funkin.backend.system.RuntimeDirs.TEMP + '${idCounter}__redo__/${Type.getClassName(Type.getClass(FlxG.state))}__$i.cneisd', UIImageExplorer.serializeSaveDataGlobal(imageList.getSaveDatas()[i]));
 	}
 }

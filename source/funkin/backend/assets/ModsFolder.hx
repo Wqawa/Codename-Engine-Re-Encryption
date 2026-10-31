@@ -112,7 +112,7 @@ class ModsFolder {
 				var overlayFolder:String = null;
 				if (FileSystem.exists(path) && FileSystem.isDirectory(path)) overlayFolder = path;
 				else {
-					// Edits to a packed mod are staged in [zip]temp/<mod>/; read through
+					// Edits to a packed mod are staged in .cne/mods/<mod>/; read through
 					// them so a file saved in-game is visible without merging first.
 					var libName = modName != null ? modName : Path.withoutExtension(Path.withoutDirectory(packPath));
 					if (ZipEditCache.hasChanges(libName)) overlayFolder = ZipEditCache.folder(libName, false);

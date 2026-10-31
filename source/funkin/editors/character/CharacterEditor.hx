@@ -517,7 +517,7 @@ class CharacterEditor extends UIState {
 			case CCharEditInfo(oldInfo, newInfo):
 				characterPropertiesWindow.editCharacterInfo(oldInfo, false);
 			case CCharEditSprite(fileID):
-				var cneisdPath:String = './.temp/${fileID}__undo__/';
+				var cneisdPath:String = funkin.backend.system.RuntimeDirs.TEMP + '${fileID}__undo__/';
 				if (FileSystem.exists(cneisdPath)) {
 					try {
 						var paths:Array<ImageSaveData> = [];
@@ -598,7 +598,7 @@ class CharacterEditor extends UIState {
 			case CCharEditInfo(oldInfo, newInfo):
 				characterPropertiesWindow.editCharacterInfo(newInfo, false);
 			case CCharEditSprite(fileID):
-				var cneisdPath:String = './.temp/${fileID}__redo__/';
+				var cneisdPath:String = funkin.backend.system.RuntimeDirs.TEMP + '${fileID}__redo__/';
 				if (FileSystem.exists(cneisdPath)) {
 					try {
 						var paths:Array<ImageSaveData> = [];

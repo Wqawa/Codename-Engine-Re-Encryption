@@ -39,7 +39,9 @@ class MainState extends FlxState {
 		initiated = true;
 
 		#if sys
-		CoolUtil.deleteFolder('./.temp/'); // delete temp folder
+		// videos lifted out of packs and the editors' scratch data are rebuilt on demand
+		funkin.backend.system.RuntimeDirs.clearTemp();
+		funkin.backend.system.RuntimeDirs.clearVideos();
 		#end
 		Options.save();
 
@@ -233,7 +235,7 @@ class MainState extends FlxState {
 			Framerate.instance.reload();
 
 		#if sys
-		CoolUtil.safeAddAttributes('./.temp/', NativeAPI.FileAttribute.HIDDEN);
+		funkin.backend.system.RuntimeDirs.ensure(funkin.backend.system.RuntimeDirs.TEMP);
 		#end
 
 		for (lib in ModsFolder.getLoadedModsLibs()) {

@@ -80,7 +80,10 @@ class ZipFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 		if (videoCacheRemap.exists(originalPath)) return videoCacheRemap.get(originalPath);
 
 		// We adding the length of the string to counteract folder in folder naming duplicates.
-		var newPath = './.temp/${_parsedAsset.length}-zipvideo-${_parsedAsset.split("/").pop()}';
+		// The file lands in the mod's own folder under .cne/mods/ (see RuntimeDirs), so a
+		// packed mod no longer scatters its videos across a shared .temp/.
+		var newPath = funkin.backend.system.RuntimeDirs.modVideos(modName) + _parsedAsset.length + '-zipvideo-'
+			+ _parsedAsset.split("/").pop();
 		File.saveBytes(newPath, unzip(assets[_parsedAsset]));
 		videoCacheRemap.set(originalPath, newPath);
 		return newPath;

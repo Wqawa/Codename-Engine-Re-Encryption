@@ -13,8 +13,9 @@ import sys.io.File;
  *
  * A zip cannot be written in place, so anything the editors save for such a mod used
  * to land in `mods/<name>/` next to the pack. That folder is easy to lose track of and
- * has nothing to do with the pack it belongs to, so those edits go to `[zip]temp/<name>/`
- * instead - one folder, next to the executable, holding only unsaved work.
+ * has nothing to do with the pack it belongs to, so those edits go to
+ * `.cne/mods/<name>/` instead - inside the one hidden folder the engine owns (see
+ * RuntimeDirs), next to the videos it lifts out of the same pack.
  *
  * The engine reads through this folder (see OverlayZipFolderLibrary), and when the game
  * closes with files still in it, the save warning asks whether they should be merged into
@@ -26,7 +27,7 @@ import sys.io.File;
  */
 class ZipEditCache {
 	/** Root of the staging area, relative to the executable (the engine sets that as cwd). */
-	public static var root:String = './[zip]temp/';
+	public static var root:String = funkin.backend.system.RuntimeDirs.MODS;
 
 	/** Name the engine gives the pack of a mod, or null when the mod is a folder. */
 	public static function packPath(mod:String):String {
@@ -47,21 +48,9 @@ class ZipEditCache {
 
 	/** Staging folder of a mod, with a trailing slash. Created on demand. */
 	public static function folder(mod:String, create:Bool = true):String {
-		if (mod == null) return null;
-		var dir = root + sanitize(mod) + '/';
-		#if sys
-		if (create) {
-			try {
-				if (!FileSystem.exists(dir)) FileSystem.createDirectory(dir);
-			} catch (e:Dynamic) {}
-		}
-		#end
-		return dir;
+		return create ? funkin.backend.system.RuntimeDirs.modAssets(mod) : funkin.backend.system.RuntimeDirs.modAssets(mod, false);
 	}
 
-	static function sanitize(mod:String):String {
-		return mod.split("/").join("_").split("\\").join("_").split(":").join("_");
-	}
 
 	// ------------------------------------------------------------ contents
 
@@ -82,6 +71,9 @@ class ZipEditCache {
 		try {
 			for (entry in FileSystem.readDirectory(base + prefix)) {
 				var rel = prefix + entry;
+				// Videos lifted out of the pack live in the same folder, but they are a read
+				// cache: merging them back would copy every cutscene into the pack for nothing.
+				if (prefix.length == 0 && entry == "videos") continue;
 				if (FileSystem.isDirectory(base + rel)) collect(base, rel + "/", out);
 				else out.push(rel);
 			}
@@ -132,8 +124,8 @@ class ZipEditCache {
 				#end
 				return false;
 			}
-			// An editor that already asked owns the prompt: its save writes into
-			// [zip]temp, and the merge is offered on the next close.
+			// An editor that already asked owns the prompt: its save writes into the
+			// staging folder, and the merge is offered on the next close.
 			if (funkin.editors.SaveWarning.showWarning) return false;
 
 			funkin.editors.SaveWarning.selectionClass = null;

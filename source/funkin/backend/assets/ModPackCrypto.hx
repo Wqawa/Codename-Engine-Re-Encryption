@@ -40,17 +40,17 @@ class ModPackCrypto {
 	static inline var NONCE_SIZE:Int = 12;
 
 	/**
-	 * Folder the decrypted copies are written to. Decrypted packs are plain zips
-	 * that anyone could open, so the folder and every file inside it are hidden and
-	 * prefixed with `CACHE_PREFIX`, and are deleted when the game closes.
+	 * Where a pack's own key file is copied to. Everything the engine writes while it
+	 * runs lives under one hidden folder now (see RuntimeDirs); the key side of it is
+	 * this one.
 	 */
-	public static var cacheFolder:String = './.CNE_mods/';
+	public static var cacheFolder:String = funkin.backend.system.RuntimeDirs.KEYS;
 
-	/** Prefix every decrypted copy gets (".CNE_<pack>_<digest>.zip"). */
+	/** Prefix every copied key gets (".CNE_<pack>_key.txt"). */
 	public static inline var CACHE_PREFIX:String = '.CNE_';
 
 	/** Cache folders used by earlier builds; swept on sight. */
-	public static var legacyCacheFolders:Array<String> = ['./.cne_mods/'];
+	public static var legacyCacheFolders:Array<String> = ['./.CNE_mods/', './.cne_mods/'];
 
 	/** Key typed by the player this session, per pack path. */
 	// passwords are kept wrapped (see MemoryGuard) so a memory scan does not find them as plain strings
@@ -331,19 +331,6 @@ class ModPackCrypto {
 
 	// -------------------------------------------------------------- cache
 
-	static function cachePath(zipPath:String, key:String):String {
-		var stamp = '';
-		#if sys
-		try {
-			var st = FileSystem.stat(zipPath);
-			stamp = Std.string(st.size) + ":" + Std.string(st.mtime);
-		} catch (e:Dynamic) {}
-		#end
-		var digest = ScriptCrypto.sha256(Bytes.ofString(normalizePath(zipPath) + "|" + key + "|" + stamp)).toHex();
-		var stem = Path.withoutExtension(Path.withoutDirectory(zipPath));
-		return cacheFolder + CACHE_PREFIX + stem + "_" + digest.substr(0, 20) + ".zip";
-	}
-
 
 	// ------------------------------------------------------- cache hygiene
 	// Everything decrypted lands on disk as a readable zip. It stays hidden and
@@ -361,12 +348,9 @@ class ModPackCrypto {
 		#end
 	}
 
-	/** Creates the cache folder when missing and hides it. */
+	/** Creates the key folder when missing and hides it. */
 	public static function ensureCacheFolder():Void {
-		try {
-			if (!FileSystem.exists(cacheFolder)) FileSystem.createDirectory(cacheFolder);
-			hidePath(cacheFolder);
-		} catch (e:Dynamic) {}
+		funkin.backend.system.RuntimeDirs.ensure(cacheFolder);
 	}
 
 	/** Hides one decrypted copy. */
@@ -411,12 +395,12 @@ class ModPackCrypto {
 	public static function sweepCache():Void {
 		if (__cacheSwept) return;
 		__cacheSwept = true;
+		// edits an earlier build staged in [zip]temp/ are the player's unmerged work:
+		// they are moved into .cne/mods/ first, and only then do the old folders go
+		funkin.backend.system.RuntimeDirs.migrateLegacy();
 		cleanCache();
-		// the folder is recreated so an old ".cne_mods" (lower case, earlier build)
-		// becomes ".CNE_mods" on file systems that keep the case of the first creator
-		try {
-			if (FileSystem.exists(cacheFolder) && FileSystem.isDirectory(cacheFolder)) FileSystem.deleteDirectory(cacheFolder);
-		} catch (e:Dynamic) {}
+		funkin.backend.system.RuntimeDirs.clearVideos();
+		funkin.backend.system.RuntimeDirs.clearTemp();
 		ensureCacheFolder();
 		hookExit();
 	}
@@ -566,7 +550,7 @@ class ModPackCrypto {
 	// --------------------------------------------------------------- cleanup
 	// A decrypted pack exists only while the game runs: the buffers in loadedZips,
 	// the zip handles the libraries hold, the key files copied out of packs and the
-	// videos in ./.temp/. None of it is written to disk on purpose, so closing has to
+	// videos in the video cache. None of it is written to disk on purpose, so closing has to
 	// wipe it instead of leaving it to the next start - and that wipe is what the
 	// window close waits for (see Main.loadGameSettings and ModPackCleanupState).
 
@@ -623,12 +607,17 @@ class ModPackCrypto {
 			cleanupProgress = 0.8;
 
 			cleanupLabel = "Removing the video cache";
-			var temp = "./.temp/";
+			// .cne/mods/<mod>/ holds the edits the player has not merged yet, so it stays:
+			// only what the engine produced (videos, undo scratch) goes here.
 			try {
-				if (FileSystem.exists(temp) && FileSystem.isDirectory(temp)) {
-					funkin.backend.utils.CoolUtil.deleteFolder(temp);
-					removed.push(".temp");
+				var videos = 0;
+				for (mod in FileSystem.readDirectory(funkin.backend.system.RuntimeDirs.MODS)) {
+					var dir = funkin.backend.system.RuntimeDirs.MODS + mod + "/videos/";
+					if (FileSystem.exists(dir) && FileSystem.isDirectory(dir)) videos++;
 				}
+				funkin.backend.system.RuntimeDirs.clearVideos();
+				funkin.backend.system.RuntimeDirs.clearTemp();
+				if (videos > 0) removed.push('$videos video cache folder(s)');
 			} catch (e:Dynamic) {}
 			#end
 

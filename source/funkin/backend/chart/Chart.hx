@@ -280,8 +280,8 @@ class Chart {
 		#if sys
 		var songPath = saveSettings.songFolder == null ? 'songs/${chart.meta.name}' : saveSettings.songFolder, variantSuffix = variant != null && variant != "" ? '-$variant' : "", difficultySuffix = difficulty != null && difficulty != "" ? '-$difficulty' : "";
 		var metaPath = 'meta$variantSuffix.json', altMetaPath = 'meta${variantSuffix}${difficultySuffix}.json', prettyPrint = saveSettings.prettyPrint == true ? Flags.JSON_PRETTY_PRINT : null, temp:String;
-		// A path resolved inside a compressed library (a .zip mod, or the decrypted copy
-		// of an encrypted one in .CNE_mods/) looks like "./mods/x.zip/songs/song/meta.json"
+		// A path resolved inside a compressed library (a .zip mod, or an encrypted one
+		// decrypted into memory) looks like "./mods/x.zip/songs/song/meta.json"
 		// but is virtual: it exists as an asset yet cannot be written to. Only trust a
 		// resolved path when its folder really exists on disk, otherwise fall back to
 		// saving next to the pack (mods/<mod name>/...), like the editors do.
@@ -319,7 +319,8 @@ class Chart {
 	#if sys
 	/**
 	 * Whenever a path resolved from the asset tree can actually be written to.
-	 * Paths pointing inside a zip archive (`./mods/x.zip/...`, `./.CNE_mods/<pack>.zip/...`)
+	 * Paths pointing inside a zip archive (`./mods/x.zip/...`, and the same shape for a pack
+	 * decrypted into memory)
 	 * exist as assets but not on the file system, so the folder never exists.
 	 */
 	static function isWritablePath(path:String):Bool {

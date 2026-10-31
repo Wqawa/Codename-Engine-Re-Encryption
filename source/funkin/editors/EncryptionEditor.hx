@@ -540,7 +540,7 @@ class EncryptionEditor extends UIState {
 		+ "file next to the source: name_encrypted.zip, name_password.zip or name_decrypted.zip.\n"
 		+ "Plain zips load as before; password zips from other tools load too (ZipCrypto, AES-128/192/\n"
 		+ "256) - the password is asked at startup and the readable copy stays in the hidden\n"
-		+ ".CNE_mods folder, which is deleted when the game closes.\n"
+		+ ".cne/keys folder, which is deleted when the game closes.\n"
 		+ "\n"
 		+ "tips: while a text field is focused Backspace edits it and ESC only drops the focus, ESC\n"
 		+ "again leaves the editor. The mouse wheel scrolls this page.\n";

@@ -12,7 +12,7 @@ import funkin.editors.ui.UIText;
  *
  * A decrypted pack is never written to disk, so it is wiped on the way out instead
  * of being left for the next start: the buffers in memory, the zip handles, the key
- * files copied out of packs and the video cache in ./.temp/. The window close is
+ * files copied out of packs and the video cache under .cne/. The window close is
  * vetoed for the whole pass (see Main.loadGameSettings), which is why this state
  * can take its time; when the wipe reports done it waits a few seconds and closes
  * by itself, and the button closes at once for anyone who does not want to wait.

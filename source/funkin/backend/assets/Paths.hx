@@ -283,7 +283,7 @@ class Paths
 		var mod:String = ModPackCrypto.disableMods ? null : ModsFolder.currentModFolder;
 		if (mod == null) return assetsTree.rootDirectory;
 		// A pack cannot be written to, so edits for a packed mod are staged in
-		// [zip]temp/<mod>/ and offered for merging when the game closes (ZipEditCache).
+		// .cne/mods/<mod>/ and offered for merging when the game closes (ZipEditCache).
 		if (ZipEditCache.isPackedMod(mod)) return ZipEditCache.folder(mod);
 		return '${ModsFolder.modsPath}${mod}';
 	}

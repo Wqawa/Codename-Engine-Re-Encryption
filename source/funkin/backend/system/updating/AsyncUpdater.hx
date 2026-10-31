@@ -151,7 +151,7 @@ class AsyncUpdater {
 		#if windows
 		path = '${Sys.getEnv("TEMP")}\\Codename Engine\\Updater\\';
 		#else
-		path = '.temp/';
+		path = funkin.backend.system.RuntimeDirs.TEMP;
 		#end
 
 		FileSystem.createDirectory(path);
