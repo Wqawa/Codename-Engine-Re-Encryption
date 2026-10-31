@@ -41,7 +41,13 @@ class UIState extends MusicBeatState {
 		__rect = new FlxRect();
 		__mousePos = FlxPoint.get();
 		super.create();
-		Framerate.offset.y = 30;
+		// A UI state does not necessarily have anything along its top edge: the mod pack
+		// key prompt, the pack loader, the cleanup screen and the song loading screen are
+		// just a panel on an empty background. Pushing the framerate counter down here
+		// made it jump ~20px for as long as one of those was up. The editors are the ones
+		// that own the top edge, and their top menu raises the offset again when it is
+		// created (see UITopMenu), so this stays at the value every other state uses.
+		Framerate.offset.y = 0;
 		FlxG.mouse.visible = true;
 
 		FlxG.stage.window.onKeyDown.add(onKeyDown);

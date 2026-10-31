@@ -1,5 +1,6 @@
 package funkin.editors.ui;
 
+import funkin.backend.system.framerate.Framerate;
 import funkin.editors.ui.UIContextMenu.UIContextMenuOption;
 
 class UITopMenu extends UISliceSprite {
@@ -8,6 +9,11 @@ class UITopMenu extends UISliceSprite {
 		this.options = options;
 		super(0, 0, FlxG.width, 25, 'editors/ui/topmenu');
 		scrollFactor.set(0, 0);
+
+		// The menu bar is the reason the framerate counter sits below the top edge in an
+		// editor. UIState leaves the offset at 0 for the screens that have nothing up
+		// there, so the screen that does put something there is the one that moves it.
+		Framerate.offset.y = bHeight + 5;
 
 		var x:Int = 0;
 		for(o in options) {
