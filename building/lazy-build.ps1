@@ -759,6 +759,20 @@ try {
         $compiledFiles = @($logLines | Where-Object { $_ -match '^-\s+\[\s*[0-9.]+%\]\s+src/' }).Count
     }
     Write-Log "compiled: $compiledFiles translation unit(s) in this run" 'INFO'
+    # hxcpp prints a percentage of the whole file list while it skips the objects it
+    # already has, so a cached build still looks like it starts at 0%. Say the real
+    # numbers instead: how many of the translation units were actually compiled.
+    $totalFiles = 0
+    $objSrc = Join-Path $script:RepoRoot "export\$configuration\windows\obj\src"
+    if (Test-Path -LiteralPath $objSrc) {
+        $totalFiles = @(Get-ChildItem -LiteralPath $objSrc -Recurse -Filter '*.cpp' -File -ErrorAction SilentlyContinue).Count
+    }
+    if ($totalFiles -gt 0) {
+        $reused = $totalFiles - $compiledFiles
+        if ($reused -lt 0) { $reused = 0 }
+        Write-Log "reused: $reused of $totalFiles translation unit(s) came from the compile cache" 'INFO'
+    }
+
     Write-Log "warnings: $warnings (the deprecated-API noise from upstream code is normal)" 'INFO'
 
     Write-Host ''
