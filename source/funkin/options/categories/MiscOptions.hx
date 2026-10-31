@@ -8,6 +8,7 @@ class MiscOptions extends TreeMenuScreen {
 
 		add(new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode'));
 		add(new Checkbox(getNameID('allowConfigWarning'), getDescID('allowConfigWarning'), 'allowConfigWarning'));
+		add(new Checkbox(getNameID('wrapDecryptedPacks'), getDescID('wrapDecryptedPacks'), 'wrapDecryptedPacks'));
 		#if UPDATE_CHECKING
 		add(new Checkbox(getNameID('betaUpdates'), getDescID('betaUpdates'), 'betaUpdates'));
 		add(new TextOption(getNameID('checkForUpdates'), getDescID('checkForUpdates'), () -> {

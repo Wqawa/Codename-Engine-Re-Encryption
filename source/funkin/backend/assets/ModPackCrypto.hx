@@ -438,90 +438,82 @@ class ModPackCrypto {
 				#if MOD_SUPPORT
 				closePackHandles();
 				#end
+				// the decrypted packs only exist in RAM now; wipe them on the way out
+				releaseZips();
 				cleanCache();
 			});
 		} catch (e:Dynamic) {}
 	}
 	#end
 
-	static function cacheExistsFor(zipPath:String, key:String):Bool {
-		#if sys
-		try {
-			initCache();
-			return FileSystem.exists(cachePath(zipPath, key));
-		} catch (e:Dynamic) {}
-		#end
-		return false;
+	// ------------------------------------------------------- decrypted packs
+	// A decrypted pack is never written to disk: it is handed to the asset library
+	// as an in-memory SysZip and wiped when the pack is unloaded or the game closes.
+
+	/** Decrypted packs held in RAM, keyed by normalized pack path. */
+	static var loadedZips:Map<String, SysZip> = new Map();
+
+	/**
+	 * First known key that actually opens the pack, or null.
+	 *
+	 * Cheap by design: it only probes a few bytes per candidate (see keyWorks), so it
+	 * runs on the main thread without decrypting the whole pack.
+	 */
+	public static function resolveKey(zipPath:String):String {
+		for (key in candidateKeys(zipPath))
+			if (keyWorks(zipPath, key)) return key;
+		return null;
 	}
 
 	/**
-	 * Finds a key that actually opens the pack, decrypting it into the cache on
-	 * the way. Returns null when none of the known keys work.
+	 * Decrypts the pack into memory and returns it, or null when the pack is not
+	 * protected at all or no known key opens it. Repeated calls return the same copy.
 	 */
-	public static function resolveKey(zipPath:String, ?onProgress:Float->Void):String {
+	public static function zipFor(packPath:String, ?onProgress:Float->Void):SysZip {
 		#if sys
-		var packed = isEncryptedPackFile(zipPath);
-		var protectedZip = !packed && ZipPassword.isProtected(zipPath);
-		if (!packed && !protectedZip) return null;
+		if (packPath == null) return null;
+		var id = normalizePath(packPath);
+		var known = loadedZips.get(id);
+		if (known != null) return known;
 
-		for (key in candidateKeys(zipPath)) {
-			if (protectedZip) {
-				// decrypting into the cache is the expensive step, so reuse it
-				if (ZipPassword.hasCache(zipPath, key)) return key;
-				try {
-					ZipPassword.extractToCache(zipPath, key, onProgress);
-					return key;
-				} catch (e:Dynamic) {}
-			} else {
-				if (cacheExistsFor(zipPath, key)) return key;
-				try {
-					var raw = File.getBytes(zipPath);
-					var zip = unpack(raw, key, onProgress);
-					if (!looksLikeZip(zip)) continue;
-					writeCache(zipPath, key, zip);
-					return key;
-				} catch (e:Dynamic) {}
-			}
+		var packed = isEncryptedPackFile(packPath);
+		var protectedZip = !packed && ZipPassword.isProtected(packPath);
+		if (!packed && !protectedZip) return null;
+		// a pack that failed a full attempt must not be decrypted again on the main thread
+		if (hasFailedBefore(packPath)) return null;
+
+		var key = resolveKey(packPath);
+		if (key == null) return null;
+
+		try {
+			initCache();
+			var bytes = packed
+				? unpack(File.getBytes(packPath), key, onProgress)
+				: ZipPassword.readableCopyBytes(packPath, key, onProgress);
+			if (bytes == null || !looksLikeZip(bytes)) return null;
+
+			var zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
+			if (zip.entries.length == 0) return null;
+			loadedZips.set(id, zip);
+			return zip;
+		} catch (e:Dynamic) {
+			Logs.warn('Could not decrypt "$packPath": ' + e);
 		}
 		#end
 		return null;
 	}
 
-	static function writeCache(zipPath:String, key:String, zip:Bytes):Void {
-		#if sys
-		var out = cachePath(zipPath, key);
-		try {
-			initCache();
-			ensureCacheFolder();
-			File.saveBytes(out, zip);
-			hideCacheFile(out);
-		} catch (e:Dynamic) {}
-		#end
+	/** True when this pack is already decrypted and readable in memory. */
+	public static function hasLoaded(packPath:String):Bool {
+		return packPath != null && loadedZips.exists(normalizePath(packPath));
 	}
 
-	/**
-	 * Path that should be handed to ZipFolderLibrary: the decrypted copy for an
-	 * encrypted pack, the pack itself otherwise. Returns null when the key is
-	 * missing or wrong.
-	 */
-	public static function zipPathToLoad(zipPath:String):String {
-		#if sys
-		initCache();
-		#end
-		// A pack the prepare pass already failed on must not be decrypted again
-		// synchronously on the main thread; typing a new key clears the mark.
-		if (hasFailedBefore(zipPath)) return null;
-		if (isEncryptedPackFile(zipPath)) {
-			var key = resolveKey(zipPath);
-			if (key == null) return null;
-			return cachePath(zipPath, key);
+	/** Wipes every decrypted pack (game exit, or everything being unloaded). */
+	public static function releaseZips():Void {
+		for (zip in loadedZips) {
+			try zip.dispose() catch (e:Dynamic) {}
 		}
-		if (ZipPassword.isProtected(zipPath)) {
-			var key = resolveKey(zipPath);
-			if (key == null) return null;
-			return ZipPassword.cachePath(zipPath, key);
-		}
-		return zipPath;
+		loadedZips = new Map<String, SysZip>();
 	}
 
 	/**
@@ -551,23 +543,14 @@ class ModPackCrypto {
 
 	// -------------------------------------------------- loader entry points
 
-	/** True when one of the known keys already has a decrypted copy on disk. */
-	public static function hasCacheForKey(zipPath:String):Bool {
-		#if sys
-		initCache();
-		var packed = isEncryptedPackFile(zipPath);
-		for (key in candidateKeys(zipPath)) {
-			if (packed) {
-				if (cacheExistsFor(zipPath, key)) return true;
-			} else if (ZipPassword.hasCache(zipPath, key)) return true;
-		}
-		#end
-		return false;
+	/** True when the pack is already decrypted in memory. */
+	public static function hasPrepared(zipPath:String):Bool {
+		return hasLoaded(zipPath);
 	}
 
 	/**
 	 * Libraries (the mods/Name path, without .zip) whose pack still has to be
-	 * decrypted before the loader can read it. Cheap: only stats the cache files.
+	 * decrypted before the loader can read it. Cheap: it only asks what is in memory.
 	 */
 	public static function packsNeedingWork(libPaths:Array<String>):Array<String> {
 		var out:Array<String> = [];
@@ -578,7 +561,7 @@ class ModPackCrypto {
 			try {
 				if (!FileSystem.exists(zip) || FileSystem.isDirectory(zip)) continue;
 				if (!needsKey(zip)) continue;
-				if (hasCacheForKey(zip)) continue;
+				if (hasLoaded(zip)) continue;
 				if (hasFailedBefore(zip)) continue;
 				out.push(zip);
 			} catch (e:Dynamic) {}
@@ -614,10 +597,10 @@ class ModPackCrypto {
 				var base = i / total;
 				var span = 1 / total;
 				progress = base;
-				var key = resolveKey(pack, function(p:Float) progress = base + span * p);
-				// a pack only counts as done when the cache file is really there:
-				// otherwise the loader would start the very same pass again
-				if (key == null || !hasCacheForKey(pack)) {
+				// decrypting into memory is the expensive step, so it happens here and the
+				// loader later finds the pack already readable
+				var zip = zipFor(pack, function(p:Float) progress = base + span * p);
+				if (zip == null) {
 					prepareFailed.push(pack);
 					failedPacks.set(normalizePath(pack), true);
 				} else

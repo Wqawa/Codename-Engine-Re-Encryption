@@ -149,19 +149,39 @@ class ZipPassword {
 	 */
 	public static function extractToCache(zipPath:String, pass:String, ?onProgress:Float->Void):String {
 		#if sys
-		if (!checkPassword(zipPath, pass)) throw "ZipPassword: wrong password";
-
 		var out = cachePath(zipPath, pass);
 		if (FileSystem.exists(out)) return out;
+
+		var bytes = readableCopyBytes(zipPath, pass, onProgress);
+		ModPackCrypto.ensureCacheFolder();
+
+		// written aside and renamed, so a crash cannot leave a half copy behind
+		var tmp = out + ".part";
+		File.saveBytes(tmp, bytes);
+		if (FileSystem.exists(out)) FileSystem.deleteFile(out);
+		FileSystem.rename(tmp, out);
+		ModPackCrypto.hideCacheFile(out);
+		return out;
+		#else
+		return null;
+		#end
+	}
+
+	/**
+	 * The readable copy of a password protected archive, as bytes.
+	 *
+	 * This is what the loader uses: the copy stays in memory (see ModPackCrypto), so a
+	 * pack is never written to disk in the clear.
+	 */
+	public static function readableCopyBytes(zipPath:String, pass:String, ?onProgress:Float->Void):Bytes {
+		#if sys
+		if (!checkPassword(zipPath, pass)) throw "ZipPassword: wrong password";
 
 		var entries = readCentral(zipPath);
 		if (entries == null) throw "ZipPassword: cannot read the zip index";
 
-		ModPackCrypto.ensureCacheFolder();
-
-		var tmp = out + ".part";
 		var input = File.read(zipPath, true);
-		var output = File.write(tmp, true);
+		var output = new haxe.io.BytesOutput();
 		try {
 			var central = new BytesBuffer();
 			var pos = 0;
@@ -195,8 +215,8 @@ class ZipPassword {
 				} else if (method == 8 && usize <= VERIFY_MAX_USIZE) {
 					// Sanity check while it is still cheap: scripts, charts and configs are
 					// small, and catching a bad entry here beats an obscure failure later when
-					// the engine reads the cached copy. Big media is left to the CRC stored in
-					// the archive - inflating it here is exactly what this rewrite avoids.
+					// the engine reads the copy. Big media is left to the CRC stored in the
+					// archive - inflating it here is exactly what this rewrite avoids.
 					if (crc32(inflate(payload, usize)) != crc) throw "ZipPassword: corrupted entry " + e.name;
 				} else if (method == 0 && payload.length != usize) {
 					throw "ZipPassword: corrupted entry " + e.name;
@@ -221,20 +241,13 @@ class ZipPassword {
 
 			output.write(cd);
 			output.write(eocd.getBytes());
-			output.close();
 			input.close();
 		} catch (err:Dynamic) {
-			// a half written .part file and two open handles used to be left behind
-			try { output.close(); } catch (e2:Dynamic) {}
 			try { input.close(); } catch (e2:Dynamic) {}
-			try { if (FileSystem.exists(tmp)) FileSystem.deleteFile(tmp); } catch (e2:Dynamic) {}
 			throw err;
 		}
 
-		if (FileSystem.exists(out)) FileSystem.deleteFile(out);
-		FileSystem.rename(tmp, out);
-		ModPackCrypto.hideCacheFile(out);
-		return out;
+		return output.getBytes();
 		#else
 		return null;
 		#end

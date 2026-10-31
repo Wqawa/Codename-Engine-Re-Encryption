@@ -51,6 +51,11 @@ class MainState extends FlxState {
 
 		Paths.assetsTree.reset();
 
+		// The decrypted pack of the previous mod lives in memory now, not in a cache
+		// folder: drop it (and the key file copied out of it) before another one loads.
+		ModPackCrypto.releaseZips();
+		ModPackCrypto.cleanCache();
+
 		final skipMods = ModPackCrypto.disableMods; // "play without mods" was picked
 
 		#if MOD_SUPPORT

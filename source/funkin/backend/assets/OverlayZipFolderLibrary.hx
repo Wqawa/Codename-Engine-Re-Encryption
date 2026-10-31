@@ -24,8 +24,8 @@ class OverlayZipFolderLibrary extends ZipFolderLibrary {
 	/** Read access to `overlayPath`; null when there is no folder next to the pack. */
 	var overlay:ModsFolderLibrary;
 
-	public function new(basePath:String, libName:String, ?modName:String, ?overlayFolder:String) {
-		super(basePath, libName, modName);
+	public function new(basePath:String, libName:String, ?modName:String, ?overlayFolder:String, ?memoryZip:SysZip) {
+		super(basePath, libName, modName, true, memoryZip);
 		if (overlayFolder != null) {
 			overlayPath = overlayFolder;
 			overlay = new ModsFolderLibrary(overlayFolder, libName, modName);

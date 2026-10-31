@@ -71,6 +71,12 @@ class Options
 	public static var streamedVocals:Bool = true;
 	public static var quality:Int = 1;
 	public static var allowConfigWarning:Bool = true;
+	/**
+	 * Keep a decrypted mod pack wrapped in a per session stream in memory, decoding only
+	 * the ranges that are read. Off keeps the pack as it is in RAM (faster, but a memory
+	 * scanner finds the files); either way nothing is written to disk.
+	 */
+	public static var wrapDecryptedPacks:Bool = true;
 	public static var lastLoadedMod:String = null;
 	public static var disabledAddons:Array<String> = [];
 

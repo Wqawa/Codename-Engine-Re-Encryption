@@ -28,14 +28,16 @@ class ZipFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 
 	public var PRELOAD_VIDEOS:Bool = true;
 
-	public function new(basePath:String, libName:String, ?modName:String, ?preloadVideos:Bool = true) {
+	public function new(basePath:String, libName:String, ?modName:String, ?preloadVideos:Bool = true, ?memoryZip:SysZip) {
 		this.libName = libName;
 
 		this.basePath = basePath;
 		
 		this.modName = (modName == null) ? libName : modName;
 
-		zip = SysZip.openFromFile(basePath);
+		// An encrypted pack is decrypted into memory (see ModPackCrypto.zipFor), so the
+		// library reads from the buffer it is handed instead of opening the file again.
+		zip = (memoryZip != null) ? memoryZip : SysZip.openFromFile(basePath);
 		for(entry in zip.entries) {
 			if (entry.fileName.length < 0 || entry.fileName.endsWith("/")) continue;
 

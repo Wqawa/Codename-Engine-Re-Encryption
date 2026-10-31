@@ -95,10 +95,11 @@ class ModsFolder {
 			// This path only runs without a progress screen when the loader could not
 			// prepare the pack beforehand; warn so a missing decryption screen shows
 			// up in the log instead of silently freezing the game.
-			if (!ModPackCrypto.preparing && ModPackCrypto.needsKey(packPath) && !ModPackCrypto.hasCacheForKey(packPath))
+			if (!ModPackCrypto.preparing && ModPackCrypto.needsKey(packPath) && !ModPackCrypto.hasLoaded(packPath))
 				Logs.warn('Decrypting "$packPath" without the progress screen (no prepare pass was scheduled for it).');
-			var zipPath = ModPackCrypto.zipPathToLoad(packPath);
-			if (zipPath == null) {
+			// An encrypted pack is decrypted into memory; a plain one is handed over as is.
+			var memoryZip:SysZip = ModPackCrypto.needsKey(packPath) ? ModPackCrypto.zipFor(packPath) : null;
+			if (memoryZip == null && ModPackCrypto.needsKey(packPath)) {
 				// Every scheme this fork understands (CNEZ, ZipCrypto, WinZip AES) only fails
 				// for a missing or wrong key, so there is no separate "unsupported format" case.
 				Logs.warn('Skipping encrypted mod pack "$packPath": it needs a password that was not given.');
@@ -118,8 +119,9 @@ class ModsFolder {
 				}
 				// A pack may ship the key of its own scripts; ScriptCrypto only reads files,
 				// so that key file is copied out of the pack before anything is loaded.
-				registerKeyFilesFromPack(zipPath, Path.withoutExtension(Path.withoutDirectory(packPath)));
-				return loadLibraryFromZip('$path'.toLowerCase(), zipPath, force, modName, MODS, overlayFolder);
+				registerKeyFilesFromPack(memoryZip != null ? memoryZip : packPath,
+					Path.withoutExtension(Path.withoutDirectory(packPath)));
+				return loadLibraryFromZip('$path'.toLowerCase(), packPath, force, modName, MODS, overlayFolder, memoryZip);
 			} catch (e:Dynamic) {
 				// a broken or unsupported zip must not take the whole game down
 				Logs.error('Failed to load mod pack "$packPath": ' + e);
@@ -145,14 +147,22 @@ class ModsFolder {
 	 * without this an encrypted pack whose scripts were sealed with their own key could
 	 * only be opened by putting that script_key.txt next to the executable. The copy
 	 * lands in the hidden cache folder, which is removed when the game closes.
+	 *
+	 * Takes the already open SysZip when there is one (an encrypted pack lives in memory)
+	 * and opens the pack itself otherwise.
 	 */
-	static function registerKeyFilesFromPack(zipPath:String, packName:String):Void {
+	static function registerKeyFilesFromPack(source:Dynamic, packName:String):Void {
 		#if sys
-		if (zipPath == null || packName == null) return;
+		if (source == null || packName == null) return;
 		var zip:SysZip = null;
+		var owned = false;
 		try {
+			if (source is SysZip) zip = cast source;
+			else {
+				zip = new SysZip(cast(source, String));
+				owned = true;
+			}
 			var safeName = packName.split("/").join("_").split(":").join("_");
-			zip = new SysZip(zipPath);
 			for (entry in zip.entries) {
 				var name = entry.fileName.replace("\\", "/").toLowerCase();
 				if (name != "data/script_key.txt" && name != "script_key.txt") continue;
@@ -165,9 +175,9 @@ class ModsFolder {
 				ScriptCrypto.addKeyFile(out);
 			}
 		} catch (e:Dynamic) {
-			Logs.warn('Could not read a key file out of "$zipPath": ' + e);
+			Logs.warn('Could not read a key file out of "$packName": ' + e);
 		}
-		try if (zip != null) zip.dispose() catch (e:Dynamic) {}
+		if (owned) try zip.dispose() catch (e:Dynamic) {}
 		#end
 	}
 
@@ -177,20 +187,20 @@ class ModsFolder {
 			if (!FileSystem.exists(path))
 				continue;
 
-			// Encrypted packs are not readable as zips in place: hand SysZip the
-			// decrypted copy instead. Never decrypt here (this runs for every pack in
-			// the mod menu, on the main thread), so a pack whose key is still unknown
-			// simply reports no config.
-			var zipPath:String = path;
+			// Encrypted packs are decrypted into memory (never on this path: it runs for
+			// every pack in the mod menu, on the main thread), so a pack that is not loaded
+			// yet simply reports no config.
+			var zip:SysZip;
 			if (ModPackCrypto.needsKey(path)) {
-				if (!ModPackCrypto.hasCacheForKey(path)) break;
-				zipPath = ModPackCrypto.zipPathToLoad(path);
-				if (zipPath == null) break;
+				if (!ModPackCrypto.hasLoaded(path)) break;
+				zip = ModPackCrypto.zipFor(path);
+			} else {
+				zip = new SysZip(path);
 			}
+			if (zip == null) break;
 
 			// A broken pack must not take the whole menu down with it.
 			try {
-				var zip = new SysZip(zipPath);
 				for (entry in zip.entries) {
 					if (entry.fileName.toLowerCase() == "data/config/modpack.ini") {
 						var bytes = zip.unzipEntry(entry);
@@ -305,12 +315,13 @@ class ModsFolder {
 		return prepareModLibrary(libName, new ModsFolderLibrary(folder, libName, modName), force, tag);
 	}
 
-	public static function loadLibraryFromZip(libName:String, zipPath:String, force:Bool = false, ?modName:String, ?tag:AssetSource = MODS, ?overlayFolder:String) {
+	public static function loadLibraryFromZip(libName:String, zipPath:String, force:Bool = false, ?modName:String, ?tag:AssetSource = MODS,
+			?overlayFolder:String, ?memoryZip:SysZip) {
 		// with a writable folder next to the pack, files saved in-game must win over
 		// the archive (OverlayZipFolderLibrary); otherwise the plain zip library is used
 		var lib:IModsAssetLibrary = (overlayFolder == null)
-			? new ZipFolderLibrary(zipPath, libName, modName)
-			: new OverlayZipFolderLibrary(zipPath, libName, modName, overlayFolder);
+			? new ZipFolderLibrary(zipPath, libName, modName, true, memoryZip)
+			: new OverlayZipFolderLibrary(zipPath, libName, modName, overlayFolder, memoryZip);
 		return prepareModLibrary(libName, lib, force, tag);
 	}
 	#end
