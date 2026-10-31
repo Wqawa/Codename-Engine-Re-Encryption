@@ -17,8 +17,14 @@ import haxe.io.Path;
  * open with an error and the option to play without mods instead.
  */
 class ModPackKeyState extends UIState {
+	static inline var MARGIN:Int = 40;
+	static inline var RULE:Int = 0xFF2A2A34;
+	/** Width of the little "empty the field again" button at the end of the input. */
+	static inline var CLEAR_SIZE:Int = 32;
+
 	public var packs:Array<String> = [];
 	public var box:UITextBox;
+	public var clearButton:UIButton;
 	public var errorText:UIText;
 	public var attempts:Int = 0;
 	/** Shown right away, e.g. when the previous key was rejected by the loader. */
@@ -41,23 +47,33 @@ class ModPackKeyState extends UIState {
 		}
 		if (packs.length > 4) names = packs.length + " mod packs";
 
-		add(new UIText(40, 40, FlxG.width - 80, "Encrypted mod pack detected", 26, 0xFFFFE066, false));
-		add(new UIText(40, 84, FlxG.width - 80, "Pack: " + names, 16, 0xFFFFFFFF, false));
-		add(new UIText(40, 118, FlxG.width - 80,
+		final w = FlxG.width - MARGIN * 2;
+
+		// title first, then what it is about, then the instructions: the screen used
+		// to be a block of small text pinned to the top corner with the rest empty
+		add(new UIText(MARGIN, 176, w, "Encrypted mod pack detected", 40, 0xFFFFE066, false));
+		add(new UIText(MARGIN, 258, w, "Pack: " + names, 16, 0xFFFFFFFF, false));
+		add(new UIText(MARGIN, 286, w,
 			"This mod pack is encrypted. Type the password the author gave you.\n"
 			+ "A key token (it usually starts with CNEK1-) works here as well.\n"
 			+ "A zip protected with a normal zip password also works (ZipCrypto or AES-256): type that password.",
 			14, 0xFFB0B0BE, false));
 
-		add(new UIText(40, 180, 200, "Password / token:", 16, 0xFFFFFFFF, false));
-		add(box = new UITextBox(40, 206, "", FlxG.width - 80));
+		add(new UIText(MARGIN, 350, 300, "Password / token:", 16, 0xFFFFFFFF, false));
 
-		add(new UIButton(40, 262, "Unlock and continue", onSubmit, 260, 36));
-		add(new UIButton(320, 262, "Play without mods", onDisableMods, 240, 36));
-		add(new UIButton(580, 262, "Quit", function() Sys.exit(0), 160, 36));
+		// the clear button sits inside the same row, right after the field, so the two
+		// read as one control instead of the button floating somewhere else
+		final boxWidth = w - CLEAR_SIZE - 8;
+		add(box = new UITextBox(MARGIN, 378, "", boxWidth));
+		add(clearButton = new UIButton(MARGIN + boxWidth + 8, 378, "X", clearBox, CLEAR_SIZE, CLEAR_SIZE));
 
-		add(errorText = new UIText(40, 316, FlxG.width - 80, "", 16, 0xFFFF5A5A, false));
+		// where a rejected key is reported: between the field and the buttons
+		add(errorText = new UIText(MARGIN, 448, w, "", 16, 0xFFFF5A5A, false));
 		errorText.visible = false;
+
+		addButtons();
+
+		add(new FlxSprite(MARGIN, FlxG.height - 40).makeGraphic(w, 2, RULE));
 
 		if (errorMessage != null) showError(errorMessage);
 
@@ -71,6 +87,39 @@ class ModPackKeyState extends UIState {
 				break;
 			}
 		}
+	}
+
+	/**
+	 * One row along the bottom right, all three the same height so they line up:
+	 * unlocking is the main action, quitting the one that ends the game, so it is
+	 * the coloured one.
+	 */
+	function addButtons() {
+		final y = 512;
+		final h = 40;
+		final gap = 12;
+		final unlockWidth = 260;
+		final playWidth = 240;
+		final quitWidth = 160;
+
+		var x = FlxG.width - MARGIN - quitWidth;
+		var quit = new UIButton(x, y, "Quit", function() Sys.exit(0), quitWidth, h);
+		quit.color = 0xFFFF5555;
+		if (quit.field != null) quit.field.color = 0xFFFFE8E8;
+		add(quit);
+
+		x -= gap + playWidth;
+		add(new UIButton(x, y, "Play without mods", onDisableMods, playWidth, h));
+
+		x -= gap + unlockWidth;
+		add(new UIButton(x, y, "Unlock and continue", onSubmit, unlockWidth, h));
+	}
+
+	/** Empties the field again, for when a pasted token was the wrong one. */
+	function clearBox() {
+		if (box == null || box.label == null) return;
+		box.label.text = "";
+		box.position = 0;
 	}
 
 	function showError(msg:String) {

@@ -65,6 +65,16 @@ class ModPackCrypto {
 
 	/** 0..1 progress of the pack currently being prepared. */
 	public static var progress:Float = 0;
+	/** 0..1 progress inside the pack that is being prepared right now. */
+	public static var packProgress:Float = 0;
+	/** Which of the packs is being prepared, 1-based (0 when idle). */
+	public static var packIndex:Int = 0;
+	/** How many packs this pass has to go through. */
+	public static var packCount:Int = 0;
+	/** Size in bytes of the pack being prepared, 0 while it is still unknown. */
+	public static var packBytes:Int = 0;
+	/** What the prepare thread is doing right now, see PreparePhase. */
+	public static var preparePhase:PreparePhase = IDLE;
 	/** File name of the pack being prepared (shown on the loading screen). */
 	public static var progressLabel:String = "";
 	/** True while the worker thread is still running. */
@@ -471,15 +481,32 @@ class ModPackCrypto {
 
 		try {
 			initCache();
+			// the progress screen names each step, so the work is split where the
+			// cost actually is: reading the file, checking the tag, the cipher pass,
+			// then indexing the entries of the zip that came out of it
+			preparePhase = READING;
+			packProgress = 0;
+			var raw = File.getBytes(packPath);
+			packBytes = raw == null ? 0 : raw.length;
+			preparePhase = VERIFYING;
+			packProgress = 0.05;
+			var wrapped:Null<Float->Void> = onProgress == null ? null : function(p:Float) {
+				preparePhase = DECRYPTING;
+				packProgress = p;
+				onProgress(p);
+			};
 			var bytes = packed
-				? unpack(File.getBytes(packPath), key, onProgress)
-				: ZipPassword.readableCopyBytes(packPath, key, onProgress);
+				? unpack(raw, key, wrapped)
+				: ZipPassword.readableCopyBytes(packPath, key, wrapped);
 			if (bytes == null || !looksLikeZip(bytes)) return null;
 
+			preparePhase = INDEXING;
+			packProgress = 0.98;
 			var zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
 			if (zip.entries.length == 0) return null;
 			loadedZips.set(id, zip);
 			sessionDecrypted = true;
+			packProgress = 1;
 			return zip;
 		} catch (e:Dynamic) {
 			Logs.warn('Could not decrypt "$packPath": ' + e);
@@ -725,6 +752,11 @@ class ModPackCrypto {
 		preparing = true;
 		progress = 0;
 		progressLabel = "";
+		packProgress = 0;
+		packIndex = 0;
+		packCount = packs == null ? 0 : packs.length;
+		packBytes = 0;
+		preparePhase = IDLE;
 
 		#if target.threaded
 		sys.thread.Thread.create(function() runPrepare(packs));
@@ -739,6 +771,10 @@ class ModPackCrypto {
 			for (i in 0...total) {
 				var pack = packs[i];
 				progressLabel = Path.withoutExtension(Path.withoutDirectory(pack));
+				packIndex = i + 1;
+				packProgress = 0;
+				packBytes = 0;
+				preparePhase = READING;
 				var base = i / total;
 				var span = 1 / total;
 				progress = base;
@@ -751,13 +787,30 @@ class ModPackCrypto {
 				} else
 					failedPacks.remove(normalizePath(pack));
 				progress = (i + 1) / total;
+				packProgress = 1;
 			}
 		} catch (e:Dynamic) {
 			prepareFailed = packs.copy();
 			for (pack in packs)
 				failedPacks.set(normalizePath(pack), true);
 		}
+		preparePhase = DONE;
 		preparing = false;
 		prepareDone = true;
 	}
+}
+
+/**
+ * Step of the prepare pass, so the loading screen can say what it is waiting on.
+ *
+ * The container is one cipher stream, so the pack cannot be reported per file
+ * inside it: these are the four things that actually take time.
+ */
+enum abstract PreparePhase(Int) {
+	var IDLE = 0;
+	var READING = 1;      // reading the pack off disk
+	var VERIFYING = 2;    // tag check + key derivation before the cipher pass
+	var DECRYPTING = 3;   // the ChaCha20 pass
+	var INDEXING = 4;     // parsing the zip that came out of it
+	var DONE = 5;
 }
