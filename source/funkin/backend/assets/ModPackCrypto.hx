@@ -468,7 +468,12 @@ class ModPackCrypto {
 		if (packPath == null) return null;
 		var id = normalizePath(packPath);
 		var known = loadedZips.get(id);
-		if (known != null) return known;
+		if (known != null) {
+			// a released zip still sitting in the map is worse than no entry at all: it
+			// looks loaded, so the loader would take it and read from a wiped buffer
+			if (!known.released) return known;
+			loadedZips.remove(id);
+		}
 
 		var packed = isEncryptedPackFile(packPath);
 		var protectedZip = !packed && ZipPassword.isProtected(packPath);
@@ -517,7 +522,10 @@ class ModPackCrypto {
 
 	/** True when this pack is already decrypted and readable in memory. */
 	public static function hasLoaded(packPath:String):Bool {
-		return packPath != null && loadedZips.exists(normalizePath(packPath));
+		if (packPath == null) return false;
+		var zip = loadedZips.get(normalizePath(packPath));
+		// released means wiped: reporting it as loaded handed the loader a dead handle
+		return zip != null && !zip.released;
 	}
 
 	/** Wipes every decrypted pack (game exit, or everything being unloaded). */
@@ -555,11 +563,34 @@ class ModPackCrypto {
 
 		for (id in drop) {
 			var zip = loadedZips.get(id);
-			if (zip != null) try zip.dispose() catch (e:Dynamic) {}
 			loadedZips.remove(id);
+			if (zip == null) continue;
+			// The libraries hold the very zip the wipe would free, and disposing one that a
+			// library still reads from turns the next asset lookup into a dead process.
+			// The close path learned this the hard way; the same check has to be here,
+			// because a pack a library still holds is never safe to wipe.
+			if (heldByLibrary(zip)) {
+				Logs.warn('"$id" is still held by an asset library, so its decrypted copy is kept for now.');
+				continue;
+			}
+			try zip.dispose() catch (e:Dynamic) {}
 			// the key file copied out of that pack has no owner any more
 			dropKeyFileFor(id);
 		}
+	}
+
+	/** True when a library in the current asset tree still reads from this archive. */
+	static function heldByLibrary(zip:SysZip):Bool {
+		#if MOD_SUPPORT
+		try {
+			if (Paths.assetsTree == null) return false;
+			for (lib in Paths.assetsTree.libraries) {
+				var clean = AssetsLibraryList.getCleanLibrary(lib);
+				if (clean is ZipFolderLibrary && (cast clean : ZipFolderLibrary).zip == zip) return true;
+			}
+		} catch (e:Dynamic) {}
+		#end
+		return false;
 	}
 
 	/** Removes the `*_key.txt` a pack's own key file was copied to, if there is one. */
@@ -747,6 +778,13 @@ class ModPackCrypto {
 	 * preparing / progress / prepareDone and then reads prepareFailed.
 	 */
 	public static function startPrepare(packs:Array<String>):Void {
+		// Two passes at once would both write loadedZips and prepareFailed from their own
+		// threads, which is a crash waiting to happen. The screen that asked for the
+		// second one simply displays the pass that is already running.
+		if (preparing) {
+			Logs.warn('A decryption pass is already running - not starting a second one.');
+			return;
+		}
 		prepareFailed = [];
 		prepareDone = false;
 		preparing = true;

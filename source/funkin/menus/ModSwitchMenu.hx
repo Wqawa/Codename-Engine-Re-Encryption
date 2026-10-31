@@ -242,7 +242,12 @@ class ModSwitchMenu extends MusicBeatSubstate {
 				{
 					label: TU.translate("saveWarning.cancel", null, "Cancel"),
 					color: 0x969533,
-					onClick: function(_) {}
+					onClick: function(_) {
+						// the prompt replaced this menu, so its update() never runs again and
+						// nothing else would put the framerate counter back: it stayed pushed
+						// down by this menu's header until the next state switch
+						Framerate.offset.y = 0;
+					}
 				},
 				{
 					label: TU.translate("saveWarning.switchWithout", null, "Switch Without Merging"),

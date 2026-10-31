@@ -59,16 +59,39 @@ class SysZip {
 
 	function size():Int {
 		if (buffer != null) return buffer.length;
+		if (fileInput == null) return 0;
 		try return Std.int(sys.FileSystem.stat(filePath).size) catch (e:Dynamic) {}
 		return 0;
 	}
 
-	/** Bytes `[pos, pos + len)` of the archive, from the file or from the buffer. */
+	/**
+	 * Bytes `[pos, pos + len)` of the archive, from the file or from the buffer.
+	 *
+	 * A released zip (see dispose) has neither a buffer nor a handle. That used to be
+	 * a null dereference on the next read, which hxcpp turns into a dead process
+	 * instead of a failed asset - so anything that still holds the archive after it
+	 * was released now gets no bytes and one warning instead of a crash.
+	 */
 	function readBytes(pos:Int, len:Int):Bytes {
 		if (len <= 0 || pos < 0) return Bytes.alloc(0);
 		if (buffer != null) return buffer.read(pos, len);
+		if (fileInput == null) {
+			warnReleased();
+			return Bytes.alloc(0);
+		}
 		fileInput.seek(pos, SeekBegin);
 		return fileInput.read(len);
+	}
+
+	/** True once dispose() released the archive; reading it is pointless from then on. */
+	public var released(default, null):Bool = false;
+	var warnedRelease:Bool = false;
+
+	function warnReleased() {
+		if (warnedRelease) return;
+		warnedRelease = true;
+		Logs.warn('A mod pack was read after it had been released ($filePath). '
+			+ 'The read returns nothing instead of taking the game down; the pack has to be decrypted again.');
 	}
 
 	/**
@@ -181,7 +204,11 @@ class SysZip {
 	 * and wipes an in-memory pack so the decrypted bytes do not outlive it.
 	 */
 	public function dispose() {
-		if (fileInput != null) fileInput.close();
+		released = true;
+		if (fileInput != null) {
+			try fileInput.close() catch (e:Dynamic) {}
+			fileInput = null;
+		}
 		if (buffer != null) {
 			buffer.wipe();
 			buffer = null;
