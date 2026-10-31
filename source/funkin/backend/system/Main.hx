@@ -130,6 +130,7 @@ class Main extends Sprite
 		SaveWarning.init();
 		// chained after SaveWarning: a packed mod with staged edits asks to be merged
 		funkin.backend.assets.ZipEditCache.installClosingPrompt();
+		installModCleanupVeto();
 		MemoryUtil.init();
 		FunkinCache.init();
 		Paths.assetsTree = new AssetsLibraryList();
@@ -181,6 +182,27 @@ class Main extends Sprite
 		#end
 
 		initTransition();
+	}
+
+	/**
+	 * Closing the window while a decrypted pack is still held does not just exit: the
+	 * buffers, the zip handles, the key files copied out of packs and the video cache
+	 * are wiped first, behind a screen that closes the game when it is done.
+	 *
+	 * Registered after the staged-edit prompt so that prompt keeps priority: it has to
+	 * ask about unsaved work before anything is torn down, and saving there exits the
+	 * game through the exit hook, which runs the same wipe.
+	 */
+	static function installModCleanupVeto():Void {
+		WindowUtils.addCloseVeto(function() {
+			if (!funkin.backend.assets.ModPackCrypto.needsCleanup()) return false;
+			// already wiping: hold the window until the pass reports done
+			if (funkin.backend.assets.ModPackCrypto.cleaningUp) return true;
+			if (SaveWarning.showWarning) return false;
+			if (FlxG.state == null) return false;
+			FlxG.switchState(new funkin.menus.ModPackCleanupState());
+			return true;
+		});
 	}
 
 	public static function applySoundCurve(volume:Float) {

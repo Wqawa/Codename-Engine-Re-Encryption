@@ -188,8 +188,8 @@
 		<str id="allowConfigWarning-name">Show Modpacks Warning</str>
 		<str id="allowConfigWarning-desc">If checked, a popup at the start of the game will appear if there are some warnings about the modpack, such as missing configs, incompatible versions and more</str>
 
-		<str id="wrapDecryptedPacks-name">Shield Decrypted Mods In Memory</str>
-		<str id="wrapDecryptedPacks-desc">If checked, a decrypted mod pack stays wrapped in a per session stream in memory and is only decoded while it is read - a memory scanner finds no file names or media. Uncheck it for slightly faster loading at the cost of keeping the pack readable in RAM. Mod packs are never written to disk either way.</str>
+		<str id="wrapDecryptedPacks-name">Shield Loaded Mods</str>
+		<str id="wrapDecryptedPacks-desc">If checked, a decrypted mod pack stays wrapped in memory and is only decoded while it is read, so a memory scanner finds no file names or media. Uncheck it for slightly faster loading, at the cost of keeping the pack readable in RAM. Packs are never written to disk either way.</str>
 
 		<str id="resetSaveData-name">Reset Save Data</str>
 		<str id="resetSaveData-desc">Select this option to reset save data. This will remove all of your highscores.</str>

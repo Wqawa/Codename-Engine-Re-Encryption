@@ -495,6 +495,7 @@ class ModPackCrypto {
 			var zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
 			if (zip.entries.length == 0) return null;
 			loadedZips.set(id, zip);
+			sessionDecrypted = true;
 			return zip;
 		} catch (e:Dynamic) {
 			Logs.warn('Could not decrypt "$packPath": ' + e);
@@ -559,6 +560,103 @@ class ModPackCrypto {
 			var file = cacheFolder + CACHE_PREFIX + safeName + "_key.txt";
 			if (FileSystem.exists(file)) FileSystem.deleteFile(file);
 		} catch (e:Dynamic) {}
+		#end
+	}
+
+	// --------------------------------------------------------------- cleanup
+	// A decrypted pack exists only while the game runs: the buffers in loadedZips,
+	// the zip handles the libraries hold, the key files copied out of packs and the
+	// videos in ./.temp/. None of it is written to disk on purpose, so closing has to
+	// wipe it instead of leaving it to the next start - and that wipe is what the
+	// window close waits for (see Main.loadGameSettings and ModPackCleanupState).
+
+	/** True once a pack was decrypted in this session. */
+	public static var sessionDecrypted:Bool = false;
+	public static var cleaningUp:Bool = false;
+	public static var cleanupDone:Bool = false;
+	public static var cleanupProgress:Float = 0;
+	public static var cleanupLabel:String = "";
+	/** What was actually removed, shown on the cleanup screen. */
+	public static var cleanupSummary:String = "";
+
+	/** True while closing the window would leave decrypted data or keys behind. */
+	public static function needsCleanup():Bool {
+		if (cleanupDone) return false;
+		if (sessionDecrypted) return true;
+		for (_ in loadedZips.keys()) return true;
+		return false;
+	}
+
+	/** Runs the wipe on a worker thread; ModPackCleanupState polls the fields above. */
+	public static function beginCleanup():Void {
+		if (cleaningUp) return;
+		cleaningUp = true;
+		cleanupDone = false;
+		cleanupProgress = 0;
+		cleanupSummary = "";
+		cleanupLabel = "Wiping the decrypted packs";
+		#if target.threaded
+		sys.thread.Thread.create(runCleanup);
+		#else
+		runCleanup();
+		#end
+	}
+
+	static function runCleanup():Void {
+		var removed:Array<String> = [];
+		try {
+			// the big one: every decrypted buffer is overwritten twice and read back
+			releaseZips();
+			cleanupProgress = 0.4;
+
+			#if MOD_SUPPORT
+			cleanupLabel = "Releasing the pack handles";
+			closePackHandles();
+			#end
+			cleanupProgress = 0.55;
+
+			#if sys
+			cleanupLabel = "Removing the copied keys";
+			var keys = countCacheFiles();
+			cleanCache();
+			if (keys > 0) removed.push('$keys key file(s)');
+			cleanupProgress = 0.8;
+
+			cleanupLabel = "Removing the video cache";
+			var temp = "./.temp/";
+			try {
+				if (FileSystem.exists(temp) && FileSystem.isDirectory(temp)) {
+					funkin.backend.utils.CoolUtil.deleteFolder(temp);
+					removed.push(".temp");
+				}
+			} catch (e:Dynamic) {}
+			#end
+
+			cleanupProgress = 0.95;
+			cleanupSummary = removed.length == 0 ? "nothing had reached the disk" : removed.join(" and ") + " removed";
+		} catch (e:Dynamic) {
+			cleanupSummary = "the cleanup hit an error: " + Std.string(e);
+		}
+		cleanupLabel = "Done";
+		cleanupProgress = 1;
+		cleaningUp = false;
+		cleanupDone = true;
+	}
+
+	/** How many files the cache folder currently holds, for the summary line. */
+	static function countCacheFiles():Int {
+		#if sys
+		var n = 0;
+		for (folder in [cacheFolder].concat(legacyCacheFolders)) {
+			try {
+				if (!FileSystem.exists(folder) || !FileSystem.isDirectory(folder)) continue;
+				for (file in FileSystem.readDirectory(folder))
+					if (!FileSystem.isDirectory(folder + file)) n++;
+			} catch (e:Dynamic) {}
+		}
+		return n;
+		#else
+		return 0;
 		#end
 	}
 

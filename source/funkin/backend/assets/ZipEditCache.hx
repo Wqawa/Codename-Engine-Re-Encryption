@@ -119,6 +119,10 @@ class ZipEditCache {
 		if (installed) return;
 		installed = true;
 		funkin.backend.utils.WindowUtils.addCloseVeto(function() {
+			// the cleanup screen owns this close while it runs; nothing may be merged
+			// into a pack that is already being torn down
+			if (ModPackCrypto.cleaningUp || ModPackCrypto.cleanupDone) return false;
+
 			var mod = pendingMod();
 			if (mod == null) {
 				releaseWarning();
