@@ -74,11 +74,15 @@ the maintainer; in-game behaviour is tested manually.
 
 A one-click alternative lives in [`building/Build.bat`](building/Build.bat): it finds or downloads
 Haxe + Neko, checks the vendored `.haxelib` libraries against [`building/libs.xml`](building/libs.xml)
-and `project.xml` — running the upstream [`building/setup-windows.bat`](building/setup-windows.bat)
-to install whatever is missing, then re-checking — checks the lime native library and MSVC, builds,
-and reports the result. It asks whether to start the build only when it actually had to install
-libraries; a complete checkout compiles straight away. `-Setup` installs/repairs libraries only,
-`-Ask` always asks. Details: [`building/lazy-build.md`](building/lazy-build.md).
+and `project.xml` — installing whatever is missing with the engine's own `setup` command, then
+re-checking — checks the lime native library and MSVC, builds, and reports the result. It asks
+whether to start the build only when it actually had to install libraries; a complete checkout
+compiles straight away. `-Setup` installs/repairs libraries only, `-Ask` always asks.
+
+`Build.bat` also replaces the upstream `building/setup-windows.bat` and `building/cne-windows.bat`
+(both removed from this fork): when its first argument is an engine command (`setup`, `help`,
+`test`, `build`, `run`, `release`, `test-release`, `optimize`) the command line is handed to
+`commandline/Main.hx` instead of building. Details: [`building/lazy-build.md`](building/lazy-build.md).
 
 ---
 

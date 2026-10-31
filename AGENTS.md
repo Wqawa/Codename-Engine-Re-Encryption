@@ -12,9 +12,10 @@
 | `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
 | `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |
-| `building/cne-windows.bat` / `setup-windows.bat` / `generate-docs-windows.bat` / `libs.xml` | 上游 CLI 与库清单（`cne build/test/release/setup/run/optimize`） | **上游，不改** |
+| `building/generate-docs-windows.bat` / `libs.xml` | 上游文档生成脚本与库清单（`cne build/test/release/setup/run/optimize` 的库表在 `libs.xml`） | **上游，不改** |
+| `building/cne-windows.bat` / `setup-windows.bat` | 上游 CLI 包装（各两行，`haxe -cp commandline --run Main ...`） | **本 fork 已删除**：职责由 `building/Build.bat` 接管（首参是 `setup/help/test/build/run/release/test-release/optimize` 时转交引擎命令行；缺库时自动跑 `setup`）。恢复：`git checkout baseline/upstream-1.1.0 -- building/cne-windows.bat building/setup-windows.bat` |
 | `building/*-unix.sh` | 上游 unix 辅助脚本 | **本 fork 已删除**（只维护 Windows；恢复见下） |
-| `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、按 `libs.xml`/`project.xml` 查库并调上游 `setup-windows.bat` 补齐（只有真补过库才问一句是否编译）、检查库/ndll/MSVC、编译、报错翻译 | 本 fork 新增（中文说明，脚本注释为英文） |
+| `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、按 `libs.xml`/`project.xml` 查库并调引擎 `setup` 命令补齐（只有真补过库才问一句是否编译）、检查库/ndll/MSVC、编译、报错翻译；另接管上游 `cne-windows.bat` 的子命令转交 | 本 fork 新增（中文说明，脚本注释为英文） |
 | `building/.gitignore` | 排除 `building/toolchain/`（下载的工具链）与 `building/logs/` | 本 fork 新增 |
 
 文档规则：

@@ -10,6 +10,12 @@
 > The Linux/macOS instructions below still reference `setup-unix.sh`; that file no longer exists
 > here, so install the libraries listed in [`libs.xml`](libs.xml) with `haxelib` by hand instead.
 > Restore the scripts with `git checkout 012a6423 -- building/*.sh` if you need them.
+>
+> **Third fork note (not upstream):** `setup-windows.bat` and `cne-windows.bat` were removed as
+> separate files too — [`Build.bat`](Build.bat) does both jobs. Run `Build.bat` to install the
+> libraries and compile, or `Build.bat <command>` (`setup`, `test`, `run`, `release`, `optimize`,
+> `help`) to reach the engine command line the old `cne-windows.bat` forwarded to. Restore them with
+> `git checkout baseline/upstream-1.1.0 -- building/setup-windows.bat building/cne-windows.bat`.
 
 # Compiling Codename Engine
 Do you want to turn your source code into a playable build to play? Then you want to **compile the source code**, follow this guide.

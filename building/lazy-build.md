@@ -8,7 +8,7 @@ export\release\windows\bin\CodenameEngine.exe
 
 不需要开命令行、不需要先装 Haxe、不需要 Developer Prompt。
 
-`Build.bat` 把上游的 `setup-windows.bat`（装库）和编译合成了同一步：库缺了它自己补、补完再问一句要不要编译；库本来就是齐的直接编译。`Build.bat` 只是转发器，真正干活的是同目录下的 `lazy-build.ps1`，日志与下载的工具链也都在 `building\` 下。
+`Build.bat` 把“装库 + 编译”和上游的 CLI 都合成了一个入口：库缺了它自己补、补完再问一句要不要编译；库本来就是齐的直接编译。上游的 `setup-windows.bat` 与 `cne-windows.bat` 已被它取代并删除（见下面《和上游 `cne` 命令行的关系》）。`Build.bat` 只是转发器，真正干活的是同目录下的 `lazy-build.ps1`，日志与下载的工具链也都在 `building\` 下。
 
 > 本文件是本 fork 新增的说明。上游原本的编译指南是同目录的 [`README.md`](README.md)，正文保持原样未改。
 
@@ -17,16 +17,19 @@ export\release\windows\bin\CodenameEngine.exe
 | 步骤 | 做什么 | 缺东西时怎么办 |
 | --- | --- | --- |
 | 1/6 工具链 | 找 Haxe 4.3.x 和 Neko | 找不到就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `building\toolchain\` 解压使用（**不需要装进系统**） |
-| 2/6 库 | 用 `haxelib list` 核对 `building\libs.xml` 和 `project.xml` 要求的库（仓库自带 `.haxelib`） | 少一个就调上游的 `setup-windows.bat` 补齐，回来再核对一遍；补完还缺只警告不中断（lime 会指名是哪个库）。`-Setup` 只做这一步 |
+| 2/6 库 | 用 `haxelib list` 核对 `building\libs.xml` 和 `project.xml` 要求的库（仓库自带 `.haxelib`） | 少一个就调引擎自己的 `setup` 命令（`haxe -cp commandline ... --run Main setup --ignore-sum --no-vscheck`）补齐，回来再核对一遍；补完还缺只警告不中断（lime 会指名是哪个库）。`-Setup` 只做这一步 |
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64） | 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
 | 5/6 编译 | `haxelib run lime build windows -nocolor`，并打开 hxcpp 的编译缓存 | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
 | 6/6 验收 | 检查 exe 是否存在、时间戳是否比本次构建新、统计 warning | 失败时把日志里第一批 `error:` 行摘出来，并给出对应处理建议 |
 
-## 缺库时会发生什么（与 `setup-windows.bat` 合并的部分）
+## 缺库时会发生什么（原来单独跑 `setup-windows.bat` 就是这一步）
 
 1. 第 2 步用 `haxelib list` 列出真正能用的库，和 `building\libs.xml`、`project.xml` 里要求的一对一核对（大小写不敏感：`.haxelib` 里的文件夹名是小写的；`project.xml` 里被注释掉的项不算）。
-2. 只要缺一个，就直接跑上游的 `setup-windows.bat`（它照 `libs.xml` 执行 `haxelib git` / `haxelib install`），跑完再核对一遍，齐了继续往下走。
+2. 只要缺一个，就直接跑引擎自己的 setup 命令——就是原来 `setup-windows.bat` 里那一行
+   `haxe -cp commandline -D analyzer-optimize --run Main setup`，它照 `libs.xml` 执行 `haxelib git` / `haxelib install`——跑完再核对一遍，齐了继续往下走。另外补了两个参数：
+   - `--ignore-sum`：不加的话 setup 发现 `building\libs.xml` 没改过就直接跳过，缺的库根本补不上（上次成功装库会留下 `building\libs.xml.sum`，而它被 `.gitignore` 排除）。
+   - `--no-vscheck`：MSVC 由本脚本第 4 步自己查；setup 自带的检查会下载 VS Community，还会问你要不要重启机器。
 3. 补完还缺：写 WARN 并继续，由 lime 报出到底是哪个库——脚本不猜版本、不自己乱装。
 4. 第 5 步开始时，如果**这次运行装过库**，会问一句 `The libraries are installed. Start the Windows build now? [Y/n]`：
    - 回车或 `y` → 开始编译；
@@ -68,11 +71,14 @@ Build.bat -Debug              :: 编 debug 版，产物在 export\debug\windows\
 Build.bat -RebuildLime        :: 强制重编 lime 原生库（缺 MSVC 会失败）
 Build.bat -DryRun             :: 只打印它会做什么，一个文件都不改
 Build.bat -Yes                :: 所有询问都按默认答案（适合无人值守）
-Build.bat -Setup              :: 只装/补库、不编译（代替单独跑 setup-windows.bat，不用先把 haxe 放进 PATH）
+Build.bat -Setup              :: 只装/补库、不编译（不用先把 haxe 放进 PATH）
 Build.bat -Ask                :: 编译前一律问一句（默认只在本次装过库时才问）
 Build.bat -DownloadToolchain  :: 无视已装的 Haxe，强制下载解压一份到 toolchain\（做"绿色包"时用）
 Build.bat -ForceToolchain     :: 只用 toolchain\ 里的那份 Haxe
 Build.bat -HaxeHome "D:\Haxe\4.3.7\haxe"   :: 指定 Haxe 目录
+Build.bat test                :: 引擎自己的命令行（原 cne-windows.bat test）
+Build.bat help                :: 列出引擎命令行支持的子命令
+Build.bat optimize file.json  :: 压缩 JSON（原 cne-windows.bat optimize）
 ```
 
 `-DryRun` 是排查"脚本到底想干什么"的最快方式，安全。
@@ -117,32 +123,32 @@ cd 'D:\FNF\FNF code\Codename-Engine_Re-Encryption'
 haxelib run lime build windows -nocolor
 ```
 
-## 和上游 `cne` 命令行（`cne-windows.bat`）的关系
+## 和上游 `cne` 命令行的关系（`cne-windows.bat` / `setup-windows.bat` 已删除）
 
-`building\cne-windows.bat` 是上游自带的 CLI 入口（两行，跑 `commandline\Main.hx`），子命令：
+上游的 `cne-windows.bat`（通用 CLI）和 `setup-windows.bat`（只装库）都只是两行的 `haxe -cp commandline -D analyzer-optimize --run Main ...` 包装。**这两个文件已从本仓库删除**，`Build.bat` 两件事都接管了：
+
+- `Build.bat` 不带参数 → 装库 + 编译（原来要先 `setup-windows.bat` 再编）。
+- `Build.bat` 的**第一个参数**是下列子命令之一时 → 原样交给 `commandline\Main.hx`（即原来的 `cne-windows.bat <子命令>`），不再走编译流程：
+  `setup`、`help`、`test`、`build`、`run`、`release`、`test-release`、`optimize`。
 
 | 子命令 | 实际执行 | 说明 |
 | --- | --- | --- |
-| `setup` | 按 `building\libs.xml` 安装所有库 | 本脚本检测到缺库时自动调它（`setup-windows.bat`）；想单独跑就用 `Build.bat -Setup` |
-| `release` | `haxelib run lime build windows` | **等价于 `Build.bat` 不带参数时做的事** |
+| `setup` | 按 `building\libs.xml` 安装所有库 | 缺库时第 2 步会自动跑它（带 `--ignore-sum --no-vscheck`）；想单独装库用 `Build.bat -Setup` |
+| `release` | `haxelib run lime build windows` | 与 `Build.bat` 做的事相近，但少了装库/查 ndll/查 MSVC/日志与报错翻译 |
 | `build` / `test` | `lime build`/`test` + `-DTEST_BUILD` | 开发构建：不拷资源，直接从源码目录读 assets，只能在源码目录里跑 |
 | `run` | `lime run windows` | 跑上一次的构建 |
-| `optimize` | 压缩 JSON | 与编译无关 |
+| `optimize` | 压缩 JSON | 与编译无关（`Build.bat optimize file.json`） |
 
-- `Build.bat` ≈ `cne-windows.bat release`，但多了几件事：找/装 Haxe+Neko、查 `.haxelib` 的库并按需调 `setup-windows.bat` 补齐、查 `lime.ndll`、查 MSVC、把输出写进日志并翻译报错、本次装过库时问一句是否编译。它**不需要** `haxe` 在 PATH 里。
-- `cne-windows.bat` 自己**不找工具链**，里面直接写 `@haxe ...`，所以必须先把 Haxe 放进 PATH。用本脚本下过工具链的话，这样临时加上：
-
-  ```bat
-  set "PATH=%~dp0toolchain\haxe-4.3.7\haxe_20250509143529_e0b355c;%~dp0toolchain\neko-2.3.0\neko-2.3.0-win64;%PATH%"
-  building\cne-windows.bat release
-  ```
-
-- 本 fork 只维护 Windows：上游的 `cne-unix.sh`、`setup-unix.sh`、`generate-docs-unix.sh` 已删除（要恢复：`git checkout 012a6423 -- building/*.sh`）。因此 `building\README.md` 里提到 `setup-unix.sh` 的 Linux/macOS 步骤在本仓库不能照抄。
+- 传递方式：`Build.bat` 把整行命令放进环境变量 `LAZYBUILD_CNE`，再带 `-Cne` 调脚本——不这么做的话 PowerShell 会把第一个词当位置参数绑给 `-CacheDir`。
+- 原来 `cne-windows.bat` 要求先把 `haxe` 放进 PATH；现在走 `Build.bat` 不用，脚本会自己找到（或下载）工具链再转过去。
+- 想恢复删掉的两个 bat：`git checkout baseline/upstream-1.1.0 -- building/cne-windows.bat building/setup-windows.bat`。
+- 本 fork 只维护 Windows：上游的 `cne-unix.sh`、`setup-unix.sh`、`generate-docs-unix.sh` 也早已删除（要恢复：`git checkout 012a6423 -- building/*.sh`）。因此 `building\README.md`（上游原文，正文未改）里提到 `setup-windows.bat`、`cne-windows.bat`、`*-unix.sh` 的步骤在本仓库请用 `Build.bat` 的对应写法替代。
 
 ## 已知限制
 
 - 只支持 Windows 目标（`windows`）。其它平台走 lime 官方流程。
 - 只认 Haxe 4.3.x；4.2.x 会被提示"需要 4.3.x"并改建自己的工具链（本项目现有依赖按 4.3.x 验证过）。
-- 缺的库只交给上游 `setup-windows.bat`（按 `libs.xml` 的 git/install 清单）补，脚本不会自己猜版本；补完还缺就只警告并继续，具体是哪个库由 lime 报错。
+- 缺的库只交给引擎自己的 `setup` 命令（按 `libs.xml` 的 git/install 清单）补，脚本不会自己猜版本；补完还缺就只警告并继续，具体是哪个库由 lime 报错。
+- 第一个参数命中那 8 个子命令时才会转交给引擎命令行；其它拼错的参数（例如 `Build.bat tset`）会被 PowerShell 当位置参数绑给 `-CacheDir` 并照常编译，不会报"未知参数"。
 - 32 位（`-x86_32`）构建脚本不处理 `ndll\Windows\lime.ndll` 的检查，只检查 `Windows64`。
 - `building\toolchain\` 与 `building\logs\` 已被 `building\.gitignore` 排除，删掉它们不影响仓库（下次运行会重新下载）。

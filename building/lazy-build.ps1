@@ -7,19 +7,27 @@
       1. find (or download) a Haxe 4.3.x + Neko toolchain
       2. point haxelib at the repository-local .haxelib folder and check that every
          library listed in building/libs.xml / project.xml is really installed;
-         whatever is missing is installed by running the upstream setup helper
-         building/setup-windows.bat, and the run then continues
+         whatever is missing is installed with the engine's own setup command
+         ("haxe -cp commandline -D analyzer-optimize --run Main setup"), which is
+         what building/setup-windows.bat used to run from a second window, and the
+         run then continues
       3. make sure the lime native ndll is there
       4. make sure a MSVC toolchain (Visual Studio Build Tools) exists
       5. run "haxelib run lime build windows -nocolor", with hxcpp's compile cache
          enabled so a rebuild only compiles what actually changed
       6. check that the exe is newer than the build start, translate known errors
 
-    This file is what Build.bat runs, so Build.bat covers both jobs at once: set the
-    machine up (the job setup-windows.bat does on its own) and build. When libraries
-    had to be installed, it asks before starting the compile - a checkout that was
-    already complete goes straight to the build. -Ask always asks, -Yes answers with
-    the default, -Setup stops after the library step.
+    This file is what Build.bat runs, so Build.bat covers the whole chain: set the
+    machine up (libraries included) and build. When libraries had to be installed, it
+    asks before starting the compile - a checkout that was already complete goes
+    straight to the build. -Ask always asks, -Yes answers with the default, -Setup
+    stops after the library step.
+
+    Build.bat also replaces building/cne-windows.bat: when its first argument is an
+    engine command ("setup", "help", "test", "build", "run", "release",
+    "test-release", "optimize") the whole command line is handed to commandline/Main.hx
+    instead of being compiled,
+      Build.bat test        Build.bat help        Build.bat optimize ...
 
     Nothing outside the repository is modified unless a toolchain (or the
     Visual Studio Build Tools) is missing and has to be installed.
@@ -45,7 +53,7 @@ param(
     [switch]$Yes,
     # Ask before compiling even when nothing had to be repaired
     [switch]$Ask,
-    # Only install/repair the .haxelib libraries (the job of setup-windows.bat)
+    # Only install/repair the .haxelib libraries, then stop (no build)
     [switch]$Setup,
     # Ignore installed Haxe builds and use the bundled toolchain folder only
     [switch]$ForceToolchain,
@@ -58,7 +66,12 @@ param(
     # Explicit repository root (defaults to this script's ../..)
     [string]$RepoRoot,
     # Where a downloaded toolchain is unpacked
-    [string]$ToolchainDir
+    [string]$ToolchainDir,
+    # Engine command line job (what building/cne-windows.bat used to run). Build.bat
+    # puts the raw command line in LAZYBUILD_CNE and sets this switch, because the
+    # words of "Build.bat test" would otherwise be eaten by the positional script
+    # parameters above.
+    [switch]$Cne
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,9 +87,11 @@ $VsBuildToolsUrl = 'https://aka.ms/vs/17/release/vs_BuildTools.exe'
 $script:LogFile = $null
 $script:HaxePath = $null
 $script:NekoPath = $null
-$script:RepoRoot = $null
-$script:ToolchainDir = $null
-# set once setup-windows.bat had to run, so the build step knows to ask first
+# -RepoRoot and -ToolchainDir are read here instead of being reset: a script-scope
+# variable and its parameter are the same variable, so "= $null" would wipe the
+# value the command line passed in.
+
+# set once the library repair ran, so the build step knows to ask first
 $script:SetupRan = $false
 
 # ---------------------------------------------------------------- output
@@ -468,18 +483,64 @@ function Get-HaxelibExe {
     return (Join-Path $script:HaxePath 'haxelib.exe')
 }
 
+# haxe.exe of the toolchain this run settled on (falls back to whatever is on PATH).
+function Get-HaxeExe {
+    if ($script:HaxePath) {
+        $candidate = Join-Path $script:HaxePath 'haxe.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    $onPath = Get-Command 'haxe.exe' -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    return 'haxe'
+}
+
+# Runs the engine's own command line (commandline/Main.hx) the way the upstream
+# wrappers did: "haxe -cp commandline -D analyzer-optimize --run Main <args>".
+# Returns the exit code.
+function Invoke-CneCommand {
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [string]$Label = 'cne',
+        [switch]$AllowFail
+    )
+
+    $haxeArgs = @('-cp', 'commandline', '-D', 'analyzer-optimize', '--run', 'Main') + $Arguments
+    return (Invoke-Tool -FilePath (Get-HaxeExe) -Arguments $haxeArgs -Label $Label -AllowFail:$AllowFail)
+}
+
+# Splits a raw command line into words, keeping "quoted values" together.
+function Split-CommandLine {
+    param([string]$Text)
+
+    $words = New-Object System.Collections.Generic.List[string]
+    foreach ($match in [regex]::Matches($Text, '"[^"]*"|''[^'']*''|\S+')) {
+        $word = $match.Value
+        if ($word.Length -ge 2) {
+            $first = $word.Substring(0, 1)
+            $last = $word.Substring($word.Length - 1, 1)
+            if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+                $word = $word.Substring(1, $word.Length - 2)
+            }
+        }
+        if ($word) { [void]$words.Add($word) }
+    }
+    return ,$words.ToArray()
+}
+
 function Get-HaxelibRepoPath {
     return (Invoke-Capture -FilePath (Get-HaxelibExe) -Arguments @('config')).Trim()
 }
 
 # Names of the libraries this checkout needs: everything building/libs.xml
-# installs (that is the list setup-windows.bat works from) plus what project.xml
+# installs (the list the engine's setup command works from) plus what project.xml
 # actually links against.
 function Get-RequiredLibraries {
     $required = New-Object System.Collections.Generic.List[string]
     $seen = New-Object System.Collections.Generic.HashSet[string]
 
-    $libsXml = Join-Path $PSScriptRoot 'libs.xml'
+    # the checkout's own list, falling back to the one next to this script
+    $libsXml = Join-Path $script:RepoRoot 'building/libs.xml'
+    if (-not (Test-Path -LiteralPath $libsXml)) { $libsXml = Join-Path $PSScriptRoot 'libs.xml' }
     if (Test-Path -LiteralPath $libsXml) {
         # <git name="x" .../> and <lib global="true" name="x"/>: the attribute order varies
         $raw = Get-Content -LiteralPath $libsXml -Raw
@@ -543,40 +604,41 @@ function Get-LibraryStatus {
     }
 }
 
-# Runs the upstream setup helper (building/setup-windows.bat, i.e. "cne setup"),
-# which installs every library in building/libs.xml, then re-checks. Returns $true
-# when the helper was actually started.
+# Installs the missing libraries with the engine's own setup command ("cne setup",
+# what building/setup-windows.bat used to run), then re-checks. Returns $true when
+# that command was actually started.
 function Repair-Libraries {
     param(
         [Parameter(Mandatory)][string]$Repo,
         [string[]]$Missing = @()
     )
 
-    $setupHelper = Join-Path $PSScriptRoot 'setup-windows.bat'
-    if (-not (Test-Path -LiteralPath $setupHelper)) {
-        Write-Log "cannot install $($Missing -join ', '): $setupHelper does not exist" 'ERR'
-        return $false
-    }
-
     if ($Missing.Count -gt 0) {
-        Write-Log "running the upstream setup helper (building\setup-windows.bat) for: $($Missing -join ', ')" 'WARN'
+        Write-Log "installing the missing libraries with the engine's setup command: $($Missing -join ', ')" 'WARN'
     } else {
-        Write-Log 'running the upstream setup helper (building\setup-windows.bat)' 'WARN'
+        Write-Log "installing the missing libraries with the engine's setup command" 'WARN'
     }
-    Write-Log 'it installs every library in building\libs.xml and can take a while' 'INFO'
+    Write-Log 'it walks building\libs.xml and can take a while' 'INFO'
+
+    # --ignore-sum: the setup command skips everything when building\libs.xml matches
+    #   the .sum file the last successful run wrote - which is exactly the state we
+    #   are in here (one library went missing, but nothing changed in libs.xml).
+    # --no-vscheck: the script checks MSVC itself in step 4; the setup command's own
+    #   check downloads Visual Studio Community and then asks to reboot the machine.
+    $setupArgs = @('setup', '--ignore-sum', '--no-vscheck')
 
     if ($DryRun) {
-        Write-Log '[dryrun] setup-windows.bat (installs the missing libraries)' 'DRY'
+        Write-Log ("[dryrun] haxe -cp commandline -D analyzer-optimize --run Main " + ($setupArgs -join ' ')) 'DRY'
         return $false
     }
 
     $script:SetupRan = $true
-    $code = Invoke-Tool -FilePath $setupHelper -Label 'cne setup (libraries)' -AllowFail
+    $code = Invoke-CneCommand -Arguments $setupArgs -Label 'cne setup --ignore-sum (libraries)' -AllowFail
     if (-not (Test-Path -LiteralPath $Repo)) { return $true }
 
     $status = Get-LibraryStatus -Repo $Repo
     if (-not $status.Known) {
-        Write-Log "the setup helper finished (exit $code) but the installed libraries cannot be listed" 'WARN'
+        Write-Log "the setup command finished (exit $code) but the installed libraries cannot be listed" 'WARN'
         return $true
     }
     if ($status.Missing.Count -eq 0) {
@@ -600,7 +662,7 @@ function Initialize-HaxelibRepository {
         # building/libs.xml - use it instead of guessing library versions
         if (-not (Repair-Libraries -Repo $repo -Missing @())) {
             if ($DryRun) { return }
-            throw "the vendored .haxelib folder is gone and building\setup-windows.bat cannot restore it - restore .haxelib from the repository"
+            throw "the vendored .haxelib folder is gone and the setup command cannot restore it - restore .haxelib from the repository"
         }
         if ($DryRun) { return }
         if (-not (Test-Path -LiteralPath $repo)) {
@@ -791,12 +853,28 @@ try {
         Write-Log "haxe --version -> $version" 'OK'
     }
 
+    # 0 - passthrough -------------------------------------------------------
+    # "Build.bat test" and friends are engine command line jobs, i.e. what
+    # building/cne-windows.bat used to run; Build.bat is the single entry point now.
+    if ($Cne) {
+        $commandLine = "$env:LAZYBUILD_CNE"
+        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+            Write-Log 'no engine command line was handed over (LAZYBUILD_CNE is empty)' 'ERR'
+            exit 1
+        }
+        $passthrough = Split-CommandLine -Text $commandLine
+        Write-Step ("cne " + ($passthrough -join ' '))
+        Write-Log 'handing over to the engine command line (commandline\Main.hx)' 'INFO'
+        $code = Invoke-CneCommand -Arguments $passthrough -Label ("cne " + ($passthrough -join ' '))
+        exit $code
+    }
+
     # 2 - libraries ---------------------------------------------------------
     Write-Step '2/6 libraries (repository-local .haxelib)'
     Initialize-HaxelibRepository
 
     if ($Setup) {
-        # -Setup is setup-windows.bat's job: install what is missing and stop there
+        # -Setup is the library half of the job: install what is missing and stop there
         if ($DryRun) {
             Write-Log 'DRY RUN finished - nothing was installed' 'DRY'
             exit 0
