@@ -67,12 +67,23 @@ magic 与脚本容器的 magic 刻意不同，脚本不可能被当成 mod 包�
   `salt(8/12/16) + 密码校验(2) + AES-CTR 密文 + 认证(10)`，密钥来自 PBKDF2-HMAC-SHA1（1000 轮），
   完整性用截断的 HMAC-SHA1。`ZipAes` 既能读也能写——加密工具导出的"AES 密码 zip"就是它写的，
   所以玩家只需要输一次密码，7-Zip / WinRAR / Bandizip 也能直接打开。
+- **包内自带的 key 文件**：`ScriptCrypto` 只认磁盘上的文件，而 zip 条目不是文件，所以打包 mod 加载时
+  `ModsFolder.registerKeyFilesFromPack` 会把包里的 `data/script_key.txt` / `script_key.txt` 复制到
+  隐藏缓存目录并注册。没有这一层，包内脚本用了自定义 key 时就只能把 `script_key.txt` 放到 exe 旁边。
 
-### 2.4 与编辑器共存的修正
+### 2.4 打包 mod 的改动暂存（`[zip]temp`）
 
-上游 1.1.0 里 `mods/Name.zip` 一旦存在，同名的 `mods/Name/` 文件夹就被忽略，导致编辑器写在包旁边的东西读不回来。
-`assets/OverlayZipFolderLibrary.hx` 作为官方 `ZipFolderLibrary` 的**子类**叠加这层文件夹：
-文件夹里真有该文件就优先用它，否则回落到压缩包。官方类本身未改动，所有 `is ZipFolderLibrary` 判断继续成立。
+zip 不能原地写，所以编辑器给**打包 mod**保存的东西不再落到 `mods/Name/`，而是
+**exe 同级的 `[zip]temp/<mod>/`**（`assets/ZipEditCache.hx`）：
+
+- 引擎读资源时通过 `OverlayZipFolderLibrary` 把这层文件夹叠在包上——文件夹里有就优先用它；
+- 关闭游戏时若这个目录还有文件，会弹一个和编辑器"未保存"同款的提示：
+  **Keep editing / Close without merging / Merge and close**；
+- 选合并就重写压缩包：包内同名条目被替换、其余条目原样复制（保留压缩字节，不解压重压）、
+  暂存目录里的新文件追加进去；之后按包原本的加密方式与密钥重新加密（CNEZ / AES zip / 明文各走各的）；
+- 原包先改名成 `.old` 再换新的，替换失败会还原，暂存文件保持不动——失败不会丢东西。
+
+> 注：`mods/Name/` 与包并存时仍然优先读文件夹（兼容旧布局），只是新保存的内容不再写进去。
 
 ---
 

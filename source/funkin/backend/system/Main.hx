@@ -128,6 +128,8 @@ class Main extends Sprite
 	public static function loadGameSettings() {
 		WindowUtils.init();
 		SaveWarning.init();
+		// chained after SaveWarning: a packed mod with staged edits asks to be merged
+		funkin.backend.assets.ZipEditCache.installClosingPrompt();
 		MemoryUtil.init();
 		FunkinCache.init();
 		Paths.assetsTree = new AssetsLibraryList();

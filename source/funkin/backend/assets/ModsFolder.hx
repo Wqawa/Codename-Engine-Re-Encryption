@@ -110,6 +110,15 @@ class ModsFolder {
 				// being ignored (see OverlayZipFolderLibrary)
 				var overlayFolder:String = null;
 				if (FileSystem.exists(path) && FileSystem.isDirectory(path)) overlayFolder = path;
+				else {
+					// Edits to a packed mod are staged in [zip]temp/<mod>/; read through
+					// them so a file saved in-game is visible without merging first.
+					var libName = modName != null ? modName : Path.withoutExtension(Path.withoutDirectory(packPath));
+					if (ZipEditCache.hasChanges(libName)) overlayFolder = ZipEditCache.folder(libName, false);
+				}
+				// A pack may ship the key of its own scripts; ScriptCrypto only reads files,
+				// so that key file is copied out of the pack before anything is loaded.
+				registerKeyFilesFromPack(zipPath, Path.withoutExtension(Path.withoutDirectory(packPath)));
 				return loadLibraryFromZip('$path'.toLowerCase(), zipPath, force, modName, MODS, overlayFolder);
 			} catch (e:Dynamic) {
 				// a broken or unsupported zip must not take the whole game down
@@ -125,6 +134,40 @@ class ModsFolder {
 
 		#else
 		return null;
+		#end
+	}
+
+	/**
+	 * Copies the key file a packed mod ships for its own scripts (`data/script_key.txt`
+	 * or `script_key.txt`) out of the package and registers it with ScriptCrypto.
+	 *
+	 * ScriptCrypto resolves keys from files on disk and a zip entry is not a file, so
+	 * without this an encrypted pack whose scripts were sealed with their own key could
+	 * only be opened by putting that script_key.txt next to the executable. The copy
+	 * lands in the hidden cache folder, which is removed when the game closes.
+	 */
+	static function registerKeyFilesFromPack(zipPath:String, packName:String):Void {
+		#if sys
+		if (zipPath == null || packName == null) return;
+		var zip:SysZip = null;
+		try {
+			var safeName = packName.split("/").join("_").split(":").join("_");
+			zip = new SysZip(zipPath);
+			for (entry in zip.entries) {
+				var name = entry.fileName.replace("\\", "/").toLowerCase();
+				if (name != "data/script_key.txt" && name != "script_key.txt") continue;
+				var data = zip.unzipEntry(entry);
+				if (data == null || data.length == 0) continue;
+				ModPackCrypto.ensureCacheFolder();
+				var out = ModPackCrypto.cacheFolder + ModPackCrypto.CACHE_PREFIX + safeName + "_key.txt";
+				sys.io.File.saveBytes(out, data);
+				ModPackCrypto.hideCacheFile(out);
+				ScriptCrypto.addKeyFile(out);
+			}
+		} catch (e:Dynamic) {
+			Logs.warn('Could not read a key file out of "$zipPath": ' + e);
+		}
+		try if (zip != null) zip.dispose() catch (e:Dynamic) {}
 		#end
 	}
 

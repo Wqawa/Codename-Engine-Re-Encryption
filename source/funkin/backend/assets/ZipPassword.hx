@@ -292,7 +292,7 @@ class ZipPassword {
 	 * method the payload actually uses, which differs from the entry's own method for
 	 * WinZip AES entries (they report 99 and carry the real method in the extra field).
 	 */
-	static function readRawEntry(f:FileInput, e:ZipEntry, pass:String):{data:haxe.io.Bytes, method:Int} {
+	public static function readRawEntry(f:FileInput, e:ZipEntry, pass:String):{data:haxe.io.Bytes, method:Int} {
 		#if sys
 		f.seek(dataOffset(f, e), SeekBegin);
 		var raw = e.csize > 0 ? f.read(e.csize) : Bytes.alloc(0);

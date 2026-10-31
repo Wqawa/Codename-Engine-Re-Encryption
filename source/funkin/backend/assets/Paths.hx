@@ -281,8 +281,11 @@ class Paths
 		// "Play without mods" keeps the last pick remembered, but the assets that are
 		// actually running (and that editors must write into) are the base ones.
 		var mod:String = ModPackCrypto.disableMods ? null : ModsFolder.currentModFolder;
-		return if (mod != null) '${ModsFolder.modsPath}${mod}';
-			else assetsTree.rootDirectory;
+		if (mod == null) return assetsTree.rootDirectory;
+		// A pack cannot be written to, so edits for a packed mod are staged in
+		// [zip]temp/<mod>/ and offered for merging when the game closes (ZipEditCache).
+		if (ZipEditCache.isPackedMod(mod)) return ZipEditCache.folder(mod);
+		return '${ModsFolder.modsPath}${mod}';
 	}
 
 	/**
