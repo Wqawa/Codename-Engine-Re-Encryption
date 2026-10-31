@@ -51,10 +51,9 @@ class MainState extends FlxState {
 
 		Paths.assetsTree.reset();
 
-		// The decrypted pack of the previous mod lives in memory now, not in a cache
-		// folder: drop it (and the key file copied out of it) before another one loads.
-		ModPackCrypto.releaseZips();
-		ModPackCrypto.cleanCache();
+		// The decrypted packs live in memory now, so whatever this load does not use is
+		// let go further down - once libPaths is known. Releasing everything here undid
+		// the copy the progress screen had just made.
 
 		final skipMods = ModPackCrypto.disableMods; // "play without mods" was picked
 
@@ -131,6 +130,11 @@ class MainState extends FlxState {
 		for (addon in _highPriorityAddons) libPaths.push(addon.path);
 		if (!skipMods && ModsFolder.currentModFolder != null)
 			libPaths.push(ModsFolder.modsPath + ModsFolder.currentModFolder);
+
+		// Packs that this load will not read are wiped here; the ones it will read are
+		// kept, so the loader finds what the progress screen decrypted instead of
+		// starting that pass again. Empty list ("play without mods") wipes everything.
+		ModPackCrypto.retainZips(libPaths);
 
 		// Encrypted packs must be decrypted before the loader touches them: the plain
 		// zip reader cannot read password protected entries and would throw. The

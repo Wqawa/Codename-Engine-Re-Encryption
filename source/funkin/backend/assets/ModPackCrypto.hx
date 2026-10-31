@@ -517,6 +517,52 @@ class ModPackCrypto {
 	}
 
 	/**
+	 * Drops the decrypted packs that are not part of `libPaths` and keeps the rest.
+	 *
+	 * The loader re-enters MainState right after the progress screen, so a plain
+	 * releaseZips() there threw away the copy that had just been built and sent the
+	 * loader straight back to decrypting it - an endless loop, with a fresh multi
+	 * hundred megabyte buffer allocated and dropped every round. Only what this load
+	 * does not use is let go, which is the mod switch case.
+	 *
+	 * An empty list (the "play without mods" pick) releases everything.
+	 */
+	public static function retainZips(libPaths:Array<String>):Void {
+		var keep = new Map<String, Bool>();
+		if (libPaths != null) {
+			for (lib in libPaths) {
+				if (lib == null) continue;
+				keep.set(normalizePath(lib), true);
+				keep.set(normalizePath(lib + ".zip"), true);
+			}
+		}
+
+		var drop:Array<String> = [];
+		for (id in loadedZips.keys())
+			if (!keep.exists(id)) drop.push(id);
+
+		for (id in drop) {
+			var zip = loadedZips.get(id);
+			if (zip != null) try zip.dispose() catch (e:Dynamic) {}
+			loadedZips.remove(id);
+			// the key file copied out of that pack has no owner any more
+			dropKeyFileFor(id);
+		}
+	}
+
+	/** Removes the `*_key.txt` a pack's own key file was copied to, if there is one. */
+	static function dropKeyFileFor(packPath:String):Void {
+		#if sys
+		try {
+			var name = Path.withoutExtension(Path.withoutDirectory(packPath));
+			var safeName = name.split("/").join("_").split(":").join("_");
+			var file = cacheFolder + CACHE_PREFIX + safeName + "_key.txt";
+			if (FileSystem.exists(file)) FileSystem.deleteFile(file);
+		} catch (e:Dynamic) {}
+		#end
+	}
+
+	/**
 	 * Zip of a mod library (the "mods/Name" base path, without extension) that is
 	 * encrypted and that no known key can open, or null.
 	 *

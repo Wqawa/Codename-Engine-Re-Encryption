@@ -45,8 +45,8 @@ class ModPackLoadingState extends UIState {
 
 		add(new UIText(40, 60, FlxG.width - 80, "Unlocking mod pack", 26, 0xFFFFE066, false));
 		add(new UIText(40, 100, FlxG.width - 80,
-			"Decrypting the pack so the engine can read it. This only happens once per pack:\n"
-			+ "the decrypted copy is cached, so the next start is instant.",
+			"Decrypting the pack into memory so the engine can read it. Nothing is written to disk,\n"
+			+ "so this pass runs on every start and for as long as the pack stays loaded.",
 			14, 0xFFB0B0BE, false));
 
 		add(packText = new UIText(40, 168, FlxG.width - 80, "Pack: " + names, 16, 0xFFFFFFFF, false));
