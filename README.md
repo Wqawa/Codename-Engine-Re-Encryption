@@ -73,8 +73,12 @@ The result is `export/release/windows/bin/CodenameEngine.exe`. Only a clean comp
 the maintainer; in-game behaviour is tested manually.
 
 A one-click alternative lives in [`building/Build.bat`](building/Build.bat): it finds or downloads
-Haxe + Neko, checks the vendored `.haxelib` libraries and the lime native library, checks MSVC,
-builds, and reports the result. Details: [`building/lazy-build.md`](building/lazy-build.md).
+Haxe + Neko, checks the vendored `.haxelib` libraries against [`building/libs.xml`](building/libs.xml)
+and `project.xml` — running the upstream [`building/setup-windows.bat`](building/setup-windows.bat)
+to install whatever is missing, then re-checking — checks the lime native library and MSVC, builds,
+and reports the result. It asks whether to start the build only when it actually had to install
+libraries; a complete checkout compiles straight away. `-Setup` installs/repairs libraries only,
+`-Ask` always asks. Details: [`building/lazy-build.md`](building/lazy-build.md).
 
 ---
 

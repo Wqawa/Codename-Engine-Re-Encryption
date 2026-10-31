@@ -5,12 +5,21 @@
     export/release/windows/bin/CodenameEngine.exe:
 
       1. find (or download) a Haxe 4.3.x + Neko toolchain
-      2. point haxelib at the repository-local .haxelib folder
-      3. make sure the vendored libraries and the lime native ndll are there
+      2. point haxelib at the repository-local .haxelib folder and check that every
+         library listed in building/libs.xml / project.xml is really installed;
+         whatever is missing is installed by running the upstream setup helper
+         building/setup-windows.bat, and the run then continues
+      3. make sure the lime native ndll is there
       4. make sure a MSVC toolchain (Visual Studio Build Tools) exists
       5. run "haxelib run lime build windows -nocolor", with hxcpp's compile cache
          enabled so a rebuild only compiles what actually changed
       6. check that the exe is newer than the build start, translate known errors
+
+    This file is what Build.bat runs, so Build.bat covers both jobs at once: set the
+    machine up (the job setup-windows.bat does on its own) and build. When libraries
+    had to be installed, it asks before starting the compile - a checkout that was
+    already complete goes straight to the build. -Ask always asks, -Yes answers with
+    the default, -Setup stops after the library step.
 
     Nothing outside the repository is modified unless a toolchain (or the
     Visual Studio Build Tools) is missing and has to be installed.
@@ -34,6 +43,10 @@ param(
     [switch]$DryRun,
     # Never ask a question; take the safe default
     [switch]$Yes,
+    # Ask before compiling even when nothing had to be repaired
+    [switch]$Ask,
+    # Only install/repair the .haxelib libraries (the job of setup-windows.bat)
+    [switch]$Setup,
     # Ignore installed Haxe builds and use the bundled toolchain folder only
     [switch]$ForceToolchain,
     # Download + extract the toolchain even when a usable Haxe is installed
@@ -63,6 +76,8 @@ $script:HaxePath = $null
 $script:NekoPath = $null
 $script:RepoRoot = $null
 $script:ToolchainDir = $null
+# set once setup-windows.bat had to run, so the build step knows to ask first
+$script:SetupRan = $false
 
 # ---------------------------------------------------------------- output
 function Write-Log {
@@ -457,6 +472,122 @@ function Get-HaxelibRepoPath {
     return (Invoke-Capture -FilePath (Get-HaxelibExe) -Arguments @('config')).Trim()
 }
 
+# Names of the libraries this checkout needs: everything building/libs.xml
+# installs (that is the list setup-windows.bat works from) plus what project.xml
+# actually links against.
+function Get-RequiredLibraries {
+    $required = New-Object System.Collections.Generic.List[string]
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+
+    $libsXml = Join-Path $PSScriptRoot 'libs.xml'
+    if (Test-Path -LiteralPath $libsXml) {
+        # <git name="x" .../> and <lib global="true" name="x"/>: the attribute order varies
+        $raw = Get-Content -LiteralPath $libsXml -Raw
+        foreach ($match in [regex]::Matches($raw, '<(?:git|lib)\s[^>]*?\bname\s*=\s*"([^"]+)"')) {
+            $name = $match.Groups[1].Value.Trim()
+            if ($name -and $seen.Add($name.ToLowerInvariant())) { [void]$required.Add($name) }
+        }
+    }
+
+    $projectXml = Join-Path $script:RepoRoot 'project.xml'
+    if (Test-Path -LiteralPath $projectXml) {
+        # commented-out entries (e.g. away3d) are not needed, drop them first
+        $raw = (Get-Content -LiteralPath $projectXml -Raw) -replace '(?s)<!--.*?-->', ''
+        foreach ($match in [regex]::Matches($raw, '<haxelib\s[^>]*?\bname\s*=\s*"([^"]+)"')) {
+            $name = $match.Groups[1].Value.Trim()
+            if ($name -and $seen.Add($name.ToLowerInvariant())) { [void]$required.Add($name) }
+        }
+    }
+
+    return ,$required.ToArray()
+}
+
+# Asks haxelib which libraries it really resolves. Folder names in .haxelib are
+# lowercased, and a library whose .current points nowhere is not usable, so this
+# goes through "haxelib list" instead of just looking for directories.
+function Get-LibraryStatus {
+    param([Parameter(Mandatory)][string]$Repo)
+
+    $status = [pscustomobject]@{
+        Known    = $false
+        Required = @()
+        Missing  = @()
+    }
+
+    $haxelibExe = Get-HaxelibExe
+    if (-not (Test-Path -LiteralPath $haxelibExe)) { return $status }
+
+    $previous = $env:HAXELIB_PATH
+    $env:HAXELIB_PATH = $Repo
+    try {
+        $raw = Invoke-Capture -FilePath $haxelibExe -Arguments @('list')
+    } finally {
+        $env:HAXELIB_PATH = $previous
+    }
+
+    $installed = @{}
+    foreach ($line in ($raw -split "`r?`n")) {
+        # "format: [3.8.0]" and "lime: 8.3.1 [git]"
+        if ($line -match '^\s*([A-Za-z0-9_.\-]+)\s*:') {
+            $installed[$Matches[1].ToLowerInvariant()] = $true
+        }
+    }
+    if ($installed.Count -eq 0) { return $status }
+
+    $required = Get-RequiredLibraries
+    $missing = @($required | Where-Object { -not $installed.ContainsKey($_.ToLowerInvariant()) })
+    return [pscustomobject]@{
+        Known    = $true
+        Required = $required
+        Missing  = $missing
+    }
+}
+
+# Runs the upstream setup helper (building/setup-windows.bat, i.e. "cne setup"),
+# which installs every library in building/libs.xml, then re-checks. Returns $true
+# when the helper was actually started.
+function Repair-Libraries {
+    param(
+        [Parameter(Mandatory)][string]$Repo,
+        [string[]]$Missing = @()
+    )
+
+    $setupHelper = Join-Path $PSScriptRoot 'setup-windows.bat'
+    if (-not (Test-Path -LiteralPath $setupHelper)) {
+        Write-Log "cannot install $($Missing -join ', '): $setupHelper does not exist" 'ERR'
+        return $false
+    }
+
+    if ($Missing.Count -gt 0) {
+        Write-Log "running the upstream setup helper (building\setup-windows.bat) for: $($Missing -join ', ')" 'WARN'
+    } else {
+        Write-Log 'running the upstream setup helper (building\setup-windows.bat)' 'WARN'
+    }
+    Write-Log 'it installs every library in building\libs.xml and can take a while' 'INFO'
+
+    if ($DryRun) {
+        Write-Log '[dryrun] setup-windows.bat (installs the missing libraries)' 'DRY'
+        return $false
+    }
+
+    $script:SetupRan = $true
+    $code = Invoke-Tool -FilePath $setupHelper -Label 'cne setup (libraries)' -AllowFail
+    if (-not (Test-Path -LiteralPath $Repo)) { return $true }
+
+    $status = Get-LibraryStatus -Repo $Repo
+    if (-not $status.Known) {
+        Write-Log "the setup helper finished (exit $code) but the installed libraries cannot be listed" 'WARN'
+        return $true
+    }
+    if ($status.Missing.Count -eq 0) {
+        Write-Log "all $($status.Required.Count) required libraries are installed now" 'OK'
+    } else {
+        Write-Log "setup finished with exit $code, still missing: $($status.Missing -join ', ')" 'WARN'
+        Write-Log 'the build will most likely stop on those - see the haxelib lines above' 'WARN'
+    }
+    return $true
+}
+
 # The vendored libraries live in <repo>/.haxelib. Haxe 4 treats a .haxelib folder
 # in the current directory as a local repository, so the build must run from the
 # repo root; HAXELIB_PATH makes that explicit even if the cwd ever changes.
@@ -467,19 +598,13 @@ function Initialize-HaxelibRepository {
         Write-Log "the vendored library folder is missing: $repo" 'WARN'
         # upstream ships a setup helper that installs everything listed in
         # building/libs.xml - use it instead of guessing library versions
-        $setupHelper = Join-Path $PSScriptRoot 'setup-windows.bat'
-        if (-not (Test-Path -LiteralPath $setupHelper)) {
-            if ($DryRun) {
-                Write-Log '[dryrun] haxelib newrepo + haxelib install for the libraries in project.xml' 'DRY'
-                return
-            }
-            throw "the vendored .haxelib folder is gone and $setupHelper is missing too - restore .haxelib from the repository"
+        if (-not (Repair-Libraries -Repo $repo -Missing @())) {
+            if ($DryRun) { return }
+            throw "the vendored .haxelib folder is gone and building\setup-windows.bat cannot restore it - restore .haxelib from the repository"
         }
-        Write-Log 'falling back to the upstream setup helper (downloads every library in building/libs.xml)' 'WARN'
-        $code = Invoke-Tool -FilePath $setupHelper -Label 'cne setup (libraries)'
         if ($DryRun) { return }
         if (-not (Test-Path -LiteralPath $repo)) {
-            throw "the setup helper finished (exit $code) but $repo still does not exist - restore .haxelib from the repository"
+            throw "the setup helper ran but $repo still does not exist - restore .haxelib from the repository"
         }
     }
 
@@ -494,15 +619,28 @@ function Initialize-HaxelibRepository {
         }
     }
 
-    $found = @()
-    foreach ($name in @('lime', 'flixel', 'openfl', 'hxcpp')) {
-        if (Test-Path -LiteralPath (Join-Path $repo $name)) { $found += $name }
+    $status = Get-LibraryStatus -Repo $repo
+    if (-not $status.Known) {
+        # no usable haxelib yet - fall back to the cheap folder look
+        $found = @()
+        foreach ($name in @('lime', 'flixel', 'openfl', 'hxcpp')) {
+            if (Test-Path -LiteralPath (Join-Path $repo $name)) { $found += $name }
+        }
+        if ($found.Count -lt 4) {
+            Write-Log "the vendored library folder looks incomplete (found: $($found -join ', '))" 'WARN'
+        } else {
+            Write-Log "using vendored libraries from $repo" 'OK'
+        }
+        return
     }
-    if ($found.Count -lt 4) {
-        Write-Log "the vendored library folder looks incomplete (found: $($found -join ', '))" 'WARN'
-    } else {
-        Write-Log "using vendored libraries from $repo" 'OK'
+
+    if ($status.Missing.Count -eq 0) {
+        Write-Log "using vendored libraries from $repo (all $($status.Required.Count) required ones installed)" 'OK'
+        return
     }
+
+    Write-Log "missing libraries: $($status.Missing -join ', ')" 'WARN'
+    [void](Repair-Libraries -Repo $repo -Missing $status.Missing)
 }
 
 # Path of the lime native library that matches the version haxelib resolves.
@@ -657,6 +795,28 @@ try {
     Write-Step '2/6 libraries (repository-local .haxelib)'
     Initialize-HaxelibRepository
 
+    if ($Setup) {
+        # -Setup is setup-windows.bat's job: install what is missing and stop there
+        if ($DryRun) {
+            Write-Log 'DRY RUN finished - nothing was installed' 'DRY'
+            exit 0
+        }
+        $status = Get-LibraryStatus -Repo (Join-Path $script:RepoRoot '.haxelib')
+        if (-not $status.Known) {
+            Write-Log 'cannot tell which libraries are installed (haxelib list failed)' 'WARN'
+            exit 1
+        }
+        if ($status.Missing.Count -gt 0) {
+            Write-Log "still missing: $($status.Missing -join ', ')" 'ERR'
+            exit 1
+        }
+        Write-Host ''
+        Write-Host ' LIBRARIES OK ' -ForegroundColor Black -BackgroundColor Green
+        Write-Log "all $($status.Required.Count) required libraries are installed" 'OK'
+        Write-Log 'run Build.bat without -Setup to compile' 'INFO'
+        exit 0
+    }
+
     # 3 - native library ----------------------------------------------------
     Write-Step '3/6 lime native library (lime.ndll)'
     $limeNdll = Get-LimeNativePath
@@ -682,6 +842,23 @@ try {
 
     # 5 - build -------------------------------------------------------------
     Write-Step '5/6 building'
+
+    # "install what is missing, then ask before compiling": the question only shows
+    # up when this run actually had to install libraries, so a checkout that was
+    # already complete compiles straight away (-Ask forces the question every time,
+    # -Yes answers it with the default).
+    if (($script:SetupRan -or $Ask) -and -not $DryRun) {
+        Write-Log 'asking whether to compile before starting the build' 'INFO'
+        $question = 'Start the Windows build now?'
+        if ($script:SetupRan) { $question = 'The libraries are installed. Start the Windows build now?' }
+        if (-not (Confirm-Action $question)) {
+            Write-Log 'build skipped on request - everything needed is installed, run Build.bat again to compile' 'WARN'
+            Write-Host ''
+            Write-Host ' LIBRARIES OK, BUILD SKIPPED ' -ForegroundColor Black -BackgroundColor Yellow
+            exit 0
+        }
+    }
+
     Stop-RunningEngine
 
     $configuration = if ($Debug) { 'debug' } else { 'release' }

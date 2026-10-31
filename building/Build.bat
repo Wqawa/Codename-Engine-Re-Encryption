@@ -2,11 +2,23 @@
 rem ---------------------------------------------------------------------------
 rem  Double click this file to build Codename Engine for Windows.
 rem
-rem  It forwards everything to lazy-build.ps1 next to it, which finds or
-rem  downloads Haxe + Neko, checks the vendored .haxelib libraries and the lime
-rem  native library, checks MSVC, builds, and reports the result.
+rem  It forwards everything to lazy-build.ps1 next to it, so this one file does
+rem  what setup-windows.bat and a build had to be run for separately:
 rem
-rem  Examples:  Build.bat -Clean     Build.bat -Debug     Build.bat -DryRun
+rem    1. find (or download) Haxe + Neko,
+rem    2. check that every library listed in building\libs.xml is really
+rem       installed and run the upstream setup-windows.bat for whatever is
+rem       missing, then continue,
+rem    3. check the lime native library and MSVC,
+rem    4. ask whether to compile when libraries had to be installed, then build
+rem       (a checkout that was already complete builds straight away),
+rem    5. report the result and translate the usual errors.
+rem
+rem  Examples:  Build.bat           build, installing anything missing on the way
+rem             Build.bat -Setup    only install/repair the libraries, no build
+rem             Build.bat -Clean    full rebuild, ignore hxcpp objects
+rem             Build.bat -Debug    debug configuration
+rem             Build.bat -DryRun   print the plan, change nothing
 rem  Full help: lazy-build.md
 rem ---------------------------------------------------------------------------
 setlocal
