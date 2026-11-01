@@ -61,6 +61,11 @@ param(
     [switch]$DownloadToolchain,
     # Rebuild lime's native library even when the ndll looks fine
     [switch]$RebuildLime,
+    # Run "lime setup", "lime rebuild hxcpp" and "lime rebuild tools" before building.
+    # That is what the CI used to do by hand; a normal local build does not need it.
+    [switch]$BootstrapTools,
+    # Extra arguments appended to the lime build call, e.g. "-DCOMPILE_EXPERIMENTAL"
+    [string]$ExtraArgs,
     # Explicit Haxe folder (the one that contains haxe.exe)
     [string]$HaxeHome,
     # Explicit repository root (defaults to this script's ../..)
@@ -873,6 +878,15 @@ try {
     Write-Step '2/6 libraries (repository-local .haxelib)'
     Initialize-HaxelibRepository
 
+    if ($BootstrapTools) {
+        # lime's own setup and hxcpp's native binaries: the CI ran these by hand before
+        # every build, and a machine that never did can fail at the first C++ file
+        Write-Log 'bootstrapping lime/hxcpp (-BootstrapTools)' 'INFO'
+        [void](Invoke-Tool -FilePath (Get-HaxelibExe) -Arguments @('run', 'lime', 'setup', '-alias', '-y', '-nocffi') -Label 'lime setup' -AllowFail)
+        [void](Invoke-Tool -FilePath (Get-HaxelibExe) -Arguments @('run', 'lime', 'rebuild', 'hxcpp') -Label 'lime rebuild hxcpp' -AllowFail)
+        [void](Invoke-Tool -FilePath (Get-HaxelibExe) -Arguments @('run', 'lime', 'rebuild', 'tools') -Label 'lime rebuild tools' -AllowFail)
+    }
+
     if ($Setup) {
         # -Setup is the library half of the job: install what is missing and stop there
         if ($DryRun) {
@@ -967,6 +981,12 @@ try {
         Write-Log "compile cache: $cacheRoot" 'INFO'
     } else {
         Write-Log 'compile cache disabled (-NoCache)' 'INFO'
+    }
+
+    if ($ExtraArgs) {
+        # Split-CommandLine keeps "-DNAME=VALUE" in one token, which lime needs
+        foreach ($extra in (Split-CommandLine $ExtraArgs)) { $buildArgs += $extra }
+        Write-Log "extra arguments: $ExtraArgs" 'INFO'
     }
 
     Write-Log "configuration: $configuration$(if ($Clean) { ' (clean)' })"

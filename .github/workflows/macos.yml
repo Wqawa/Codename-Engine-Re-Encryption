@@ -30,17 +30,14 @@ jobs:
       #     path: |
       #       .haxelib/
       #       export/release/macos/obj/
-      - name: Installing/Updating libraries
+      # Same entry point as a local build: building/build-macos.sh installs the
+      # libraries, makes sure lime.ndll exists and builds the app bundle. --arch wraps
+      # every lime call in "arch -x86_64", which is how this job builds the x64 slice
+      # on an arm64 runner.
+      - name: Building the game (building/build-macos.sh, x86_64)
         run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          arch -x86_64 haxelib run lime rebuild mac -nocolor -release
-          arch -x86_64 haxelib run lime build mac -DCOMPILE_EXPERIMENTAL
+          chmod +x building/build-macos.sh
+          ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime --arch x86_64 -- -DCOMPILE_EXPERIMENTAL
       - name: Tar files
         run: tar -zcvf CodenameEngine.tar.gz -C export/release/macos/bin .
       - name: Uploading artifact (entire build)
@@ -97,17 +94,10 @@ jobs:
       #     path: |
       #       .haxelib/
       #       export/release/macos/obj/
-      - name: Installing/Updating libraries
+      - name: Building the game (building/build-macos.sh, arm64)
         run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          haxelib run lime rebuild mac -nocolor -release
-          haxelib run lime build mac -DCOMPILE_EXPERIMENTAL
+          chmod +x building/build-macos.sh
+          ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
       - name: Tar files
         run: tar -zcvf CodenameEngine.tar.gz -C export/release/macos/bin .
       - name: Uploading artifact (entire build)

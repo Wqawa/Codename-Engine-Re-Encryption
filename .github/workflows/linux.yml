@@ -41,17 +41,13 @@ jobs:
       - name: Installing LibVLC
         run: |
           sudo apt-get install libvlc-dev libvlccore-dev
-      - name: Installing/Updating libraries
+      # Same entry point as a local build: building/build-linux.sh installs the
+      # libraries from building/libs.xml, makes sure lime.ndll exists and runs the build.
+      # --bootstrap-tools keeps the lime/hxcpp setup this job used to run by hand.
+      - name: Building the game (building/build-linux.sh)
         run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          haxelib run lime rebuild linux -nocolor -release
-          haxelib run lime build linux -DCOMPILE_EXPERIMENTAL
+          chmod +x building/build-linux.sh
+          ./building/build-linux.sh --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
       # - name: Tar files
       #   run: tar -zcvf CodenameEngine.tar.gz -C export/release/linux/bin .
       - name: Uploading artifact (executable)

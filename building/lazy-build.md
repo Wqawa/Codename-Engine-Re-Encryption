@@ -142,13 +142,50 @@ haxelib run lime build windows -nocolor
 - 传递方式：`Build.bat` 把整行命令放进环境变量 `LAZYBUILD_CNE`，再带 `-Cne` 调脚本——不这么做的话 PowerShell 会把第一个词当位置参数绑给 `-CacheDir`。
 - 原来 `cne-windows.bat` 要求先把 `haxe` 放进 PATH；现在走 `Build.bat` 不用，脚本会自己找到（或下载）工具链再转过去。
 - 想恢复删掉的两个 bat：`git checkout baseline/upstream-1.1.0 -- building/cne-windows.bat building/setup-windows.bat`。
-- 本 fork 只维护 Windows：上游的 `cne-unix.sh`、`setup-unix.sh`、`generate-docs-unix.sh` 也早已删除（要恢复：`git checkout 012a6423 -- building/*.sh`）。因此 `building\README.md`（上游原文，正文未改）里提到 `setup-windows.bat`、`cne-windows.bat`、`*-unix.sh` 的步骤在本仓库请用 `Build.bat` 的对应写法替代。
+- 本 fork 维护 Windows 与 Linux/macOS 三端：Windows 走 `Build.bat`，另外两端走同目录的 `build-linux.sh` / `build-macos.sh`（见文末）。上游的 `cne-unix.sh`、`setup-unix.sh`、`generate-docs-unix.sh` 早已删除（要恢复：`git checkout 012a6423 -- building/*.sh`）。`building\README.md`（上游原文，正文未改）里提到 `setup-windows.bat`、`cne-windows.bat`、`*-unix.sh` 的步骤在本仓库请用 `Build.bat` 或那两个 `.sh` 的对应写法替代。
 
 ## 已知限制
 
-- 只支持 Windows 目标（`windows`）。其它平台走 lime 官方流程。
 - 只认 Haxe 4.3.x；4.2.x 会被提示"需要 4.3.x"并改建自己的工具链（本项目现有依赖按 4.3.x 验证过）。
 - 缺的库只交给引擎自己的 `setup` 命令（按 `libs.xml` 的 git/install 清单）补，脚本不会自己猜版本；补完还缺就只警告并继续，具体是哪个库由 lime 报错。
 - 第一个参数命中那 8 个子命令时才会转交给引擎命令行；其它拼错的参数（例如 `Build.bat tset`）会被 PowerShell 当位置参数绑给 `-CacheDir` 并照常编译，不会报"未知参数"。
 - 32 位（`-x86_32`）构建脚本不处理 `ndll\Windows\lime.ndll` 的检查，只检查 `Windows64`。
 - `building\toolchain\` 与 `building\logs\` 已被 `building\.gitignore` 排除，删掉它们不影响仓库（下次运行会重新下载）。
+
+## Linux / macOS：`build-linux.sh` / `build-macos.sh`
+
+`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译：
+
+```bash
+./building/build-linux.sh                     # 增量构建
+./building/build-linux.sh --clean             # 清中间产物全量重编
+./building/build-macos.sh --arch x86_64       # 在 Apple Silicon 上出 x64 包
+```
+
+| 参数 | 作用 |
+| --- | --- |
+| `--clean` / `--debug` / `--no-cache` | 同 `Build.bat` 的 `-Clean` / `-Debug` / `-NoCache` |
+| `--cache-dir DIR` | 缓存换个位置（默认 Linux `~/.cache/cne-hxcpp`，macOS `~/Library/Caches/cne-hxcpp`） |
+| `--rebuild-lime` | 强制重建 lime 原生库 |
+| `--bootstrap-tools` | 先跑 `lime setup` / `rebuild hxcpp` / `rebuild tools`（CI 用） |
+| `--yes` | 不问任何问题（CI 用） |
+| `--dry-run` | 只打印要做什么，不动任何文件 |
+| `--haxe-home DIR` | 指定 haxe 所在目录 |
+| `--download-toolchain` | 忽略系统里的 Haxe，直接下载到 `building/toolchain/` |
+| `--arch x86_64` | 仅 macOS：所有 lime 调用套 `arch -x86_64` |
+| `--` | 之后的参数原样传给 lime，例如 `-- -DCOMPILE_EXPERIMENTAL` |
+
+与 `Build.bat` 的差异只有两处：C++ 工具链检查的是 `g++`/`clang++`（macOS 上查 `xcode-select -p`）；Linux 的 `lime rebuild linux` 需要系统头文件，缺了脚本会失败并提示要装哪些 `-dev` 包。
+
+## CI 用的就是这套脚本
+
+`.github/workflows/{windows,linux,macos}.yml` 里"Building the game"那一步直接调它们：
+
+```text
+windows : building\Build.bat -Yes -BootstrapTools -RebuildLime -ExtraArgs "-DCOMPILE_EXPERIMENTAL -DHXCPP_OPTIMIZE_LINK"
+linux   : ./building/build-linux.sh --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
+macos64 : ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime --arch x86_64 -- -DCOMPILE_EXPERIMENTAL
+macosarm: ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
+```
+
+CI 仍然自己负责"装系统依赖"（Linux 那串 apt、Windows/macOS 的 runner 镜像）和 `setup-haxe`；其余步骤与本地完全一致，所以"本地能过"和"CI 能过"是同一个判断依据。

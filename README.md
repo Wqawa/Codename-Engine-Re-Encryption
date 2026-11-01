@@ -84,6 +84,12 @@ compiles straight away. `-Setup` installs/repairs libraries only, `-Ask` always 
 `test`, `build`, `run`, `release`, `test-release`, `optimize`) the command line is handed to
 `commandline/Main.hx` instead of building. Details: [`building/lazy-build.md`](building/lazy-build.md).
 
+Linux and macOS get the same six steps from [`building/build-linux.sh`](building/build-linux.sh) and
+[`building/build-macos.sh`](building/build-macos.sh) (toolchain, libraries, lime native, C++ check,
+build, verify; `--bootstrap-tools` / `--arch` / `--yes` are what CI passes). The GitHub Actions
+workflows call these three scripts instead of hand-written `haxe`/`lime` steps, so a local build and
+a CI build run the same logic.
+
 ---
 
 ## Upstream

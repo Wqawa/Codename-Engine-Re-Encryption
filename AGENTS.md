@@ -14,8 +14,9 @@
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |
 | `building/generate-docs-windows.bat` / `libs.xml` | 上游文档生成脚本与库清单（`cne build/test/release/setup/run/optimize` 的库表在 `libs.xml`） | **上游，不改** |
 | `building/cne-windows.bat` / `setup-windows.bat` | 上游 CLI 包装（各两行，`haxe -cp commandline --run Main ...`） | **本 fork 已删除**：职责由 `building/Build.bat` 接管（首参是 `setup/help/test/build/run/release/test-release/optimize` 时转交引擎命令行；缺库时自动跑 `setup`）。恢复：`git checkout baseline/upstream-1.1.0 -- building/cne-windows.bat building/setup-windows.bat` |
-| `building/*-unix.sh` | 上游 unix 辅助脚本 | **本 fork 已删除**（只维护 Windows；恢复见下） |
+| `building/*-unix.sh` | 上游 unix 辅助脚本 | **本 fork 已删除**（职责由下面的 `build-linux.sh` / `build-macos.sh` 接管；恢复见下） |
 | `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、按 `libs.xml`/`project.xml` 查库并调引擎 `setup` 命令补齐（只有真补过库才问一句是否编译）、检查库/ndll/MSVC、编译、报错翻译；另接管上游 `cne-windows.bat` 的子命令转交 | 本 fork 新增（中文说明，脚本注释为英文） |
+| `building/build-{linux,macos}.sh` | 同一套六步流程的 Unix 版：找/下载工具链、按 `libs.xml` 补库、查 lime 原生库、查 g++/clang（macOS 查 Xcode）、编译、验收；`--bootstrap-tools` / `--arch` / `--yes` 供 CI 使用 | 本 fork 新增（脚本注释为英文） |
 | `building/.gitignore` | 排除 `building/toolchain/`（下载的工具链）与 `building/logs/` | 本 fork 新增 |
 
 文档规则：
@@ -60,6 +61,7 @@
 ## 4. 构建备忘
 
 一键（推荐，会自己找/装 Haxe+Neko、查库与 ndll、查 MSVC）：双击 `building/Build.bat`，详见 `building/lazy-build.md`。
+Linux / macOS 用 `building/build-linux.sh` / `building/build-macos.sh`（同一套六步，参数见同一份文档）；CI 也是调这三个。
 
 手动：
 
