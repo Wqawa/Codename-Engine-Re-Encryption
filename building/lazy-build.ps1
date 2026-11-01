@@ -1030,6 +1030,10 @@ try {
     # even that pass only compiles what really changed and copies the rest.
     if (-not $NoCache) {
         $cacheRoot = $CacheDir
+        if ([string]::IsNullOrWhiteSpace($cacheRoot) -and $env:HXCPP_COMPILE_CACHE) {
+            # CI points this at a workspace folder; honour it instead of inventing a path
+            $cacheRoot = $env:HXCPP_COMPILE_CACHE
+        }
         if ([string]::IsNullOrWhiteSpace($cacheRoot)) {
             $cacheRoot = Join-Path $env:LOCALAPPDATA 'cne-hxcpp-cache'
             # the cache goes on the system drive by default; a nearly full system drive

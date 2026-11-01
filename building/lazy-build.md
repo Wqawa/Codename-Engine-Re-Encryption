@@ -56,7 +56,10 @@ PCH 失效、`-Clean`、换 Haxe / hxcpp 版本、`.haxelib` 里的库动过。*
 编译器版本"的 md5，所以即使 hxcpp 判定要全量重编，没变过的文件也只是从缓存里拷 `.obj`，不再跑 `cl.exe`。
 第一次（缓存是空的）仍然要全量编一遍，之后就快了。
 
-缓存目录默认 `%LOCALAPPDATA%\cne-hxcpp-cache`，可以随便删（删了下次会重新填，只是慢一次）。
+缓存目录的优先级：`-CacheDir` / `--cache-dir` > 环境变量 `HXCPP_COMPILE_CACHE` > 默认位置
+（`%LOCALAPPDATA%\cne-hxcpp-cache`、`~/.cache/cne-hxcpp`、`~/Library/Caches/cne-hxcpp`）。
+默认位置所在盘剩余不足 2 GB 时会自动改用 `<仓库>/.cache/hxcpp`（已被 `.gitignore` 忽略），
+免得 C++ 阶段报 `No space left on device`。缓存可以随便删（删了下次会重新填，只是慢一次）。
 
 ## 参数
 
@@ -189,4 +192,17 @@ macos64 : ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime --arc
 macosarm: ./building/build-macos.sh --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
 ```
 
+`{debug-windows,debug-linux,debug-macos}.yml` 也是同一个入口，只是多带 `-Debug` / `--debug`：
+
+```text
+windows : building\Build.bat -Yes -Debug -BootstrapTools -RebuildLime
+linux   : ./building/build-linux.sh --debug --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
+macos64 : ./building/build-macos.sh --debug --yes --bootstrap-tools --rebuild-lime --arch x86_64 -- -DCOMPILE_EXPERIMENTAL
+macosarm: ./building/build-macos.sh --debug --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
+```
+
+所以 lime 命令行过期时 CI 也会自己重编 `tools.n`，而不是像以前那样在第一步就死在 `Primitive not found`。
+
 CI 仍然自己负责"装系统依赖"（Linux 那串 apt、Windows/macOS 的 runner 镜像）和 `setup-haxe`；其余步骤与本地完全一致，所以"本地能过"和"CI 能过"是同一个判断依据。
+
+编译缓存目录的优先级是：命令行参数（`-CacheDir` / `--cache-dir`）> 环境变量 `HXCPP_COMPILE_CACHE` > 默认位置。CI 在 workflow 顶层声明了 `HXCPP_COMPILE_CACHE=${{ github.workspace }}/.hxcpp_cache`，脚本会照着用它，不再另起一个目录。

@@ -342,8 +342,13 @@ BUILD_ARGS=(run lime build "$LIME_PLATFORM" -nocolor)
 # source, the flags and the compiler version, so even that pass only compiles what
 # really changed.
 if [ "$NO_CACHE" -eq 0 ]; then
-    cache_root="${CACHE_DIR:-$HOME/.cache/cne-hxcpp}"
-    if [ -z "${CACHE_DIR:-}" ]; then
+    if [ -n "${CACHE_DIR:-}" ]; then
+        cache_root="$CACHE_DIR"
+    elif [ -n "${HXCPP_COMPILE_CACHE:-}" ]; then
+        # CI points this at a workspace folder; honour it instead of inventing a path
+        cache_root="$HXCPP_COMPILE_CACHE"
+    else
+        cache_root="$HOME/.cache/cne-hxcpp"
         # keep the cache off a filesystem that is nearly full: the C++ step dies with
         # "No space left on device" long before anything useful is built
         avail_mb="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"

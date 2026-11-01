@@ -28,17 +28,15 @@ jobs:
       #       .haxelib/
       #       export/debug/windows/haxe/
       #       export/debug/windows/obj/
-      - name: Installing/Updating libraries
-        run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si --no-vscheck
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          haxelib run lime rebuild windows -nocolor
-          haxelib run lime build windows -debug
+      # Same entry point as a normal local build (see windows.yml): Build.bat ->
+      # lazy-build.ps1 installs the libraries from building/libs.xml, repairs lime's
+      # command line when it is stale, checks lime.ndll and MSVC, then builds with
+      # -debug. -BootstrapTools keeps the lime/hxcpp setup this job used to run by hand.
+      - name: Building the game (building/Build.bat, debug)
+        shell: cmd
+        env:
+          LAZYBUILD_NOPAUSE: '1'
+        run: building\Build.bat -Yes -Debug -BootstrapTools -RebuildLime
       - name: Uploading artifact (entire build)
         uses: actions/upload-artifact@v7
         with:

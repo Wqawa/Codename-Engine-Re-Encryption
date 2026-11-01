@@ -27,17 +27,14 @@ jobs:
       #     path: |
       #       .haxelib/
       #       export/debug/macos/obj/
-      - name: Installing/Updating libraries
+      # Same entry point as a normal local build (see macos.yml): the script installs
+      # building/libs.xml, repairs lime's command line when it is stale, checks the
+      # native libraries, then builds the debug slice. --arch wraps every lime call in
+      # "arch -x86_64", which is how this job builds the x64 slice on an arm64 runner.
+      - name: Building the game (building/build-macos.sh, x86_64 debug)
         run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          arch -x86_64 haxelib run lime rebuild mac -nocolor
-          arch -x86_64 haxelib run lime build mac -debug -DCOMPILE_EXPERIMENTAL
+          chmod +x building/build-macos.sh
+          ./building/build-macos.sh --debug --yes --bootstrap-tools --rebuild-lime --arch x86_64 -- -DCOMPILE_EXPERIMENTAL
       - name: Tar files
         run: tar -zcvf CodenameEngine.tar.gz -C export/debug/macos/bin .
       - name: Uploading artifact (entire build)
@@ -92,17 +89,11 @@ jobs:
       #     path: |
       #       .haxelib/
       #       export/debug/macos/obj/
-      - name: Installing/Updating libraries
+      # Same entry point as a normal local build (see macos.yml), native arm64 slice.
+      - name: Building the game (building/build-macos.sh, arm64 debug)
         run: |
-          haxelib --global update haxelib
-          haxe -cp commandline -D analyzer-optimize --run Main setup -si
-      - name: Building the game
-        run: |
-          haxelib run lime setup -alias -y -nocffi
-          haxelib run lime rebuild hxcpp
-          haxelib run lime rebuild tools
-          haxelib run lime rebuild mac -nocolor
-          haxelib run lime build mac -debug -DCOMPILE_EXPERIMENTAL
+          chmod +x building/build-macos.sh
+          ./building/build-macos.sh --debug --yes --bootstrap-tools --rebuild-lime -- -DCOMPILE_EXPERIMENTAL
       - name: Tar files
         run: tar -zcvf CodenameEngine.tar.gz -C export/debug/macos/bin .
       - name: Uploading artifact (entire build)
