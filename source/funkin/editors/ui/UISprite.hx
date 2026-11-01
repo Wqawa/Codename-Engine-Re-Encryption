@@ -136,7 +136,9 @@ class UISprite extends FlxSprite {
 	function selfHover(rect:FlxRect) {
 		for (camera in __lastDrawCameras) {
 			if (camera == null) continue;
-			var pos = FlxG.mouse.getScreenPosition(camera, __hoverPoint);
+			// getViewPosition is the name flixel 5 wants; getScreenPosition only survived as
+			// a deprecated alias, and this is new code so it uses the current one
+			var pos = FlxG.mouse.getViewPosition(camera, __hoverPoint);
 			var left = rect.x - camera.scroll.x * scrollFactor.x;
 			var top = rect.y - camera.scroll.y * scrollFactor.y;
 			if (pos.x > left && pos.x < left + rect.width && pos.y > top && pos.y < top + rect.height) {

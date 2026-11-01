@@ -75,6 +75,8 @@ class ModPackCrypto {
 	public static var packBytes:Int = 0;
 	/** What the prepare thread is doing right now, see PreparePhase. */
 	public static var preparePhase:PreparePhase = IDLE;
+	/** True while the prepare thread is held back because a prompt is open. */
+	public static var preparePaused:Bool = false;
 	/** File name of the pack being prepared (shown on the loading screen). */
 	public static var progressLabel:String = "";
 	/** True while the worker thread is still running. */
@@ -498,6 +500,7 @@ class ModPackCrypto {
 			var wrapped:Null<Float->Void> = onProgress == null ? null : function(p:Float) {
 				preparePhase = DECRYPTING;
 				packProgress = p;
+				waitWhilePaused();
 				onProgress(p);
 			};
 			var bytes = packed
@@ -918,6 +921,66 @@ class ModPackCrypto {
 	 * Starts decrypting the given packs on a worker thread. The loading screen polls
 	 * preparing / progress / prepareDone and then reads prepareFailed.
 	 */
+	/** Blocks the prepare thread while the player is answering a prompt. */
+	static function waitWhilePaused():Void {
+		#if sys
+		// the cipher reports every 128 KB, so this reacts quickly without busy waiting
+		while (preparePaused) Sys.sleep(0.02);
+		#end
+	}
+
+	/**
+	 * Asks before the window closes while a pack is still being decrypted.
+	 *
+	 * The pass runs on a worker thread, so without this the window would simply vanish
+	 * mid-decryption. The thread is paused first (see waitWhilePaused) so the screen does
+	 * not finish on its own while the player is still deciding.
+	 */
+	static var __closeVetoInstalled:Bool = false;
+	static var __closePromptQueued:Bool = false;
+
+	public static function installCloseVeto():Void {
+		if (__closeVetoInstalled) return;
+		__closeVetoInstalled = true;
+		WindowUtils.addCloseVeto(function() {
+			if (!preparing) return false;
+			if (flixel.FlxG.state == null) return false;
+			if (__closePromptQueued) return true;
+			__closePromptQueued = true;
+			preparePaused = true;
+			// the window event fires outside the update loop, so the prompt is opened on the
+			// next frame instead of from inside the event
+			flixel.FlxG.signals.preUpdate.addOnce(function() {
+				__closePromptQueued = false;
+				var state = flixel.FlxG.state;
+				if (state == null) {
+					preparePaused = false;
+					return;
+				}
+				state.openSubState(new funkin.editors.ui.UIWarningSubstate(
+					"Still unlocking",
+					"The pack is still being decrypted. Closing now throws that work away.\n"
+					+ "Decryption is paused while this is open.",
+					[
+						{
+							label: "Exit Game",
+							color: 0xFF6B6B,
+							onClick: function(_) {
+								preparePaused = false;
+								openfl.system.System.exit(0);
+							}
+						},
+						{
+							label: "Keep Decrypting",
+							color: 0x969533,
+							onClick: function(_) preparePaused = false
+						}
+					], false));
+			});
+			return true;
+		});
+	}
+
 	public static function startPrepare(packs:Array<String>):Void {
 		// Two passes at once would both write loadedZips and prepareFailed from their own
 		// threads, which is a crash waiting to happen. The screen that asked for the
@@ -932,6 +995,7 @@ class ModPackCrypto {
 		progress = 0;
 		progressLabel = "";
 		packProgress = 0;
+		preparePaused = false;
 		packIndex = 0;
 		packCount = packs == null ? 0 : packs.length;
 		packBytes = 0;

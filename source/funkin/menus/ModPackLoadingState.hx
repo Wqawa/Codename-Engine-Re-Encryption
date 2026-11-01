@@ -5,10 +5,8 @@ import flixel.FlxSprite;
 import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.assets.ModPackCrypto.PreparePhase;
 import funkin.backend.system.MainState;
-import funkin.editors.ui.UIButton;
 import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
-import funkin.editors.ui.UIWarningSubstate;
 import haxe.io.Path;
 
 /**
@@ -20,10 +18,14 @@ import haxe.io.Path;
  * again and this time finds the decrypted copies in the cache; when some pack
  * failed, the key prompt is shown for those packs only.
  *
- * Two bars on purpose: the thick one is the whole pass, the thin one is the pack
- * that is being decrypted right now. A single pack used to look frozen - the thick
- * bar only moves when a pack starts or ends - so the sub bar, the step line and
- * the estimate are what actually tell the player something is happening.
+ * Three levels of detail on purpose: the thick bar is the whole pass, the thin one is
+ * the pack being decrypted right now, and the list at the bottom names every pack this
+ * pass has to open - yellow while it is being worked on, green once it is done. The
+ * container is one cipher stream, so there is no per-entry figure to report: the packs
+ * are the unit the engine actually decrypts.
+ *
+ * Closing the window while this runs is handled by ModPackCrypto.installCloseVeto: it
+ * pauses the pass first, asks, and resumes or exits.
  */
 class ModPackLoadingState extends UIState {
 	static inline var MARGIN:Int = 40;
@@ -35,6 +37,11 @@ class ModPackLoadingState extends UIState {
 	static inline var BAR_SUB:Int = 0xFF9B7BFF;
 	static inline var RULE:Int = 0xFF2A2A34;
 
+	static inline var PENDING_COLOR:Int = 0xFF7A7A88;
+	static inline var CURRENT_COLOR:Int = 0xFFFFE066;
+	static inline var DONE_COLOR:Int = 0xFF6BE26B;
+	static inline var FAILED_COLOR:Int = 0xFFFF5A5A;
+
 	public var packs:Array<String> = [];
 	public var bar:FlxSprite;
 	public var packBar:FlxSprite;
@@ -44,6 +51,7 @@ class ModPackLoadingState extends UIState {
 	public var etaText:UIText;
 	public var packEtaText:UIText;
 	public var stepText:UIText;
+	public var listTexts:Array<UIText> = [];
 	public var finished:Bool = false;
 	public var startedAt:Float = 0;
 	public var barWidth:Int = 0;
@@ -108,10 +116,15 @@ class ModPackLoadingState extends UIState {
 		add(stepText = new UIText(MARGIN, 298, w, "", 13, 0xFF9B7BFF, false));
 		stepText.alignment = RIGHT;
 
-		maybeAddEasterEgg();
+		// every pack this pass has to open, so the player can see what is left
+		add(new UIText(MARGIN, 330, w, "Files to unlock:", 13, 0xFF7A7A88, false));
+		for (i in 0...packs.length) {
+			var text = new UIText(MARGIN + 12, 350 + 20 * i, w - 12, Path.withoutDirectory(packs[i]), 14, PENDING_COLOR, false);
+			listTexts.push(text);
+			add(text);
+		}
 
-		// a way out of a pass that is taking long, or that was started by mistake
-		add(new UIButton(FlxG.width - MARGIN - 40, MARGIN, "X", askToLeave, 40, 40));
+		maybeAddEasterEgg();
 
 		// footer: the animated hint sits bottom right, the rule closes the screen off
 		add(hintText = new UIText(MARGIN, FlxG.height - 74, w, "Working...", 13, 0xFF7A7A88, false));
@@ -155,7 +168,8 @@ class ModPackLoadingState extends UIState {
 		packEtaText.text = (ModPackCrypto.packCount > 1 ? 'Pack ${ModPackCrypto.packIndex}/${ModPackCrypto.packCount}  -  ' : "")
 			+ (packEta < 0 ? "estimating..." : "about " + FormatSeconds(packEta) + " left");
 
-		stepText.text = StepLabel(ModPackCrypto.preparePhase, ModPackCrypto.packBytes);
+		stepText.text = StepLabel(ModPackCrypto.preparePhase, ModPackCrypto.packBytes, pp);
+		updateList();
 
 		// a tiny animated marker, so the screen clearly still runs while a single
 		// big entry is being decrypted
@@ -175,6 +189,30 @@ class ModPackLoadingState extends UIState {
 			}
 			else
 				FlxG.switchState(new MainState());
+		}
+	}
+
+	/** Yellow for the pack being worked on, green for the finished ones, grey for the rest. */
+	function updateList() {
+		var index = ModPackCrypto.packIndex;
+		var allDone = ModPackCrypto.prepareDone;
+		for (i in 0...listTexts.length) {
+			var text = listTexts[i];
+			if (text == null) continue;
+			var name = Path.withoutDirectory(packs[i]);
+			if (allDone && ModPackCrypto.prepareFailed.indexOf(packs[i]) != -1) {
+				text.color = FAILED_COLOR;
+				text.text = name + "  -  failed";
+			} else if (allDone || i + 1 < index) {
+				text.color = DONE_COLOR;
+				text.text = name + "  -  done";
+			} else if (i + 1 == index) {
+				text.color = CURRENT_COLOR;
+				text.text = name + "  -  " + Std.int(ModPackCrypto.packProgress * 100) + "%";
+			} else {
+				text.color = PENDING_COLOR;
+				text.text = name + "  -  waiting";
+			}
 		}
 	}
 
@@ -202,11 +240,15 @@ class ModPackLoadingState extends UIState {
 		return minutes + "m " + (rest < 10 ? "0" : "") + rest + "s";
 	}
 
-	static function StepLabel(phase:PreparePhase, bytes:Int):String {
+	/** What the pass is doing, plus how much of the current pack it already read. */
+	static function StepLabel(phase:PreparePhase, bytes:Int, fraction:Float):String {
+		var amount = "";
+		if (bytes > 0 && fraction > 0)
+			amount = "  -  " + FormatBytes(Std.int(bytes * fraction)) + " / " + FormatBytes(bytes);
 		return switch (phase) {
 			case PreparePhase.READING: "Reading the pack" + (bytes > 0 ? "  -  " + FormatBytes(bytes) : "");
 			case PreparePhase.VERIFYING: "Checking the key";
-			case PreparePhase.DECRYPTING: "Decrypting" + (bytes > 0 ? "  -  " + FormatBytes(bytes) : "");
+			case PreparePhase.DECRYPTING: "Decrypting" + amount;
 			case PreparePhase.INDEXING: "Opening the entries";
 			case PreparePhase.DONE: "Done";
 			case PreparePhase.IDLE: "";
@@ -221,33 +263,9 @@ class ModPackLoadingState extends UIState {
 	}
 
 	/**
-	 * Asks before leaving: decrypting a big pack can take a while, and stopping halfway
-	 * throws the work away (and wipes what it produced), so it is not a one click exit.
-	 */
-	function askToLeave() {
-		if (FlxG.state == null) return;
-		FlxG.state.openSubState(new UIWarningSubstate(
-			"Stop unlocking?",
-			"The pack is still being decrypted.\n"
-			+ "Closing now throws that work away and wipes what this pass produced so far.",
-			[
-				{
-					label: "Exit Game",
-					color: 0xFF6B6B,
-					onClick: function(_) openfl.system.System.exit(0)
-				},
-				{
-					label: "Keep Waiting",
-					color: 0x969533,
-					onClick: function(_) {}
-				}
-			], false));
-	}
-
-	/**
-	 * One start in EASTER_EGG_CHANCE shows the little desk animation in the empty
-	 * lower left corner. Wrapped in try/catch on purpose: a missing or broken sheet
-	 * must not cost the player their load.
+	 * One start in EASTER_EGG_CHANCE shows the little desk animation, parked on the right
+	 * where it does not cover the file list. Wrapped in try/catch on purpose: a missing or
+	 * broken sheet must not cost the player their load.
 	 */
 	function maybeAddEasterEgg() {
 		if (FlxG.random.int(1, EASTER_EGG_CHANCE) != 1) return;
@@ -262,7 +280,7 @@ class ModPackLoadingState extends UIState {
 		if (frames == null || frames.frames == null || frames.frames.length == 0) return;
 
 		final size = 170;
-		var spr = new FlxSprite(MARGIN, 380);
+		var spr = new FlxSprite(FlxG.width - MARGIN - size, 360);
 		spr.frames = frames;
 		spr.animation.addByPrefix('idle', 'frame', 30, true);
 		spr.animation.play('idle');

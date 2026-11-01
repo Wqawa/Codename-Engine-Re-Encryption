@@ -264,6 +264,9 @@ class ZipEditCache {
 			// the cleanup screen owns this close while it runs; nothing may be merged
 			// into a pack that is already being torn down
 			if (ModPackCrypto.cleaningUp || ModPackCrypto.cleanupDone) return false;
+			// a pack that is still being decrypted has not been loaded, so its staged edits
+			// are not being read yet; ModPackCrypto's own veto owns that close
+			if (ModPackCrypto.preparing) return false;
 
 			var mod = pendingMod();
 			if (mod == null) {
