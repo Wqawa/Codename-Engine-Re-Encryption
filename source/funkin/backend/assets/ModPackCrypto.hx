@@ -618,8 +618,91 @@ class ModPackCrypto {
 	public static var cleanupDone:Bool = false;
 	public static var cleanupProgress:Float = 0;
 	public static var cleanupLabel:String = "";
-	/** What was actually removed, shown on the cleanup screen. */
+	/** What was actually removed, one line per kind, shown on the cleanup screen. */
 	public static var cleanupSummary:String = "";
+	/** One line per finished step, so the screen can list everything it touched. */
+	public static var cleanupLines:Array<String> = [];
+
+	/**
+	 * The encrypted pack of the mod that was loaded before the current one, or null.
+	 *
+	 * Set by ModsFolder.switchMod before it changes the mod. What the engine lifted out
+	 * of that pack (its videos) is decrypted content sitting on disk, so it goes with
+	 * the pack instead of being kept like a plain mod's cache.
+	 */
+	public static var outgoingEncryptedPack:String = null;
+	/** The mod a finished cleanup pass should switch to, when it was not closing. */
+	static var queuedSwitch:String = null;
+	static var runningQueuedSwitch:Bool = false;
+	/** Switch mode keeps the copied keys; closing the game removes them. */
+	public static var cleanupKeepsKeys:Bool = false;
+	/** Mod whose extracted videos this pass is about, null when it wipes them all. */
+	public static var cleanupScopeMod:String = null;
+
+	/** Remembers whether the mod being left owned an encrypted pack. */
+	public static function noteOutgoingMod(mod:String):Void {
+		outgoingEncryptedPack = null;
+		#if sys
+		if (mod == null) return;
+		for (ext in Flags.ALLOWED_ZIP_EXTENSIONS) {
+			var path = ModsFolder.modsPath + mod + "." + ext;
+			try {
+				if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) continue;
+				if (needsKey(path)) { outgoingEncryptedPack = path; return; }
+			} catch (e:Dynamic) {}
+		}
+		#end
+	}
+
+	/** True when this mod's own file is an encrypted pack. */
+	public static function isEncryptedMod(mod:String):Bool {
+		#if sys
+		if (mod == null) return false;
+		for (ext in Flags.ALLOWED_ZIP_EXTENSIONS) {
+			var path = ModsFolder.modsPath + mod + "." + ext;
+			try {
+				if (FileSystem.exists(path) && !FileSystem.isDirectory(path) && needsKey(path)) return true;
+			} catch (e:Dynamic) {}
+		}
+		#end
+		return false;
+	}
+
+	/**
+	 * Takes over a switch that leaves an encrypted pack, so the wipe runs on the cleanup
+	 * screen instead of behind a frozen frame. Returns true when the caller must stop:
+	 * the switch continues from completeSwitchCleanup().
+	 */
+	public static function beginSwitchCleanup(target:String):Bool {
+		// the continuation below re-enters ModsFolder.switchMod; let it through this once
+		if (runningQueuedSwitch) {
+			runningQueuedSwitch = false;
+			return false;
+		}
+		if (cleaningUp || queuedSwitch != null) return false;
+		if (!sessionDecrypted) return false;
+		if (target != null && target == ModsFolder.currentModFolder) return false;
+		if (!isEncryptedMod(ModsFolder.currentModFolder)) return false;
+		if (flixel.FlxG.state == null) return false;
+
+		queuedSwitch = target;
+		// a switch wipes what the decrypted pack left on disk and in memory, but keeps the
+		// copied key: the player is staying in the game, and switching back should not ask
+		// for the password again. Closing the game is what takes the credentials with it.
+		cleanupKeepsKeys = true;
+		cleanupScopeMod = ModsFolder.currentModFolder;
+		flixel.FlxG.switchState(new funkin.menus.ModPackCleanupState(true));
+		return true;
+	}
+
+	/** Runs the switch that was waiting for the wipe. Called by the cleanup screen. */
+	public static function completeSwitchCleanup():Void {
+		var target = queuedSwitch;
+		queuedSwitch = null;
+		if (target == null) return;
+		runningQueuedSwitch = true;
+		ModsFolder.switchMod(target);
+	}
 
 	static var cleanupStep:Int = 0;
 	static var removedCount:Int = 0;
@@ -641,6 +724,7 @@ class ModPackCrypto {
 		removedCount = 0;
 		cleanupProgress = 0;
 		cleanupSummary = "";
+		cleanupLines = [];
 		cleanupLabel = "Releasing the pack handles";
 	}
 
@@ -650,6 +734,10 @@ class ModPackCrypto {
 	 * Deliberately synchronous, one step per frame. The wipe used to run on a worker
 	 * thread, which disposed buffers the main thread still referenced and took the
 	 * game down when the window was closed; nothing here touches a thread.
+	 *
+	 * Every step appends what it actually removed to cleanupLines: the screen lists
+	 * them instead of a single "done" line, so the player can see the wipe covered the
+	 * handles, the memory copy, the keys and the extracted videos.
 	 */
 	public static function stepCleanup():Bool {
 		if (cleanupDone) return true;
@@ -661,25 +749,50 @@ class ModPackCrypto {
 					// release, so they go first: disposing a buffer that a library still
 					// reads from is what made closing crash.
 					#if MOD_SUPPORT
+					var handles = countPackHandles();
 					closePackHandles();
+					if (handles > 0) cleanupLines.push('Released $handles pack handle(s)');
 					#end
 					cleanupLabel = "Wiping the decrypted packs";
 					cleanupProgress = 0.2;
 					cleanupStep = 1;
 				case 1:
+					var packs = 0;
+					var bytes = 0;
+					for (zip in loadedZips) {
+						packs++;
+						if (zip != null) bytes += zip.dataSize();
+					}
 					releaseZips();
+					if (packs > 0) cleanupLines.push('Wiped $packs decrypted pack(s) from memory (' + humanSize(bytes) + ')');
 					cleanupLabel = "Removing the copied keys";
 					cleanupProgress = 0.55;
 					cleanupStep = 2;
 				case 2:
 					removedCount = countCacheFiles();
-					cleanCache();
+					if (cleanupKeepsKeys) {
+						// a switch keeps them: the player may come back to this pack in the
+						// same session, and the password was never written to disk anyway
+						cleanupLines.push(removedCount == 0
+							? 'No copied key files were on disk'
+							: 'Kept $removedCount copied key file(s) for this session');
+					} else {
+						cleanCache();
+						cleanupLines.push(removedCount == 0
+							? 'No copied key files were on disk'
+							: 'Removed $removedCount copied key file(s)');
+					}
 					cleanupLabel = "Removing the video cache";
 					cleanupProgress = 0.75;
 					cleanupStep = 3;
 				case 3:
-					funkin.backend.system.RuntimeDirs.clearVideos();
+					var videos = cleanupScopeMod == null
+						? funkin.backend.system.RuntimeDirs.clearVideos()
+						: funkin.backend.system.RuntimeDirs.clearVideos(cleanupScopeMod);
+					if (videos > 0) cleanupLines.push('Removed $videos extracted video(s)');
+					var temp = funkin.backend.system.RuntimeDirs.countFiles(funkin.backend.system.RuntimeDirs.TEMP);
 					funkin.backend.system.RuntimeDirs.clearTemp();
+					if (temp > 0) cleanupLines.push('Removed $temp scratch file(s) from .cne/temp');
 					cleanupProgress = 0.9;
 					cleanupStep = 4;
 				default:
@@ -696,10 +809,38 @@ class ModPackCrypto {
 	static function finishCleanup(?problem:String):Void {
 		cleanupProgress = 1;
 		cleanupLabel = "Done";
-		cleanupSummary = problem != null ? problem
-			: (removedCount == 0 ? "nothing had reached the disk" : '$removedCount key file(s) removed');
+		if (problem != null) cleanupLines.push(problem);
+		if (cleanupLines.length == 0) cleanupLines.push('Nothing had reached the disk');
+		cleanupSummary = cleanupLines.join("\n");
 		cleaningUp = false;
 		cleanupDone = true;
+		sessionDecrypted = false;
+		// the close path runs with the defaults: wiping everything, keys included
+		cleanupKeepsKeys = false;
+		cleanupScopeMod = null;
+	}
+
+	/** Short byte size, for the cleanup summary. */
+	static function humanSize(bytes:Int):String {
+		if (bytes < 1024 * 1024) return Std.string(Math.round(bytes / 102.4) / 10) + " KB";
+		return Std.string(Math.round(bytes / (1024 * 1024) * 10) / 10) + " MB";
+	}
+
+	/** Packs the current asset tree still reads through, for the summary. */
+	static function countPackHandles():Int {
+		#if MOD_SUPPORT
+		var n = 0;
+		try {
+			if (Paths.assetsTree == null) return 0;
+			for (lib in Paths.assetsTree.libraries) {
+				var clean = AssetsLibraryList.getCleanLibrary(lib);
+				if (clean is ZipFolderLibrary && (cast clean : ZipFolderLibrary).zip != null) n++;
+			}
+		} catch (e:Dynamic) {}
+		return n;
+		#else
+		return 0;
+		#end
 	}
 
 	/** How many files the cache folder currently holds, for the summary line. */

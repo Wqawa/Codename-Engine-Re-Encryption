@@ -87,6 +87,9 @@ class SysZip {
 	public var released(default, null):Bool = false;
 	var warnedRelease:Bool = false;
 
+	/** Bytes this archive holds, for the cleanup summary (buffer length in memory mode). */
+	public function dataSize():Int return size();
+
 	function warnReleased() {
 		if (warnedRelease) return;
 		warnedRelease = true;

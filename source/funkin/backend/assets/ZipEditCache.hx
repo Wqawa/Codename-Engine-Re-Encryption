@@ -205,6 +205,44 @@ class ZipEditCache {
 		#end
 	}
 
+	// ------------------------------------------------------------ async merge
+
+	/**
+	 * Merging rewrites the whole pack - copying every entry, re-encrypting it if the pack
+	 * is encrypted - which takes seconds on a big mod. Run on the caller's thread that is
+	 * seconds of a frozen window, so the screen that offers the merge starts it here and
+	 * keeps drawing (see ModPackMergeState).
+	 */
+	public static var merging:Bool = false;
+	public static var mergeDone:Bool = false;
+	public static var mergeFailed:Bool = false;
+	public static var mergeMessage:String = "";
+
+	public static function startMergeAsync(mod:String):Void {
+		if (merging) return;
+		merging = true;
+		mergeDone = false;
+		mergeFailed = false;
+		mergeMessage = "Reading the staged files";
+		#if target.threaded
+		sys.thread.Thread.create(function() runMerge(mod));
+		#else
+		runMerge(mod);
+		#end
+	}
+
+	static function runMerge(mod:String):Void {
+		try {
+			mergeMessage = merge(mod);
+		} catch (e:Dynamic) {
+			mergeFailed = true;
+			mergeMessage = 'could not merge the staged files: $e';
+			Logs.error('Could not merge the staged changes into "$mod": ' + e);
+		}
+		merging = false;
+		mergeDone = true;
+	}
+
 	// ------------------------------------------------------------ close prompt
 
 	static var installed:Bool = false;

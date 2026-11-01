@@ -188,17 +188,56 @@ class RuntimeDirs {
 		#end
 	}
 
-	/** Drops the videos lifted out of the packs; they are extracted again on demand. */
-	public static function clearVideos():Void {
+	/**
+	 * Drops the videos lifted out of the packs; they are extracted again on demand.
+	 *
+	 * With a mod name only that mod's folder goes, which is what a switch away from an
+	 * encrypted pack uses: those videos are decrypted content on disk, while a plain
+	 * mod's copy is a cache that is cheaper to keep than to extract again.
+	 * Returns how many files were removed.
+	 */
+	public static function clearVideos(?mod:String):Int {
 		#if sys
+		var removed = 0;
 		try {
-			if (!FileSystem.exists(MODS) || !FileSystem.isDirectory(MODS)) return;
+			if (!FileSystem.exists(MODS) || !FileSystem.isDirectory(MODS)) return 0;
+			if (mod != null) {
+				var only = MODS + sanitize(mod) + "/videos/";
+				if (FileSystem.exists(only) && FileSystem.isDirectory(only)) {
+					removed = countFiles(only);
+					funkin.backend.utils.CoolUtil.deleteFolder(only);
+				}
+				return removed;
+			}
 			for (mod in FileSystem.readDirectory(MODS)) {
 				var dir = MODS + mod + "/videos/";
-				if (FileSystem.exists(dir) && FileSystem.isDirectory(dir))
+				if (FileSystem.exists(dir) && FileSystem.isDirectory(dir)) {
+					removed += countFiles(dir);
 					funkin.backend.utils.CoolUtil.deleteFolder(dir);
+				}
 			}
 		} catch (e:Dynamic) {}
+		return removed;
+		#else
+		return 0;
+		#end
+	}
+
+	/** Files below a folder, recursively, for the cleanup summary. */
+	public static function countFiles(dir:String):Int {
+		#if sys
+		var n = 0;
+		try {
+			if (!FileSystem.exists(dir) || !FileSystem.isDirectory(dir)) return 0;
+			for (entry in FileSystem.readDirectory(dir)) {
+				var path = '$dir/$entry';
+				if (FileSystem.isDirectory(path)) n += countFiles(path);
+				else n++;
+			}
+		} catch (e:Dynamic) {}
+		return n;
+		#else
+		return 0;
 		#end
 	}
 }

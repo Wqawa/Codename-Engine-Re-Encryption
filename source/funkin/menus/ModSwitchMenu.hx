@@ -26,6 +26,8 @@ class ModSwitchMenu extends MusicBeatSubstate {
 	var addonObjs:FlxTypedGroup<Alphabet>;
 	var addonChecks:FlxTypedGroup<FlxSprite>; // NOTE: maybe make a CheckboxObject, it kinda makes some things a mess here
 	var queuedAddonsOff:Array<Bool> = [];
+	/** Parallel to `mods`: true when the entry is an encrypted pack (drawn grey). */
+	var encryptedEntries:Array<Bool> = [];
 
 	var timer:Float = 0;
 	var curSelected:Int = 0;
@@ -89,6 +91,9 @@ class ModSwitchMenu extends MusicBeatSubstate {
 			}
 			a.isMenuItem = true;
 			a.scrollFactor.set();
+			// an encrypted pack is greyed out so it is clear which entries ask for a key;
+			// the selected one is dimmed back to normal in changeSelection
+			encryptedEntries.push(ModPackCrypto.isEncryptedMod(mod));
 			alphabets.add(a);
 		}
 		add(alphabets);
@@ -270,13 +275,10 @@ class ModSwitchMenu extends MusicBeatSubstate {
 					label: TU.translate("saveWarning.mergeAndSwitch", null, "Merge & Switch"),
 					color: 0x969533,
 					onClick: function(_) {
-						try {
-							Logs.trace(funkin.backend.assets.ZipEditCache.merge(staged), INFO);
-						} catch (e:Dynamic) {
-							// a failed merge must not cost the player their edits: they stay staged
-							Logs.error('Could not merge the staged changes into "$staged": ' + e);
-						}
-						ModsFolder.switchMod(target);
+						// merging rewrites the whole pack (and re-encrypts it): doing that from
+						// this callback froze the window for as long as it took, so it runs
+						// behind a progress screen and the switch continues from there
+						FlxG.switchState(new ModPackMergeState(staged, function() ModsFolder.switchMod(target)));
 					}
 				}
 			], false));
@@ -307,6 +309,9 @@ class ModSwitchMenu extends MusicBeatSubstate {
 		for(k => alphabet in alphabets.members) {
 			alphabet.alpha = 0.6;
 			alphabet.targetY = k - curSelected;
+			// grey for the entries that will ask for a key; the selected one keeps its
+			// normal colour, and the running mod keeps its green wave
+			alphabet.color = (k == curSelected || !encryptedEntries[k]) ? 0xFFFFFFFF : 0xFF8A8A94;
 		}
 		alphabets.members[curSelected].alpha = 1;
 

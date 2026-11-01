@@ -39,9 +39,16 @@ class MainState extends FlxState {
 		initiated = true;
 
 		#if sys
-		// videos lifted out of packs and the editors' scratch data are rebuilt on demand
+		// the editors' scratch data is rebuilt on demand, so it goes on every load
 		funkin.backend.system.RuntimeDirs.clearTemp();
-		funkin.backend.system.RuntimeDirs.clearVideos();
+		// Videos lifted out of a pack are a read cache for a plain mod, but for an
+		// encrypted one they are decrypted content sitting on disk: those leave with the
+		// pack. Keeping the plain mod's copy is what makes switching back cheap.
+		if (ModPackCrypto.outgoingEncryptedPack != null) {
+			var left = Path.withoutExtension(Path.withoutDirectory(ModPackCrypto.outgoingEncryptedPack));
+			funkin.backend.system.RuntimeDirs.clearVideos(left);
+			ModPackCrypto.outgoingEncryptedPack = null;
+		}
 		#end
 		Options.save();
 

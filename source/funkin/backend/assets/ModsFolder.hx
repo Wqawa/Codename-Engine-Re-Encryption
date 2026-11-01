@@ -65,6 +65,13 @@ class ModsFolder {
 	 */
 	public static function switchMod(mod:String) {
 		ModPackCrypto.disableMods = false; // an explicit mod choice re-enables mods
+
+		// Leaving an encrypted pack wipes what it left behind first: the memory copy, the
+		// keys copied out of it and the videos lifted onto disk. That pass runs on its own
+		// screen and the switch continues from there (ModPackCrypto.completeSwitchCleanup).
+		ModPackCrypto.noteOutgoingMod(currentModFolder);
+		if (ModPackCrypto.beginSwitchCleanup(mod)) return;
+
 		Options.lastLoadedMod = currentModFolder = mod;
 		reloadMods();
 		if(mod == null) {

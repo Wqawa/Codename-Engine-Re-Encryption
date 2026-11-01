@@ -5,8 +5,10 @@ import flixel.FlxSprite;
 import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.assets.ModPackCrypto.PreparePhase;
 import funkin.backend.system.MainState;
+import funkin.editors.ui.UIButton;
 import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
+import funkin.editors.ui.UIWarningSubstate;
 import haxe.io.Path;
 
 /**
@@ -107,6 +109,9 @@ class ModPackLoadingState extends UIState {
 		stepText.alignment = RIGHT;
 
 		maybeAddEasterEgg();
+
+		// a way out of a pass that is taking long, or that was started by mistake
+		add(new UIButton(FlxG.width - MARGIN - 40, MARGIN, "X", askToLeave, 40, 40));
 
 		// footer: the animated hint sits bottom right, the rule closes the screen off
 		add(hintText = new UIText(MARGIN, FlxG.height - 74, w, "Working...", 13, 0xFF7A7A88, false));
@@ -213,6 +218,30 @@ class ModPackLoadingState extends UIState {
 		var kb = bytes / 1024;
 		if (kb < 1024) return Std.string(Math.round(kb * 10) / 10) + " KB";
 		return Std.string(Math.round(bytes / (1024 * 1024) * 10) / 10) + " MB";
+	}
+
+	/**
+	 * Asks before leaving: decrypting a big pack can take a while, and stopping halfway
+	 * throws the work away (and wipes what it produced), so it is not a one click exit.
+	 */
+	function askToLeave() {
+		if (FlxG.state == null) return;
+		FlxG.state.openSubState(new UIWarningSubstate(
+			"Stop unlocking?",
+			"The pack is still being decrypted.\n"
+			+ "Closing now throws that work away and wipes what this pass produced so far.",
+			[
+				{
+					label: "Exit Game",
+					color: 0xFF6B6B,
+					onClick: function(_) openfl.system.System.exit(0)
+				},
+				{
+					label: "Keep Waiting",
+					color: 0x969533,
+					onClick: function(_) {}
+				}
+			], false));
 	}
 
 	/**
