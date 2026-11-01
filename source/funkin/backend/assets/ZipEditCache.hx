@@ -90,7 +90,74 @@ class ZipEditCache {
 	public static function pendingMod():String {
 		var mod = ModsFolder.currentModFolder;
 		if (mod == null || !isPackedMod(mod)) return null;
-		return hasChanges(mod) ? mod : null;
+		if (!hasChanges(mod)) return null;
+		// files that are byte for byte what the pack already holds are not edits: they are
+		// what the editor's old unconditional autosave left behind
+		if (pruneUnchanged(mod)) return null;
+		return mod;
+	}
+
+	/**
+	 * Deletes staged files that are identical to the pack entry they would replace.
+	 *
+	 * A file in the staging folder is what the engine reads as "unsaved work", so a copy
+	 * that never changed made the merge prompt appear on every switch. Dropping the
+	 * identical ones costs one comparison per file and makes the prompt mean what it
+	 * says. Returns true when nothing is left staged.
+	 *
+	 * Nothing is deleted when the pack cannot be read right now (an encrypted pack that is
+	 * not the loaded one): guessing would throw work away.
+	 */
+	public static function pruneUnchanged(mod:String):Bool {
+		#if sys
+		if (mod == null) return false;
+		var files = listFiles(mod);
+		if (files.length == 0) return true;
+		var pack = packPath(mod);
+		if (pack == null) return false;
+
+		var owned = false;
+		var zip:funkin.backend.utils.SysZip = null;
+		try {
+			if (ModPackCrypto.hasLoaded(pack)) zip = ModPackCrypto.zipFor(pack);
+			else if (!ModPackCrypto.needsKey(pack)) {
+				zip = new funkin.backend.utils.SysZip(pack);
+				owned = true;
+			}
+		} catch (e:Dynamic) {
+			Logs.warn('Could not open ${Path.withoutDirectory(pack)} to compare the staged files: ' + e);
+		}
+		if (zip == null) return false;
+
+		var left = 0;
+		try {
+			for (file in files) {
+				var entry = null;
+				for (e in zip.entries)
+					if (e.fileName == file || e.fileName.split("\\").join("/") == file) { entry = e; break; }
+				// a staged file the pack does not have is a new file: always an edit
+				if (entry == null) { left++; continue; }
+
+				var staged = null;
+				try staged = File.getBytes(folder(mod, false) + file) catch (e:Dynamic) {}
+				if (staged == null) { left++; continue; }
+
+				var packed = null;
+				try packed = zip.unzipEntry(entry) catch (e:Dynamic) {}
+				if (packed != null && packed.length == staged.length && packed.compare(staged) == 0) {
+					try FileSystem.deleteFile(folder(mod, false) + file) catch (e:Dynamic) left++;
+					continue;
+				}
+				left++;
+			}
+		} catch (e:Dynamic) {
+			Logs.warn('Could not compare the staged files of "$mod": ' + e);
+		}
+		if (owned) try zip.dispose() catch (e:Dynamic) {}
+		return left == 0;
+		#else
+		return false;
+		#end
 	}
 
 	// ------------------------------------------------------------ close prompt

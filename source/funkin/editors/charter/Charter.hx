@@ -873,6 +873,15 @@ class Charter extends UIState {
 	var __autoSaveLocation:String = null;
 	public function updateAutoSaving(elapsed:Float) {
 		if (!Options.charterAutoSaves) return;
+		// Nothing was edited, so there is nothing to save. Saving anyway wrote the chart
+		// into the mod's staging folder (.cne/mods/<mod>/) even when the player had only
+		// looked at it, and any file in there counts as unsaved work - which made the mod
+		// switch and window close prompts ask to merge edits that did not exist.
+		if (!undos.unsaved) {
+			autoSaveTimer = Options.charterAutoSaveTime;
+			autoSaveNotif.cancelled = false;
+			return;
+		}
 		autoSaveTimer -= elapsed;
 
 		if (autoSaveTimer < Options.charterAutoSaveWarningTime && !autoSaveNotif.cancelled && !autoSaveNotif.showedAnimation) {
