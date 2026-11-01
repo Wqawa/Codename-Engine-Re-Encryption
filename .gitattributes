@@ -13,3 +13,7 @@ pages/** linguist-vendored
 *.frag linguist-language=GLSL
 *.vert linguist-language=GLSL
 *.glsl linguist-language=GLSL
+
+# Shell scripts keep LF on every checkout: a CRLF shebang line turns into
+# "bad interpreter: /usr/bin/env bash^M" on Linux and macOS.
+*.sh text eol=lf
