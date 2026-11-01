@@ -462,9 +462,14 @@ class ModPackCrypto {
 		var known = loadedZips.get(id);
 		if (known != null) {
 			// a released zip still sitting in the map is worse than no entry at all: it
-			// looks loaded, so the loader would take it and read from a wiped buffer
-			if (!known.released) return known;
+			// looks loaded, so the loader would take it and read from a wiped buffer. A
+			// stale one is the copy of a file a merge replaced - decrypting again is the
+			// only way to see the merged entries.
+			if (!known.released && !known.stale) return known;
 			loadedZips.remove(id);
+			// never wipe a buffer a library still reads from; the next load resets the tree
+			// first and retainZips() disposes it then
+			if (!known.released && !heldByLibrary(known)) try known.dispose() catch (e:Dynamic) {}
 		}
 
 		var packed = isEncryptedPackFile(packPath);
@@ -507,8 +512,26 @@ class ModPackCrypto {
 	public static function hasLoaded(packPath:String):Bool {
 		if (packPath == null) return false;
 		var zip = loadedZips.get(normalizePath(packPath));
-		// released means wiped: reporting it as loaded handed the loader a dead handle
-		return zip != null && !zip.released;
+		// released means wiped, stale means the file was rewritten under it: neither can be
+		// handed to the loader as "already decrypted"
+		return zip != null && !zip.released && !zip.stale;
+	}
+
+	/**
+	 * Marks the in-memory copy of a pack as outdated because its file was rewritten.
+	 *
+	 * Merging staged files into a pack replaces the archive, so the copy decrypted from the
+	 * old bytes no longer matches it. That copy stays alive - the libraries of the running
+	 * load still read through it - but it is never handed out again and the next load
+	 * decrypts the new file (retainZips disposes it, hasLoaded/zipFor ignore it).
+	 */
+	public static function invalidatePack(packPath:String):Void {
+		if (packPath == null) return;
+		var id = normalizePath(packPath);
+		var zip = loadedZips.get(id);
+		if (zip == null || zip.released) return;
+		zip.stale = true;
+		Logs.trace('The decrypted copy of "${Path.withoutDirectory(packPath)}" is outdated after the merge; it will be read again on the next load.', INFO);
 	}
 
 	/** Wipes every decrypted pack (game exit, or everything being unloaded). */
@@ -541,21 +564,33 @@ class ModPackCrypto {
 		}
 
 		var drop:Array<String> = [];
-		for (id in loadedZips.keys())
+		for (id in loadedZips.keys()) {
+			var zip = loadedZips.get(id);
+			// A pack a merge rewrote no longer matches the copy decrypted from the old bytes,
+			// so the copy goes even when this load still uses the pack: the loading screen
+			// decrypts it again, which is the only way the merged entries become visible.
+			if (zip != null && zip.stale) {
+				drop.push(id);
+				continue;
+			}
 			if (!keep.exists(id)) drop.push(id);
+		}
 
 		for (id in drop) {
 			var zip = loadedZips.get(id);
-			loadedZips.remove(id);
-			if (zip == null) continue;
+			if (zip == null) {
+				loadedZips.remove(id);
+				continue;
+			}
 			// The libraries hold the very zip the wipe would free, and disposing one that a
 			// library still reads from turns the next asset lookup into a dead process.
-			// The close path learned this the hard way; the same check has to be here,
-			// because a pack a library still holds is never safe to wipe.
+			// A pack that is still held stays in the map on purpose, so the exit wipe still
+			// knows about it instead of losing track of a decrypted buffer.
 			if (heldByLibrary(zip)) {
 				Logs.warn('"$id" is still held by an asset library, so its decrypted copy is kept for now.');
 				continue;
 			}
+			loadedZips.remove(id);
 			try zip.dispose() catch (e:Dynamic) {}
 			// the key file copied out of that pack has no owner any more
 			dropKeyFileFor(id);

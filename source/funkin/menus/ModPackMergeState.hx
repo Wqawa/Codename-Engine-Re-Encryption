@@ -31,6 +31,7 @@ class ModPackMergeState extends UIState {
 	public var done:Bool = false;
 	public var waited:Float = 0;
 	public var finishedAt:Float = -1;
+	var appliedMerge:Bool = false;
 
 	public function new(mod:String, next:Void->Void) {
 		super();
@@ -74,6 +75,12 @@ class ModPackMergeState extends UIState {
 		if (!ZipEditCache.mergeDone) {
 			finishedAt = -1;
 			return;
+		}
+		if (!appliedMerge) {
+			appliedMerge = true;
+			// the merge replaced the archive, so the copy decrypted from the old bytes must
+			// not be handed to the loader any more. A failed merge left the file alone.
+			if (!ZipEditCache.mergeFailed) ZipEditCache.forgetDecryptedCopy(mod);
 		}
 		if (finishedAt < 0) finishedAt = waited;
 

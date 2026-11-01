@@ -87,6 +87,16 @@ class SysZip {
 	public var released(default, null):Bool = false;
 	var warnedRelease:Bool = false;
 
+	/**
+	 * Set when the file behind this archive was rewritten (a merge) and the copy in memory
+	 * no longer matches it.
+	 *
+	 * The buffer stays usable for whatever is reading through it right now - the libraries
+	 * of the running load still do - but the pack must not be handed out as "already
+	 * decrypted" again, and it is disposed with the next load.
+	 */
+	public var stale:Bool = false;
+
 	/** Bytes this archive holds, for the cleanup summary (buffer length in memory mode). */
 	public function dataSize():Int return size();
 

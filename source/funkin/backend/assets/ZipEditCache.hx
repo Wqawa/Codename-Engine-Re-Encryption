@@ -243,6 +243,21 @@ class ZipEditCache {
 		mergeDone = true;
 	}
 
+	/**
+	 * Drops the in-memory copy of a pack whose file was just rewritten.
+	 *
+	 * The copy was decrypted from the bytes the merge replaced, so handing it to the loader
+	 * as "already decrypted" showed the pack as it was before the merge. The copy stays
+	 * alive for whatever still reads through it and is disposed with the next load
+	 * (ModPackCrypto.retainZips), while hasLoaded/zipFor stop reporting it.
+	 *
+	 * Call it from the main thread: it touches the map the prepare thread writes.
+	 */
+	public static function forgetDecryptedCopy(mod:String):Void {
+		var pack = packPath(mod);
+		if (pack != null) ModPackCrypto.invalidatePack(pack);
+	}
+
 	// ------------------------------------------------------------ close prompt
 
 	static var installed:Bool = false;
@@ -293,6 +308,8 @@ class ZipEditCache {
 	static function mergeStaged(mod:String):Void {
 		try {
 			Logs.trace(merge(mod), INFO);
+			// the pack was rewritten: the copy decrypted from the old bytes is useless now
+			forgetDecryptedCopy(mod);
 		} catch (e:Dynamic) {
 			// left staged on purpose: a failed merge must not lose the work
 			Logs.error('Could not merge the staged changes into "$mod": ' + e);
