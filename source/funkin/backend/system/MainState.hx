@@ -145,40 +145,10 @@ class MainState extends FlxState {
 		// starting that pass again. Empty list ("play without mods") wipes everything.
 		ModPackCrypto.retainZips(libPaths);
 
-		// Encrypted packs must be decrypted before the loader touches them: the plain
-		// zip reader cannot read password protected entries and would throw. The
-		// decryption runs on a worker thread behind a progress screen.
-		// No attempt counter here: switching mods from the menu must always show the
-		// progress screen again when the cached copy is gone. Packs that already
-		// failed during this session are filtered out by packsNeedingWork instead.
-		if (!skipMods) {
-			var work = ModPackCrypto.packsNeedingWork(libPaths);
-			if (work.length > 0) {
-				// These screens are shown before Flags.load(), and lazy flags are null
-				// until reset() runs, which made the title bar and the version text
-				// read "null". Initialise the base flags first.
-				Flags.reset();
-				WindowUtils.title = Flags.TITLE;
-				#if SHOW_BUILD_ON_FPS
-				if (Framerate.isLoaded && Framerate.codenameBuildField != null)
-					Framerate.codenameBuildField.reload();
-				#end
-
-				// Ask for the key first when no known key really opens the pack; only
-				// then does the progress screen have something to do. The check is
-				// cheap (a few decrypted bytes), so a script_key.txt with a stale
-				// password no longer flashes the loading screen before the prompt.
-				var locked:Array<String> = [];
-				for (zip in work)
-					if (!ModPackCrypto.hasWorkingKey(zip)) locked.push(zip);
-
-				if (locked.length > 0)
-					FlxG.switchState(new funkin.menus.ModPackKeyState(locked));
-				else
-					FlxG.switchState(new funkin.menus.ModPackLoadingState(work));
-				return;
-			}
-		}
+		// Encrypted packs must be decrypted before the loader touches them: the plain zip
+		// reader cannot read a password protected entry and would throw. When this load
+		// has work, the key prompt or the progress screen takes over from here.
+		if (!skipMods && promptForEncryptedPacks(libPaths)) return;
 		#end
 
 		#if GLOBAL_SCRIPT
@@ -251,33 +221,10 @@ class MainState extends FlxState {
 		}
 
 		#if MOD_SUPPORT
-		// An encrypted mod pack asks for its key once everything else is ready. The
-		// prompt has to come after the asset tree exists (its state inherits from
-		// MusicBeatState, which loads per-state scripts), and after the mod pass
-		// above has already loaded every pack it could open.
-		//
-		// Only the packs this pass actually tried to open are asked about (the current
-		// mod and the addons that belong to it), so an unused encrypted zip elsewhere
-		// in mods/ cannot interrupt a session that plays a plain mod.
-		if (!skipMods) {
-			var candidates:Array<String> = [];
-			for (addon in _lowPriorityAddons) candidates.push(addon.path);
-			for (addon in _noPriorityAddons) candidates.push(addon.path);
-			for (addon in _highPriorityAddons) candidates.push(addon.path);
-			if (ModsFolder.currentModFolder != null)
-				candidates.push(ModsFolder.modsPath + ModsFolder.currentModFolder);
-
-			var pendingPacks:Array<String> = [];
-			for (candidate in candidates) {
-				var zip = ModPackCrypto.pendingPackFor(candidate);
-				if (zip != null) pendingPacks.push(zip);
-			}
-
-			if (pendingPacks.length > 0) {
-				FlxG.switchState(new funkin.menus.ModPackKeyState(pendingPacks));
-				return;
-			}
-		}
+		// A pack this load could not open asks for its key once everything else is ready,
+		// so the prompt comes after the asset tree exists. Only the packs this pass tried
+		// to open are asked about, which is exactly libPaths.
+		if (!skipMods && promptForPacksWithoutKey(libPaths)) return;
 		#end
 
 		if (firstLoad) {
@@ -309,4 +256,52 @@ class MainState extends FlxState {
 			FlxG.switchState(cast Type.createInstance(startState, []));
 		}
 	}
+
+	#if MOD_SUPPORT
+	/**
+	 * Sends the player to the key prompt or the progress screen when this load has packs
+	 * that still have to be decrypted, and returns true when it took over.
+	 *
+	 * Split out of create(): the loading pass is long enough without a second state
+	 * machine in the middle of it. No attempt counter here either - switching mods from
+	 * the menu must show the progress screen again when the cached copy is gone, and
+	 * packs that already failed are filtered out by packsNeedingWork.
+	 */
+	static function promptForEncryptedPacks(libPaths:Array<String>):Bool {
+		var work = ModPackCrypto.packsNeedingWork(libPaths);
+		if (work.length == 0) return false;
+
+		// These screens are shown before Flags.load(), and lazy flags are null until
+		// reset() runs, which made the title bar and the version text read "null".
+		Flags.reset();
+		WindowUtils.title = Flags.TITLE;
+		#if SHOW_BUILD_ON_FPS
+		if (Framerate.isLoaded && Framerate.codenameBuildField != null)
+			Framerate.codenameBuildField.reload();
+		#end
+
+		// Ask for the key first when no known key really opens the pack; only then does the
+		// progress screen have something to do. The check is cheap (a few decrypted bytes),
+		// so a script_key.txt with a stale password no longer flashes the progress screen.
+		var locked:Array<String> = [];
+		for (zip in work)
+			if (!ModPackCrypto.hasWorkingKey(zip)) locked.push(zip);
+
+		if (locked.length > 0) FlxG.switchState(new funkin.menus.ModPackKeyState(locked));
+		else FlxG.switchState(new funkin.menus.ModPackLoadingState(work));
+		return true;
+	}
+
+	/** Late prompt for a pack the loader skipped because no key opened it. */
+	static function promptForPacksWithoutKey(libPaths:Array<String>):Bool {
+		var pendingPacks:Array<String> = [];
+		for (candidate in libPaths) {
+			var zip = ModPackCrypto.pendingPackFor(candidate);
+			if (zip != null) pendingPacks.push(zip);
+		}
+		if (pendingPacks.length == 0) return false;
+		FlxG.switchState(new funkin.menus.ModPackKeyState(pendingPacks));
+		return true;
+	}
+	#end
 }

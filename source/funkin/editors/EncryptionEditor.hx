@@ -224,12 +224,14 @@ class EncryptionEditor extends UIState {
 			12, 0xFFB0B0BE, false));
 
 		track(g, new UIText(30, CONTENT_Y + 112, 60, "Key:", 14, 0xFFFFFFFF, false));
-		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, ScriptCrypto.getPassword(), 500));
+		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, ScriptCrypto.getPassword(), 460));
+		track(g, clearFieldButton(tokenKeyBox, 560, CONTENT_Y + 108));
 		track(g, new UIButton(610, CONTENT_Y + 108, "Make Token", onMakeToken, 180, 32));
 		track(g, new UIButton(800, CONTENT_Y + 108, "Copy Key", onCopyKey, 150, 32));
 
 		track(g, new UIText(30, CONTENT_Y + 160, 60, "Token:", 14, 0xFFFFFFFF, false));
-		track(g, tokenTokenBox = new UITextBox(94, CONTENT_Y + 156, "", 500));
+		track(g, tokenTokenBox = new UITextBox(94, CONTENT_Y + 156, "", 460));
+		track(g, clearFieldButton(tokenTokenBox, 560, CONTENT_Y + 156));
 		track(g, new UIButton(610, CONTENT_Y + 156, "Recover Key", onRecoverKey, 180, 32));
 		track(g, new UIButton(800, CONTENT_Y + 156, "Copy Token", onCopyToken, 150, 32));
 
@@ -346,6 +348,20 @@ class EncryptionEditor extends UIState {
 		if (box == null) return def;
 		var value = Std.parseInt(StringTools.trim(box.label.text));
 		return value == null ? def : value;
+	}
+
+	/**
+	 * Small X next to a field that empties it.
+	 *
+	 * A key or a token is almost always pasted, and one wrong character means it has to be
+	 * selected and deleted by hand. Same button the unlock prompt has, for the same reason.
+	 */
+	function clearFieldButton(box:UITextBox, x:Float, y:Float):UIButton {
+		return new UIButton(x, y, "X", function() {
+			if (box == null || box.label == null) return;
+			box.label.text = "";
+			box.position = 0;
+		}, 32, 32);
 	}
 
 	function scriptOptions():PackOptions {

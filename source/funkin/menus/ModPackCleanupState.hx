@@ -78,10 +78,13 @@ class ModPackCleanupState extends UIState {
 			// what was actually removed, one line per item; filled in as the steps run
 			add(summaryText = new UIText(MARGIN, 262, w, "", 14, 0xFFFFFFFF, false));
 
-			add(hintText = new UIText(MARGIN, 380, w, continuing
+			add(hintText = new UIText(MARGIN, 392, w, continuing
 				? "The switch continues on its own when this is done."
 				: "The window closes on its own when this is done.", 14, 0xFFB0B0BE, false));
-			add(closeButton = new UIButton(MARGIN, 412, continuing ? "Continue now" : "Close now", function() finish(), 200, 36));
+			add(closeButton = new UIButton(MARGIN, 424, continuing ? "Continue now" : "Close now", function() finish(), 200, 36));
+			// the button is reachable from the first frame, but switching away in the middle of
+			// the wipe is what leaves a half released pack behind
+			closeButton.shouldPress = false;
 
 			ModPackCrypto.beginCleanup();
 		} catch (e:Dynamic) {
@@ -109,6 +112,7 @@ class ModPackCleanupState extends UIState {
 			finished = true;
 			countdown = continuing ? AUTO_CONTINUE_DELAY : AUTO_CLOSE_DELAY;
 			if (summaryText != null) summaryText.text = ModPackCrypto.cleanupSummary;
+			if (closeButton != null) closeButton.shouldPress = true;
 		}
 		if (!finished) return;
 
@@ -128,6 +132,8 @@ class ModPackCleanupState extends UIState {
 	 */
 	function finish():Void {
 		if (quitting) return;
+		// never switch away from a half finished wipe, even if the button is hit early
+		if (continuing && !ModPackCrypto.cleanupDone) return;
 		quitting = true;
 		if (continuing) {
 			// Main/ModsFolder take it from here; the exit hook still covers the leftovers

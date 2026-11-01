@@ -86,6 +86,12 @@ class ModPackMergeState extends UIState {
 		done = true;
 		var target = next;
 		next = null;
-		if (target != null) target();
+		if (target == null) return;
+		// a broken switch must not leave the player on a screen that never moves again
+		try {
+			target();
+		} catch (e:Dynamic) {
+			Logs.error('The screen after the merge failed: ' + e);
+		}
 	}
 }
