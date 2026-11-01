@@ -747,6 +747,8 @@
 		<str id="switchDesc">The edits made to this mod are still waiting in the .cne folder.\n\nMerging writes them into the pack before switching, so they are there next time.</str>
 		<str id="switchWithout">Switch Without Merging</str>
 		<str id="mergeAndSwitch">Merge &amp; Switch</str>
+		<str id="discard">Discard Edits</str>
+		<str id="switchFiles">Staged files:</str>
 	</group>
 
 	<group name="ModConfigWarning" prefix="modConfigWarning.">

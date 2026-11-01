@@ -94,6 +94,7 @@ class ZipEditCache {
 		// files that are byte for byte what the pack already holds are not edits: they are
 		// what the editor's old unconditional autosave left behind
 		if (pruneUnchanged(mod)) return null;
+		Logs.trace('zip edits: "$mod" still has staged files: ' + listFiles(mod).join(" | "), VERBOSE);
 		return mod;
 	}
 
@@ -157,6 +158,50 @@ class ZipEditCache {
 		return left == 0;
 		#else
 		return false;
+		#end
+	}
+
+	/**
+	 * Short description of what is staged, for the prompt and the log: the first few
+	 * file names, then how many more. The player is being asked about files they cannot
+	 * see, so the dialog has to name at least some of them.
+	 */
+	public static function filesSummary(mod:String, maxNames:Int = 2, nameLength:Int = 46):String {
+		var files = listFiles(mod);
+		if (files.length == 0) return "";
+		var names:Array<String> = [];
+		for (i in 0...Std.int(Math.min(maxNames, files.length))) {
+			var name = files[i];
+			// keep the end of the path: the file name says more than songs/<song>/...
+			if (name.length > nameLength) name = "..." + name.substr(name.length - (nameLength - 3));
+			names.push(name);
+		}
+		var text = names.join("\n");
+		var rest = files.length - names.length;
+		if (rest > 0) text += '\n... and $rest more';
+		return text;
+	}
+
+	/**
+	 * Throws the staged files away. The pack itself is not touched.
+	 *
+	 * The prompt used to be all or nothing - merge, or leave it for next time - so a
+	 * staging folder that got filled by a bug (a save on a timer that never checked for
+	 * changes) could only be silenced by merging files the player never edited.
+	 */
+	public static function discard(mod:String):String {
+		#if sys
+		if (mod == null) return 'nothing to discard';
+		var dir = folder(mod, false);
+		if (dir == null || !FileSystem.exists(dir)) return 'nothing to discard';
+		var count = listFiles(mod).length;
+		try funkin.backend.utils.CoolUtil.deleteFolder(dir) catch (e:Dynamic) {
+			Logs.error('Could not delete the staged files of "$mod": ' + e);
+			return 'could not discard the staged files';
+		}
+		return 'discarded $count staged file(s) of "$mod"';
+		#else
+		return 'not supported on this target';
 		#end
 	}
 

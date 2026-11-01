@@ -237,7 +237,9 @@ class ModSwitchMenu extends MusicBeatSubstate {
 			TU.translate("saveWarning.switchTitle", null, "Unsaved Mod Changes"),
 			TU.translate("saveWarning.switchDesc", null,
 				'The edits made to "$staged" are still waiting in the .cne folder.\n'
-				+ "Merging writes them into the pack before the switch, so they are there next time."),
+				+ "Merging writes them into the pack before the switch, so they are there next time.")
+				+ "\n\n" + TU.translate("saveWarning.switchFiles", null, "Staged files:")
+				+ "\n" + funkin.backend.assets.ZipEditCache.filesSummary(staged, 2),
 			[
 				{
 					label: TU.translate("saveWarning.cancel", null, "Cancel"),
@@ -247,6 +249,16 @@ class ModSwitchMenu extends MusicBeatSubstate {
 						// nothing else would put the framerate counter back: it stayed pushed
 						// down by this menu's header until the next state switch
 						Framerate.offset.y = 0;
+					}
+				},
+				{
+					// the dialog names the files, so throwing them away is an informed choice
+					// instead of the only way to stop being asked
+					label: TU.translate("saveWarning.discard", null, "Discard Edits"),
+					color: 0xFF6B6B,
+					onClick: function(_) {
+						Logs.trace(funkin.backend.assets.ZipEditCache.discard(staged), INFO);
+						ModsFolder.switchMod(target);
 					}
 				},
 				{
