@@ -279,7 +279,11 @@ LIME_NDLL="$(ndll_path || true)"
 if [ "$REBUILD_LIME" -eq 1 ] || [ -z "$LIME_NDLL" ] || [ ! -f "$LIME_NDLL" ]; then
     if [ "$REBUILD_LIME" -eq 1 ]; then warn 'rebuilding lime native by request'
     else warn 'lime.ndll is missing - it has to be compiled'; fi
-    lime_run rebuild "$LIME_PLATFORM" -64 -release || die 'lime rebuild failed'
+    # No -64 here: on macOS that asks hxcpp for a 64-bit x86 build explicitly, which
+    # fights the native architecture on an arm64 host. The target is chosen by the host
+    # itself (or by the "arch -x86_64" wrapper when --arch is given), which is what the
+    # build always relied on.
+    lime_run rebuild "$LIME_PLATFORM" -nocolor -release || die 'lime rebuild failed'
     LIME_NDLL="$(ndll_path || true)"
     [ "$DRY_RUN" -eq 1 ] || { [ -f "$LIME_NDLL" ] && ok "lime.ndll ready: $LIME_NDLL" || warn 'lime.ndll is still missing - the C++ build will most likely fail'; }
 else
