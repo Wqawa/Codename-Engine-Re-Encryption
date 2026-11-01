@@ -18,7 +18,7 @@ export\release\windows\bin\CodenameEngine.exe
 | --- | --- | --- |
 | 1/6 工具链 | 找 Haxe 4.3.x 和 Neko | 找不到就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `building\toolchain\` 解压使用（**不需要装进系统**） |
 | 2/6 库 | 用 `haxelib list` 核对 `building\libs.xml` 和 `project.xml` 要求的库（仓库自带 `.haxelib`） | 少一个就调引擎自己的 `setup` 命令（`haxe -cp commandline ... --run Main setup --ignore-sum --no-vscheck`）补齐，回来再核对一遍；补完还缺只警告不中断（lime 会指名是哪个库）。`-Setup` 只做这一步 |
-| 3/6 原生库 | 检查 `lime.ndll`（Windows64） | 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译 |
+| 3/6 原生库 | 检查 `lime.ndll`（Windows64），并探测一次 `haxelib run lime --version` | ndll 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译；命令行本身崩（`Primitive not found` 之类，说明 lime 库自带的 `tools\tools.n` 比源码旧）就在 `lime\tools` 里跑一次 `haxe tools.hxml` 重编，再探测 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
 | 5/6 编译 | `haxelib run lime build windows -nocolor`，并打开 hxcpp 的编译缓存 | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
 | 6/6 验收 | 检查 exe 是否存在、时间戳是否比本次构建新、统计 warning | 失败时把日志里第一批 `error:` 行摘出来，并给出对应处理建议 |
@@ -106,6 +106,7 @@ MSVC 与 VS Build Tools 无法离线绕过，内网机器请提前装好"使用 
 | `Could not find haxelib "flixel" ...` | 不在仓库根编译，或 `.haxelib` 被删 | 确认双击的是 `building\Build.bat`（脚本会自己 `cd` 到仓库根）；`.haxelib` 丢了要从仓库还原 |
 | `LNK1104: cannot open file ... CodenameEngine.exe` | 游戏正在运行，exe 被占用 | 关掉游戏，或让脚本帮你关（它会问一句） |
 | `Could not load lime.ndll` / `lime.n: ... not found` | 原生库缺失或架构不符 | `Build.bat -RebuildLime` |
+| `Uncaught exception - ... Primitive not found : lime@lime_xxx` | lime 库自带的命令行字节码 `tools\tools.n` 比同目录源码旧（源码删了某个原生函数，字节码还在找它） | 脚本会在第 3 步自动重编 `tools.n`；若仍失败，删掉 `.haxelib\lime\<版本>\tools\tools.n` 再重跑 |
 | `cl.exe` 找不到 / `Cannot find msvc` | 没装 C++ 工具链 | 装 VS Build Tools 的"使用 C++ 的桌面开发" |
 | `系统禁止运行脚本` / `UnauthorizedAccess` | PowerShell 执行策略 | 不用管，`Build.bat` 已经带 `-ExecutionPolicy Bypass` |
 | 编译成功但 exe 时间戳没变 | lime 判定无需重编 | `Build.bat -Clean` |
@@ -154,7 +155,7 @@ haxelib run lime build windows -nocolor
 
 ## Linux / macOS：`build-linux.sh` / `build-macos.sh`
 
-`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译：
+`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译；第 3 步也会像 Windows 那样探测 `haxelib run lime`，发现 lime 自带的命令行字节码 `tools/tools.n` 比源码旧（`Primitive not found`）就自动重编：
 
 ```bash
 ./building/build-linux.sh                     # 增量构建

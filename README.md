@@ -84,6 +84,13 @@ compiles straight away. `-Setup` installs/repairs libraries only, `-Ask` always 
 `test`, `build`, `run`, `release`, `test-release`, `optimize`) the command line is handed to
 `commandline/Main.hx` instead of building. Details: [`building/lazy-build.md`](building/lazy-build.md).
 
+Step 3 additionally probes `haxelib run lime --version`. The vendored `cne-lime` checkout carries a
+prebuilt command line (`lime/tools/tools.n`) that can be older than the sources next to it — the
+audio overhaul dropped the `lime_audio_load` native primitive while that bytecode still asks for it,
+so every lime command died with `Primitive not found` and the build reported a bare exit 1 before
+compiling anything. The script now rebuilds `tools.n` from the sources with `haxe tools.hxml` and
+re-probes; the same check is in the two Unix scripts.
+
 Linux and macOS get the same six steps from [`building/build-linux.sh`](building/build-linux.sh) and
 [`building/build-macos.sh`](building/build-macos.sh) (toolchain, libraries, lime native, C++ check,
 build, verify; `--bootstrap-tools` / `--arch` / `--yes` are what CI passes). The GitHub Actions

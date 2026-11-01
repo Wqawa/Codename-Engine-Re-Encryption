@@ -9,7 +9,8 @@
 #   2. point haxelib at the repository-local .haxelib folder
 #   3. install the libraries listed in building/libs.xml when they are missing
 #   4. make sure lime's native library is there (--rebuild-lime forces a rebuild)
-#      and, with --bootstrap-tools, run lime setup + the hxcpp/tools rebuilds first
+#      and, with --bootstrap-tools, run lime setup + the hxcpp/tools rebuilds first;
+#      lime's own command line bytecode (tools/tools.n) is rebuilt when it is stale
 #   5. check the C++ toolchain (g++/clang + make)
 #   6. run "haxelib run lime build linux", with hxcpp's compile cache enabled
 #   7. check the binary is newer than the build start
@@ -254,7 +255,7 @@ fi
 
 # ---------------------------------------------------------------- 3 native lib
 step '3/6 lime native library (lime.ndll)'
-ndll_path() {
+lime_dir() { # folder of the lime version haxelib resolves (a dev checkout lives in "git")
     local root="$HAXELIB_PATH/lime"
     [ -d "$root" ] || return 1
     local version=''
@@ -263,7 +264,41 @@ ndll_path() {
         version="$(ls -1 "$root" 2>/dev/null | grep -v '^\.' | sort -V | tail -n1)"
     fi
     [ -n "$version" ] || return 1
-    echo "$root/$version/ndll/$NDLL_ARCH/lime.ndll"
+    echo "$root/$version"
+}
+
+ndll_path() {
+    local dir
+    dir="$(lime_dir)" || return 1
+    echo "$dir/ndll/$NDLL_ARCH/lime.ndll"
+}
+
+# lime's command line is a neko bytecode file that ships inside the lime library
+# (tools/tools.n). It can be older than the sources next to it: the cne-lime fork
+# dropped the lime_audio_load primitive in its audio overhaul, but the committed
+# bytecode still asks for it, so "haxelib run lime" dies with "Primitive not found"
+# before a single file is compiled - and the build only reports a meaningless exit 1.
+lime_command_line_ok() {
+    local output
+    output="$(haxelib run lime --version 2>&1 || true)"
+    case "$output" in
+        *"Primitive not found"*|*"Could not load library"*|*"Module not found"*|*"Uncaught exception"*) return 1 ;;
+    esac
+    return 0
+}
+
+repair_lime_command_line() { # returns 0 when the command line works again
+    local dir tools
+    dir="$(lime_dir || true)"
+    tools="$dir/tools"
+    if [ -z "$dir" ] || [ ! -f "$tools/tools.hxml" ]; then
+        warn 'cannot rebuild the lime command line: tools/tools.hxml is missing'
+        return 1
+    fi
+    warn 'lime tools/tools.n is older than the lime sources - rebuilding it'
+    if [ "$DRY_RUN" -eq 1 ]; then log "[dryrun] rebuild $tools/tools.n"; return 0; fi
+    ( cd "$tools" && run haxe tools.hxml ) || true
+    lime_command_line_ok
 }
 
 LIME_NDLL="$(ndll_path || true)"
@@ -275,6 +310,15 @@ if [ "$REBUILD_LIME" -eq 1 ] || [ -z "$LIME_NDLL" ] || [ ! -f "$LIME_NDLL" ]; th
     [ "$DRY_RUN" -eq 1 ] || { [ -f "$LIME_NDLL" ] && ok "lime.ndll ready: $LIME_NDLL" || warn 'lime.ndll is still missing - the C++ build will most likely fail'; }
 else
     ok "lime.ndll present: $LIME_NDLL"
+fi
+
+# the command line itself has to work before anything else can start
+if ! lime_command_line_ok; then
+    if repair_lime_command_line; then
+        [ "$DRY_RUN" -eq 1 ] || ok 'lime command line rebuilt'
+    else
+        err 'the lime command line still crashes - delete .haxelib/lime and run this script again'
+    fi
 fi
 
 # ---------------------------------------------------------------- 4 toolchain
@@ -299,6 +343,15 @@ BUILD_ARGS=(run lime build "$LIME_PLATFORM" -nocolor)
 # really changed.
 if [ "$NO_CACHE" -eq 0 ]; then
     cache_root="${CACHE_DIR:-$HOME/.cache/cne-hxcpp}"
+    if [ -z "${CACHE_DIR:-}" ]; then
+        # keep the cache off a filesystem that is nearly full: the C++ step dies with
+        # "No space left on device" long before anything useful is built
+        avail_mb="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+        if [ -n "$avail_mb" ] && [ "$avail_mb" -lt 2048 ] 2>/dev/null; then
+            cache_root="$REPO_ROOT/.cache/hxcpp"
+            warn "less than 2 GB left on the home filesystem - compile cache goes to $cache_root"
+        fi
+    fi
     [ "$DRY_RUN" -eq 1 ] || mkdir -p "$cache_root" 2>/dev/null || true
     # one token on purpose: lime stores "NAME=VALUE" as the define name when they are split
     BUILD_ARGS+=("-DHXCPP_COMPILE_CACHE=$cache_root")

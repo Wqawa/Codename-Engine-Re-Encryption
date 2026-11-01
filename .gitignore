@@ -16,6 +16,9 @@ dev-libs/
 *.sum
 .vs/
 
+# hxcpp compile cache (Build.bat falls back to this when the system drive is full)
+.cache/
+
 # agent scratch: session notes and the regenerated upstream diff
 .workbuddy/
 docs/UPSTREAM-DIFF.md

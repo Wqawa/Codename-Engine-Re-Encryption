@@ -43,7 +43,8 @@ param(
     [switch]$Clean,
     # Do not reuse hxcpp's compile cache
     [switch]$NoCache,
-    # Where the compile cache lives (default: %LOCALAPPDATA%\cne-hxcpp-cache)
+    # Where the compile cache lives (default: %LOCALAPPDATA%\cne-hxcpp-cache, or
+    # <repo>\.cache\hxcpp when the system drive has less than 2 GB left)
     [string]$CacheDir,
     # Build the debug configuration instead of release
     [switch]$Debug,
@@ -710,10 +711,8 @@ function Initialize-HaxelibRepository {
     [void](Repair-Libraries -Repo $repo -Missing $status.Missing)
 }
 
-# Path of the lime native library that matches the version haxelib resolves.
-function Get-LimeNativePath {
-    param([string]$Architecture = 'Windows64')
-
+# Folder of the lime version haxelib resolves (a dev checkout lives in "git").
+function Get-LimeVersionDir {
     $limeRoot = Join-Path $script:RepoRoot '.haxelib\lime'
     if (-not (Test-Path -LiteralPath $limeRoot)) { return $null }
 
@@ -728,10 +727,62 @@ function Get-LimeNativePath {
             Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
     }
     if (-not $versionDir) { return $null }
+    return $versionDir
+}
+
+# Path of the lime native library that matches the version haxelib resolves.
+function Get-LimeNativePath {
+    param([string]$Architecture = 'Windows64')
+
+    $versionDir = Get-LimeVersionDir
+    if (-not $versionDir) { return $null }
 
     $ndll = Join-Path $versionDir "ndll\$Architecture\lime.ndll"
     if (Test-Path -LiteralPath $ndll) { return $ndll }
     return $null
+}
+
+# lime's command line is a neko bytecode file that ships inside the lime library
+# (tools\tools.n). It can be older than the sources it sits next to: the cne-lime
+# fork dropped the `lime_audio_load` primitive in its audio overhaul, but the
+# committed bytecode still asks for it, so `haxelib run lime` dies with
+# "Primitive not found" before a single file is compiled - and the build reports
+# a meaningless exit 1. Probe the command line; it is cheap.
+function Test-LimeCommandLine {
+    if (-not (Get-LimeVersionDir)) { return $true }   # nothing vendored, let haxelib complain
+
+    $output = Invoke-Capture -FilePath (Get-HaxelibExe) -Arguments @('run', 'lime', '--version')
+    if ($output -match 'Primitive not found|Could not load library|Module not found|Uncaught exception') {
+        return $false
+    }
+    return $true
+}
+
+# Rebuilds tools\tools.n from the lime sources with the Haxe already in use, which
+# is exactly what the lime CI does. Returns $true when the command line works again.
+function Repair-LimeCommandLine {
+    param([string]$VersionDir)
+
+    $tools = Join-Path $VersionDir 'tools'
+    if (-not (Test-Path -LiteralPath (Join-Path $tools 'tools.hxml'))) {
+        Write-Log "cannot rebuild the lime command line: $tools\tools.hxml is missing" 'WARN'
+        return $false
+    }
+
+    Write-Log 'lime tools\tools.n is older than the lime sources - rebuilding it' 'WARN'
+    if ($DryRun) {
+        Write-Log '[dryrun] rebuild lime tools\tools.n' 'DRY'
+        return $true
+    }
+
+    Push-Location -LiteralPath $tools
+    try {
+        [void](Invoke-Tool -FilePath (Get-HaxeExe) -Arguments @('tools.hxml') -Label 'lime tools' -AllowFail)
+    } finally {
+        Pop-Location
+    }
+
+    return (Test-LimeCommandLine)
 }
 
 function Stop-RunningEngine {
@@ -789,6 +840,9 @@ function Get-ErrorAdvice {
     }
     if ($all -match 'lime\.ndll|Could not load lime|lime\.n') {
         [void]$advice.Add('lime 原生库缺失或架构不符：用 Build.bat -RebuildLime 重建（需要 VS C++ 工具链）。')
+    }
+    if ($all -match 'Primitive not found|Uncaught exception') {
+        [void]$advice.Add('lime 命令行字节码比源码旧：删掉 .haxelib\lime\<版本>\tools\tools.n 后重跑，脚本会自动重编它。')
     }
     if ($all -match 'cl\.exe|msvc|Visual Studio|vsvars') {
         [void]$advice.Add('缺 MSVC：安装 Visual Studio Build Tools 的"使用 C++ 的桌面开发"工作负载。')
@@ -928,6 +982,16 @@ try {
         Write-Log "lime.ndll present: $limeNdll" 'OK'
     }
 
+    # the command line itself has to work before anything else can start
+    if (-not (Test-LimeCommandLine)) {
+        $repaired = Repair-LimeCommandLine -VersionDir (Get-LimeVersionDir)
+        if (-not $repaired) {
+            Write-Log 'the lime command line still crashes - delete .haxelib\lime, then run Build.bat -Setup' 'ERR'
+        } elseif (-not $DryRun) {
+            Write-Log 'lime command line rebuilt' 'OK'
+        }
+    }
+
     # 4 - MSVC --------------------------------------------------------------
     Write-Step '4/6 C++ toolchain (MSVC)'
     [void](Get-VisualStudioOrInstall)
@@ -965,7 +1029,23 @@ try {
     # all ~3700 translation units, which is the ~40 min rebuild. With the cache on,
     # even that pass only compiles what really changed and copies the rest.
     if (-not $NoCache) {
-        $cacheRoot = if ($CacheDir) { $CacheDir } else { Join-Path $env:LOCALAPPDATA 'cne-hxcpp-cache' }
+        $cacheRoot = $CacheDir
+        if ([string]::IsNullOrWhiteSpace($cacheRoot)) {
+            $cacheRoot = Join-Path $env:LOCALAPPDATA 'cne-hxcpp-cache'
+            # the cache goes on the system drive by default; a nearly full system drive
+            # turns the C++ step into "no space left on device", so move it to the
+            # repository drive when less than 2 GB is left there
+            $systemDrive = ''
+            if ($env:LOCALAPPDATA) { $systemDrive = [System.IO.Path]::GetPathRoot($env:LOCALAPPDATA).TrimEnd('\', ':') }
+            if ($systemDrive) {
+                $freeGB = -1
+                try { $freeGB = [math]::Round((Get-PSDrive -Name $systemDrive -ErrorAction Stop).Free / 1GB, 1) } catch { $freeGB = -1 }
+                if ($freeGB -ge 0 -and $freeGB -lt 2) {
+                    $cacheRoot = Join-Path $script:RepoRoot '.cache\hxcpp'
+                    Write-Log ("only {0} GB left on {1}: - the compile cache goes to {2}" -f $freeGB, $systemDrive, $cacheRoot) 'WARN'
+                }
+            }
+        }
         if ([string]::IsNullOrWhiteSpace($cacheRoot)) {
             $cacheRoot = Join-Path $script:RepoRoot 'export\.hxcpp-cache'
         }
