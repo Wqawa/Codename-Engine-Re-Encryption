@@ -29,6 +29,13 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	var cancelBtn:FlxSprite;
 	var onDone:Bool->Void;
 	var blink:Float = 0;
+	var closed:Bool = false;
+
+	// Held as fields on purpose: `this.onKeyDown` produces a fresh bound closure every
+	// time it is evaluated, so add/removeEventListener with that expression removes
+	// nothing. The listener then outlives the box and fires into destroyed sprites.
+	var keyHandler:KeyboardEvent->Void;
+	var textHandler:String->Void;
 
 	public function new(onDone:Bool->Void) {
 		super();
@@ -74,12 +81,15 @@ class ProtectionUnlockSubstate extends FlxSubState {
 		// Characters come from lime's text input, not from key events: on native,
 		// KeyboardEvent.charCode is not filled in, so a key listener would receive
 		// nothing printable. Key down is only used for the three control keys.
-		Lib.application.window.onTextInput.add(onTextInput);
-		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+		keyHandler = onKeyDown;
+		textHandler = onTextInput;
+		Lib.application.window.onTextInput.add(textHandler);
+		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
 	}
 
 	override function update(elapsed:Float) {
 		super.update(elapsed);
+		if (closed || field == null) return;
 		blink += elapsed;
 
 		// caret, so an empty field still looks like something you can type into
@@ -96,7 +106,7 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	}
 
 	function onTextInput(text:String):Void {
-		if (text == null) return;
+		if (closed || text == null) return;
 		for (i in 0...text.length) {
 			if (entered.length >= MAX_LEN) break;
 			// drop control characters that some keyboards send along
@@ -105,7 +115,7 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	}
 
 	function onKeyDown(e:KeyboardEvent):Void {
-		if (e == null) return;
+		if (closed || e == null) return;
 		switch (e.keyCode) {
 			case 8: // backspace
 				if (entered.length > 0) entered = entered.substr(0, entered.length - 1);
@@ -118,6 +128,7 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	}
 
 	function submit():Void {
+		if (closed || hint == null) return;
 		if (entered.length == 0) {
 			hint.text = "Type the password first.";
 			hint.color = 0xFFFFB0B0;
@@ -133,8 +144,10 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	}
 
 	function finish(ok:Bool):Void {
-		Lib.application.window.onTextInput.remove(onTextInput);
-		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+		if (closed) return;
+		closed = true;
+		Lib.application.window.onTextInput.remove(textHandler);
+		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
 		if (onDone != null) onDone(ok);
 		close();
 	}
