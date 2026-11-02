@@ -217,12 +217,15 @@ class ZipEditCache {
 	public static var mergeDone:Bool = false;
 	public static var mergeFailed:Bool = false;
 	public static var mergeMessage:String = "";
+	/** 0..1 progress of the merge pass, for the screen that reports it. */
+	public static var mergeProgress:Float = 0;
 
 	public static function startMergeAsync(mod:String):Void {
 		if (merging) return;
 		merging = true;
 		mergeDone = false;
 		mergeFailed = false;
+		mergeProgress = 0;
 		mergeMessage = "Reading the staged files";
 		#if target.threaded
 		sys.thread.Thread.create(function() runMerge(mod));
@@ -354,12 +357,16 @@ class ZipEditCache {
 		var plainIsCopy = false;
 
 		try {
+			mergeProgress = 0.02;
 			if (ModPackCrypto.isEncryptedPackFile(pack) || ZipPassword.isProtected(pack)) {
 				plain = plainCopyOf(pack, work + 'source_' + stem + '.zip');
 				plainIsCopy = true;
 			}
+			mergeProgress = 0.25;
 			writeMerged(plain, folder(mod, false), files, merged);
+			mergeProgress = 0.55;
 			replaceWith(pack, merged);
+			mergeProgress = 1;
 		} catch (e:Dynamic) {
 			dropTempFiles(plain, plainIsCopy, merged);
 			throw e;
@@ -526,7 +533,10 @@ class ZipEditCache {
 			var key = ModPackCrypto.resolveKey(pack);
 			if (key == null) throw 'the pack is locked: no key opens ${Path.withoutDirectory(pack)}';
 			out = merged + '.cnez';
-			File.saveBytes(out, ModPackCrypto.pack(File.getBytes(merged), key));
+			// re-encrypting the rewritten archive is the slow half of the merge, and it is
+			// the only step that can report its own progress
+			File.saveBytes(out, ModPackCrypto.pack(File.getBytes(merged), key,
+				function(p:Float) mergeProgress = 0.55 + p * 0.4));
 		} else if (ZipPassword.isProtected(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);
 			if (key == null) throw 'the pack is locked: no password opens ${Path.withoutDirectory(pack)}';

@@ -28,6 +28,8 @@ class ModPackMergeState extends UIState {
 
 	public var statusText:UIText;
 	public var hintText:UIText;
+	public var barBg:FlxSprite;
+	public var bar:FlxSprite;
 	public var done:Bool = false;
 	public var waited:Float = 0;
 	public var finishedAt:Float = -1;
@@ -52,6 +54,15 @@ class ModPackMergeState extends UIState {
 
 		add(statusText = new UIText(MARGIN, 300, w, ZipEditCache.mergeMessage, 15, 0xFF9BE28C, false));
 		add(hintText = new UIText(MARGIN, 336, w, "", 13, 0xFF7A7A88, false));
+
+		// A merge is seconds of work with nothing to look at otherwise; the bar is the only
+		// thing that says it is still moving.
+		add(barBg = new FlxSprite(MARGIN, 380).makeGraphic(w, 18, 0xFF2A2A34));
+		add(bar = new FlxSprite(MARGIN + 2, 382).makeGraphic(w - 4, 14, 0xFF61C4FF));
+		// scaling around the left edge keeps the bar growing to the right
+		bar.origin.set(0, 0);
+		bar.scale.x = 0.001;
+
 		add(new FlxSprite(MARGIN, FlxG.height - 40).makeGraphic(w, 2, 0xFF2A2A34));
 
 		ZipEditCache.startMergeAsync(mod);
@@ -71,6 +82,7 @@ class ModPackMergeState extends UIState {
 				? "The staged files were left on disk, so nothing was lost."
 				: "Working" + dots;
 		}
+		if (bar != null) bar.scale.x = Math.max(0.001, Math.min(1, ZipEditCache.mergeProgress));
 
 		if (!ZipEditCache.mergeDone) {
 			finishedAt = -1;
