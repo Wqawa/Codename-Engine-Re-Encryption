@@ -1,5 +1,6 @@
 package funkin.backend.scripting.protect;
 
+import funkin.backend.assets.CnezV2;
 import funkin.backend.scripting.crypto.ChaCha20;
 import funkin.backend.scripting.crypto.ScriptCrypto;
 import haxe.io.Bytes;
@@ -34,6 +35,17 @@ class ProtectedBuffer {
 	var data:Bytes;
 	var key:Bytes;
 	var nonce:Bytes;
+
+	// --- chunked mode (CNEZ version 2): the payload is verified per chunk on first
+	// --- read instead of all at once, see CnezV2 for why that is affordable
+	var chunkSize:Int = 0;
+	var chunkCount:Int = 0;
+	var chunkTags:Bytes;
+	var chunkMac:Bytes;
+	var chunkVerified:Array<Bool>;
+
+	/** Set when a chunk failed its tag check; reads return nothing from then on. */
+	public var integrityFailed(default, null):Bool = false;
 
 	public function new(bytes:Bytes, wrapped:Bool) {
 		this.data = bytes == null ? Bytes.alloc(0) : bytes;
@@ -74,12 +86,40 @@ class ProtectedBuffer {
 		return b;
 	}
 
+	/**
+	 * Same as `fromCipher`, plus a tag per chunk that is checked the first time a read
+	 * touches that chunk (CNEZ version 2).
+	 *
+	 * Why not verify everything up front: the whole pack would have to be hashed
+	 * before the first asset could load, which is exactly the cost version 2 exists to
+	 * avoid. The header and this table were already checked by `CnezV2.open` - the root
+	 * tag covers every entry here, so a swapped tag fails there, not here.
+	 */
+	public static function fromChunkedCipher(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes, size:Int, tags:Bytes, count:Int,
+			macKey:Bytes):ProtectedBuffer {
+		var b = fromCipher(cipher, cipherKey, cipherNonce);
+		if (size <= 0 || count <= 0 || tags == null) return b;
+		b.chunkSize = size;
+		b.chunkCount = count;
+		b.chunkTags = tags;
+		b.chunkMac = macKey;
+		b.chunkVerified = [];
+		for (i in 0...count) b.chunkVerified.push(false);
+		return b;
+	}
+
 	/** Plaintext copy of `[offset, offset + length)`. */
 	public function read(offset:Int, length:Int):Bytes {
 		if (length <= 0) return Bytes.alloc(0);
 		if (offset < 0) offset = 0;
 		if (offset + length > this.length) length = this.length - offset;
 		if (length <= 0) return Bytes.alloc(0);
+		if (integrityFailed) return Bytes.alloc(0);
+
+		if (chunkSize > 0) {
+			ensureChunks(offset, length);
+			if (integrityFailed) return Bytes.alloc(0);
+		}
 
 		if (!wrapped) return data.sub(offset, length);
 
@@ -92,12 +132,41 @@ class ProtectedBuffer {
 		return out;
 	}
 
+	/** Verifies every chunk the range `[offset, offset + length)` touches, once each. */
+	function ensureChunks(offset:Int, length:Int):Void {
+		var first = Std.int(offset / chunkSize);
+		var last = Std.int((offset + length - 1) / chunkSize);
+		if (last >= chunkCount) last = chunkCount - 1;
+		if (first < 0) first = 0;
+
+		for (i in first...last + 1) {
+			if (chunkVerified[i]) continue;
+			var start = i * chunkSize;
+			var len = chunkSize;
+			if (start + len > data.length) len = data.length - start;
+			var chunk = data.sub(start, len);
+			var expected = chunkTags.sub(i * CnezV2.TAG_SIZE, CnezV2.TAG_SIZE);
+			if (!CnezV2.same(ScriptCrypto.hmacTag(chunkMac, chunk), expected)) {
+				integrityFailed = true;
+				Logs.error('A mod pack chunk ($i of $chunkCount) failed its integrity check; '
+					+ 'the pack was modified after it was packed. Reads stop here.');
+				return;
+			}
+			chunkVerified[i] = true;
+		}
+	}
+
 	/** Overwrites the buffer and its keys; the object is unusable afterwards. */
 	public function wipe():Void {
 		SecureBytes.wipe(data);
 		SecureBytes.wipe(key);
 		SecureBytes.wipe(nonce);
+		SecureBytes.wipe(chunkTags);
+		SecureBytes.wipe(chunkMac);
+		if (chunkVerified != null) for (i in 0...chunkVerified.length) chunkVerified[i] = false;
 		length = 0;
+		chunkSize = 0;
+		chunkCount = 0;
 		wrapped = false;
 	}
 }

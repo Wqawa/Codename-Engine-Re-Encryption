@@ -61,6 +61,19 @@ class SysZip {
 	}
 
 	/**
+	 * Same as `fromCipher`, for a version 2 container: each chunk carries its own tag
+	 * and is checked the first time a read touches it, so indexing the archive does not
+	 * pay for hashing the whole pack (`CnezV2` explains the trade-off).
+	 */
+	public static function fromChunked(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes, chunkSize:Int, chunkTags:Bytes, chunkCount:Int,
+			macKey:Bytes):SysZip {
+		var zip = new SysZip(null);
+		zip.buffer = ProtectedBuffer.fromChunkedCipher(cipher, cipherKey, cipherNonce, chunkSize, chunkTags, chunkCount, macKey);
+		zip.updateEntries();
+		return zip;
+	}
+
+	/**
 	 * Creates a new SysZip from a specified path.
 	 * @param path Path to the zip file. (With the extension)
 	 */

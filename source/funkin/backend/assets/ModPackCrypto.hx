@@ -30,6 +30,24 @@ import sys.io.File;
  * The key is the same kind of key the script encryption uses, so a publisher
  * can hand out either the key itself or a key token (see ScriptCrypto).
  */
+
+/**
+ * A container that has been checked but not decrypted.
+ *
+ * `chunkCount` is 0 for a version 1 pack, which carries one tag for the whole
+ * payload; a version 2 pack fills the chunk fields and its payload is verified as
+ * it is read (see `CnezV2`).
+ */
+typedef OpenedPack = {
+	var cipher:Bytes;
+	var enc:Bytes;
+	var nonce:Bytes;
+	var chunkSize:Int;
+	var chunkTags:Bytes;
+	var chunkCount:Int;
+	var mac:Bytes;
+}
+
 class ModPackCrypto {
 	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x5A]; // "CNEZ"
 	public static inline var VERSION:Int = 1;
@@ -138,7 +156,20 @@ class ModPackCrypto {
 
 	// ------------------------------------------------------------ container
 
+	/**
+	 * Wraps a zip into a version 2 container (chunked tags).
+	 *
+	 * Version 2 is the default because opening one costs a header check instead of a
+	 * pass over the whole payload; `packV1` still exists for the older layout, which
+	 * `openEncrypted` keeps reading.
+	 */
 	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
+		if (pass == null) pass = ScriptCrypto.getPassword();
+		return CnezV2.pack(zipBytes, ScriptCrypto.resolveKeyValue(pass), onProgress);
+	}
+
+	/** Version 1 layout: one tag over the whole payload. Kept for compatibility. */
+	public static function packV1(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
@@ -181,15 +212,31 @@ class ModPackCrypto {
 	 * zipFor) can verify integrity without paying for a full decryption pass: the HMAC
 	 * still covers every byte, but the cipher is never touched as a whole.
 	 */
-	public static function openEncrypted(data:Bytes, ?pass:String):{cipher:Bytes, enc:Bytes, nonce:Bytes} {
+	public static function openEncrypted(data:Bytes, ?pass:String):OpenedPack {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
 		if (pass == null) throw "ModPackCrypto: no key";
 		if (!isEncryptedPack(data))
 			throw "ModPackCrypto: not an encrypted mod pack";
-		if (data.get(4) != VERSION)
-			throw 'ModPackCrypto: unsupported container version ' + data.get(4);
+
+		// version 2 hands its payload back as ciphertext with a chunk table, which is
+		// what lets the loader verify lazily; version 1 has one tag for everything
+		var version = data.get(4);
+		if (version == CnezV2.VERSION) {
+			var opened = CnezV2.open(data, pass);
+			return {
+				cipher: opened.payload,
+				enc: opened.enc,
+				nonce: opened.nonce,
+				chunkSize: opened.chunkSize,
+				chunkTags: opened.table,
+				chunkCount: opened.count,
+				mac: opened.mac
+			};
+		}
+		if (version != VERSION)
+			throw 'ModPackCrypto: unsupported container version ' + version;
 
 		// Bytes.sub() copies in one native call instead of a per-byte Haxe loop;
 		// a large pack is copied twice here, so the loop was measurably slow.
@@ -212,10 +259,24 @@ class ModPackCrypto {
 		if (diff != 0)
 			throw "ModPackCrypto: integrity check failed (wrong key or corrupted file)";
 
-		return {cipher: data.sub(HEADER_SIZE, len), enc: keys.enc, nonce: nonce};
+		return {
+			cipher: data.sub(HEADER_SIZE, len),
+			enc: keys.enc,
+			nonce: nonce,
+			chunkSize: 0,
+			chunkTags: null,
+			chunkCount: 0,
+			mac: keys.mac
+		};
 	}
 
 	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
+		// a version 2 payload has to be verified chunk by chunk, which is the only
+		// difference in the result: both versions hand back the same plain zip
+		if (CnezV2.isV2(data)) {
+			if (pass == null) pass = ScriptCrypto.getPassword();
+			return CnezV2.unpack(data, pass, onProgress);
+		}
 		var opened = openEncrypted(data, pass);
 		if (onProgress == null) return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher);
 		return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
@@ -516,7 +577,10 @@ class ModPackCrypto {
 				if (wrapped != null) wrapped(0.15);
 				var opened = openEncrypted(raw, key);
 				if (wrapped != null) wrapped(0.75);
-				zip = SysZip.fromCipher(opened.cipher, opened.enc, opened.nonce);
+				zip = opened.chunkCount > 0
+					? SysZip.fromChunked(opened.cipher, opened.enc, opened.nonce, opened.chunkSize, opened.chunkTags,
+						opened.chunkCount, opened.mac)
+					: SysZip.fromCipher(opened.cipher, opened.enc, opened.nonce);
 				if (wrapped != null) wrapped(1);
 			} else {
 				var bytes = packed
