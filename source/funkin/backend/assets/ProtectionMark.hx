@@ -11,15 +11,12 @@ typedef ProtectionData = {
 }
 
 /**
- * The marker a protected mod pack carries at `data/cne_protect.dat`.
+ * The marker a protected pack carries at `data/cne_protect.dat`.
  *
- * It answers two questions when the pack is opened: is protection mode meant to be on,
- * and does this password turn it off. The password itself is never stored - only a
- * salted digest - so reading the marker out of the pack does not hand anyone the key.
+ * Stores the salt and a digest of the password, never the password, so an unlock can be
+ * checked after the marker is read out of the archive.
  *
- * What this is worth, plainly: it makes the protection switch cost a password for the
- * player, and it keeps the pack's own key out of the plain. It does not stop anyone who
- * edits the marker or the executable; a mod pack is data, not a sandbox.
+ * A speed bump, not a boundary: whoever edits the marker or the exe walks past it.
  */
 class ProtectionMark {
 	public static inline var PATH:String = 'data/cne_protect.dat';

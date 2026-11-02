@@ -16,18 +16,15 @@ typedef IntegrityEntry = {
 }
 
 /**
- * Startup check that the files shipped with the game are still the ones that were built.
+ * Compares the files next to the executable against a signed manifest.
  *
- * What this can and cannot do, stated up front: the manifest is signed with a key that
- * lives in this binary, so swapping a resource without touching the executable is
- * caught. Someone who edits the executable as well can remove the check or re-sign the
- * manifest - no local integrity check survives that, and pretending otherwise would be
- * worse than saying so.
+ * The signing key lives in this binary, so changing a resource without touching the exe
+ * gets caught. Change the exe and the check or the signature can be dropped - no local
+ * check survives that. The build writes the manifest; the editor can still write one on
+ * demand.
  *
- * The manifest is generated after a build (editor > Tools > Generate integrity
- * manifest) and sits next to the executable. Verification runs on a worker thread after
- * the window opens, so a large assets folder does not delay startup; the result is read
- * by the main menu, which shows it once.
+ * Verification runs on a worker thread after the window opens, and the main menu shows
+ * the result once.
  */
 class IntegrityCheck {
 	public static inline var MANIFEST:String = './integrity.dat';

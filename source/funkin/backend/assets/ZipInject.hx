@@ -5,17 +5,14 @@ import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 
 /**
- * Adds one file to a zip without re-compressing anything that is already in it.
+ * Appends one file to a zip. Existing entries are not read, touched or re-compressed.
  *
- * The merge path rebuilds the whole archive from a folder, which is fine when the
- * archive is being rewritten anyway. Adding a single marker file should not cost that:
- * reading every entry, inflating and deflating it again turns a 200 MB pack into a
- * multi-second job with a peak memory to match. This appends instead - the new entry's
- * local header and bytes go in where the central directory starts, so no existing
- * offset moves, and the directory gets one more record.
+ * Rebuilding an archive from a folder costs a full inflate/deflate pass. For dropping a
+ * few hundred bytes of marker into a 200 MB pack that is a waste of both time and
+ * memory. The new entry goes in where the central directory starts, so nothing already
+ * in the file moves.
  *
- * Refuses archives that carry an end-of-directory comment instead of guessing where the
- * directory ends.
+ * Archives with an end-of-directory comment are refused rather than guessed at.
  */
 class ZipInject {
 	public static function addFile(zip:Bytes, name:String, content:Bytes, ?time:Date):Bytes {
@@ -105,38 +102,6 @@ class ZipInject {
 		writeU32(out, cdOffset + localBytes.length);
 		writeU16(out, 0); // comment length
 		return out.getBytes();
-	}
-
-	/** True when the archive already has an entry with this name (case sensitive). */
-	public static function contains(zip:Bytes, name:String):Bool {
-		var needle = Bytes.ofString(name);
-		var at = 0;
-		while (true) {
-			at = indexOf(zip, needle, at);
-			if (at < 0) return false;
-			// a name only counts when it sits in a header, not inside deflated data
-			if (at >= 30) {
-				var sig = readU32(zip, at - 30);
-				if (sig == 0x04034B50) return true;
-			}
-			at++;
-		}
-		return false;
-	}
-
-	static function indexOf(hay:Bytes, needle:Bytes, from:Int):Int {
-		var last = hay.length - needle.length;
-		for (i in from...last + 1) {
-			var hit = true;
-			for (j in 0...needle.length) {
-				if (hay.get(i + j) != needle.get(j)) {
-					hit = false;
-					break;
-				}
-			}
-			if (hit) return i;
-		}
-		return -1;
 	}
 
 	// ------------------------------------------------------------------ helpers

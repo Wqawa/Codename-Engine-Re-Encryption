@@ -68,18 +68,13 @@ final class WindowUtils {
 	static var __frameToken:Int = 0;
 
 	/**
-	 * Runs `action` on the next frame, and exits the game if no frame arrives.
+	 * Runs `action` on the next frame, or exits the game if no frame comes.
 	 *
-	 * A close request arrives on the window event, which runs outside the update loop.
-	 * Switching state from there left the engine half way between two states, so the
-	 * work has to be queued for a frame. The catch: that queue only runs if a frame is
-	 * delivered, and a window that is minimized, unfocused or otherwise not drawing may
-	 * never deliver one. By then the window is already vetoed, so the process stays
-	 * alive with a frozen picture - the game looks locked. Closing the window from the
-	 * taskbar is exactly that case: the window is not focused when the request arrives.
-	 *
-	 * Exiting inside the timeout is a last resort. The exit hook still wipes what the
-	 * cleanup screen would have wiped; it just does it without showing progress.
+	 * Close requests arrive on the window event, outside the update loop, so the work has
+	 * to be queued for a frame. A minimized or unfocused window may never deliver one -
+	 * closing from the taskbar does exactly that. The window is already vetoed by then,
+	 * so the process would sit there with a frozen picture. The timeout is the way out;
+	 * the exit hook still wipes what the cleanup screen would have wiped.
 	 */
 	public static function runOnNextFrameOrExit(action:Void->Void, timeoutMs:Int = 3000):Void {
 		if (action == null) return;

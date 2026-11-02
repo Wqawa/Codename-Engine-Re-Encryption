@@ -8,17 +8,15 @@ import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 
 /**
- * The CNEZ container: a chunked tag layout.
+ * CNEZ container. Payload is cut into 1 MiB chunks, one HMAC each, in a table after
+ * the header and covered by a root tag.
  *
- * One tag over the whole payload would have to hash every byte before the first asset
- * could load - measured at several times the cost of decrypting that same payload -
- * and nothing on the first screen needs all of it.
+ * Why chunks: a single tag over the whole file means hashing every byte before the
+ * first asset loads, which measured several times the cost of decrypting that same
+ * file. Opening a pack now checks the header and table only; a chunk gets checked
+ * when something reads through it.
  *
- * So the ciphertext is split into fixed size chunks with one tag per chunk in a table
- * next to the header. Opening a pack verifies only the header and that table (a few
- * KB); a chunk is verified the first time something reads through it. The table is
- * covered by a root tag, so chunk tags cannot be swapped or dropped without failing
- * the root check.
+ * The price is that damage shows up when the damaged chunk is read, not on open.
  *
  * Layout (little endian):
  *   0..3    magic "CNEZ"
@@ -33,12 +31,8 @@ import haxe.io.BytesBuffer;
  *   ...     root tag: HMAC-SHA256 over bytes 0 .. end of table
  *   ...     ChaCha20 ciphertext of the raw .zip bytes
  *
- * Trade-off, stated plainly: a corrupted byte is caught when the chunk containing it
- * is first read, not when the pack is opened, so a pack can run for a while before a
- * damaged region is touched. The root tag still proves the table was not tampered with.
- *
- * (An earlier single-tag layout existed while this was being built and was removed
- * before release, so there is no compatibility branch for it - see VERSION.)
+ * There used to be a single-tag layout while this was being built. It never shipped
+ * and is gone; VERSION stays 2 because the number is already inside every packed file.
  */
 
 /** What `open` hands out: everything needed to verify and read chunks lazily. */

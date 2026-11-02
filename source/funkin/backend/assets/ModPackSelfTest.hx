@@ -8,20 +8,17 @@ import haxe.zip.Entry;
 import haxe.zip.Writer;
 
 /**
- * Round trip checks for the CNEZ container, run from the editor's Tools menu.
+ * Container checks, run from the editor's Tools menu.
  *
- * The container is the one part of this feature that cannot be judged by looking at
- * the screen: a pack that decrypts to the wrong bytes still opens, it just plays the
- * wrong thing. Everything here is built in memory and asserted on bytes, so a change
- * to the layout, the keystream or the key derivation shows up as a FAIL line instead
- * of as a broken mod.
+ * A pack that decrypts to the wrong bytes still opens, it just plays the wrong thing,
+ * so nothing here looks at the screen. Each check builds a container in memory and
+ * compares bytes.
  *
- * The container checks its header and chunk table on open and verifies a payload chunk
- * when it is first read, so one check below damages a payload byte and asserts exactly
- * that: open still succeeds, reading does not.
+ * The last one damages a payload byte and expects open to succeed while reading fails -
+ * that is the contract the chunk table gives.
  *
- * Output shape matches ScriptContainerSelfTest: one "ok"/"FAIL" line per check plus a
- * "N passed, M failed" summary the editor can test with indexOf.
+ * Same output shape as ScriptContainerSelfTest: "ok"/"FAIL" lines and an
+ * "N passed, M failed" summary.
  */
 class ModPackSelfTest {
 	/** Long enough that the first keystream block is a meaningful probe. */

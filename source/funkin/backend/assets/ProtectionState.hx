@@ -6,17 +6,11 @@ import funkin.options.Options;
 import haxe.io.Bytes;
 
 /**
- * Whether the loaded mod runs in protection mode.
+ * Protection mode for the loaded mod.
  *
- * A pack author can drop `data/cne_protect.dat` into the archive (the encryption editor
- * does it when the box is ticked). When that pack loads, protection mode turns on:
- * developer mode is switched off and the option is locked grey until the pack's own
- * password turns it back off.
- *
- * Scope, honestly: this is a speed bump for the player of a mod, not a security
- * boundary. It stops the developer menu from being one keypress away and makes turning
- * it back on cost a password; anyone who edits the pack or the executable walks around
- * it. The pack key is never involved - the marker stores a salted digest, not the key.
+ * A pack carrying `data/cne_protect.dat` turns it on: developer mode goes off and the
+ * option locks until the pack's password unlocks it. Packs without a marker leave the
+ * setting alone.
  */
 class ProtectionState {
 	/** True when the loaded mod is an encrypted pack carrying a marker. */
@@ -26,6 +20,8 @@ class ProtectionState {
 
 	static var mark:ProtectionData = null;
 	static var packName:String = null;
+	/** Developer mode as it was before the lock took it, so it can be handed back. */
+	static var devModeBefore:Bool = false;
 	/** Password handed in on the command line, applied once a pack with a marker loads. */
 	static var pendingUnlock:String = null;
 	static inline var ARG:String = '--unlock-protection=';
@@ -50,6 +46,7 @@ class ProtectionState {
 
 	/** Called when the mod goes away, so a stale lock cannot follow the player. */
 	public static function reset():Void {
+		if (active) Options.devMode = devModeBefore;
 		available = false;
 		active = false;
 		mark = null;
@@ -106,9 +103,11 @@ class ProtectionState {
 	 * default (off), which is what the option looked like before the pack loaded.
 	 */
 	static function lock(on:Bool):Void {
+		if (on && !active) devModeBefore = Options.devMode;
 		active = on;
 		Options.protectionMode = on;
 		if (on) Options.devMode = false;
+		else Options.devMode = devModeBefore;
 	}
 
 	/**
