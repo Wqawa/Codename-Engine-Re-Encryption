@@ -610,6 +610,35 @@ function Get-LibraryStatus {
     }
 }
 
+# building/libs.xml installs almost every library with <git name=".." url=".."/>, which
+# haxelib turns into "git clone", and the engine embeds the commit hash/date at compile
+# time through source/funkin/backend/system/macros/GitCommitMacro.hx. The second one
+# only degrades (the in-game build info becomes "-"), the first one fails outright.
+function Find-GitExe {
+    $command = Get-Command git -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($command) { return $command.Source }
+
+    # a Git installed after this console was opened is not on PATH yet - look where the
+    # Git for Windows installer puts it before giving up
+    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) | Where-Object { $_ }
+    foreach ($root in $roots) {
+        foreach ($relative in @('Git\cmd\git.exe', 'Git\bin\git.exe', 'Programs\Git\cmd\git.exe')) {
+            $path = Join-Path $root $relative
+            if (Test-Path -LiteralPath $path) { return $path }
+        }
+    }
+    return $null
+}
+
+function Get-GitVersion {
+    param([string]$GitExe)
+    if (-not $GitExe) { return $null }
+    $out = & $GitExe --version 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
+    return ([string]($out | Select-Object -First 1)).Trim()
+}
+
 # Installs the missing libraries with the engine's own setup command ("cne setup",
 # what building/setup-windows.bat used to run), then re-checks. Returns $true when
 # that command was actually started.
@@ -625,6 +654,19 @@ function Repair-Libraries {
         Write-Log "installing the missing libraries with the engine's setup command" 'WARN'
     }
     Write-Log 'it walks building\libs.xml and can take a while' 'INFO'
+
+    if (-not $script:GitExe) {
+        # every <git .../> entry becomes "haxelib git <name> <url>", i.e. a git clone;
+        # without git the setup command fails and leaves .haxelib half-installed
+        Write-Log 'the setup command needs git: every library in building\libs.xml is fetched with "haxelib git"' 'ERR'
+        Write-Log 'install Git first, then run Build.bat again:' 'INFO'
+        Write-Log '  winget install --id Git.Git -e        (or https://git-scm.com/download/win)' 'INFO'
+        if ($DryRun) {
+            Write-Log '[dryrun] a real run would stop here' 'DRY'
+            return $false
+        }
+        throw 'git is not installed, so the libraries cannot be installed'
+    }
 
     # --ignore-sum: the setup command skips everything when building\libs.xml matches
     #   the .sum file the last successful run wrote - which is exactly the state we
@@ -819,7 +861,7 @@ function Get-ErrorAdvice {
     $errorLines = @()
     if (Test-Path -LiteralPath $LogPath) {
         $errorLines = Get-Content -LiteralPath $LogPath |
-            Where-Object { $_ -match 'error:|Error:|LNK\d{4}|Could not find|cannot open file' } |
+            Where-Object { $_ -match 'error:|Error:|LNK\d{4}|Could not find|cannot open file|fatal:|Unable to' } |
             Select-Object -First 25
     }
     if ($errorLines.Count -eq 0) { return }
@@ -843,6 +885,12 @@ function Get-ErrorAdvice {
     }
     if ($all -match 'Primitive not found|Uncaught exception') {
         [void]$advice.Add('lime 命令行字节码比源码旧：删掉 .haxelib\lime\<版本>\tools\tools.n 后重跑，脚本会自动重编它。')
+    }
+    if ($all -match 'git.*not found|git.*not recognized|haxelib git') {
+        [void]$advice.Add('缺 git：装 Git for Windows（winget install --id Git.Git -e），再跑 Build.bat -Setup 补库。')
+    }
+    if ($all -match 'fatal: unable to access|SSL certificate problem|schannel|proxy') {
+        [void]$advice.Add('git 拉库连不上/证书被替换：检查系统代理（加速器、抓包工具会换证书），或给 git 指定可信任的 CA。')
     }
     if ($all -match 'cl\.exe|msvc|Visual Studio|vsvars') {
         [void]$advice.Add('缺 MSVC：安装 Visual Studio Build Tools 的"使用 C++ 的桌面开发"工作负载。')
@@ -910,6 +958,29 @@ try {
         $version = Get-HaxeVersionOf $haxeExe
         if (-not $version) { throw "haxe.exe at $haxeExe does not run - delete building\toolchain and try again" }
         Write-Log "haxe --version -> $version" 'OK'
+    }
+
+    # git: needed to install the libraries (haxelib git) and, at compile time, to embed
+    # the commit hash/date (GitCommitMacro). A Git that is installed but not on PATH yet
+    # only needs its folder prepended for this run.
+    $script:GitExe = Find-GitExe
+    $gitVersion = Get-GitVersion -GitExe $script:GitExe
+    if ($gitVersion) {
+        Write-Log "git --version -> $gitVersion"
+        $gitDir = Split-Path -Parent $script:GitExe
+        if (-not $DryRun -and $env:Path -notlike "*$gitDir*") { $env:Path = "$gitDir;$env:Path" }
+        # the in-game build info (GitCommitMacro) reads this working copy: a folder
+        # without .git still compiles, but the version/hash fall back to "-"
+        $insideWorkTree = @(& $script:GitExe rev-parse --is-inside-work-tree 2>$null) -contains 'true'
+        $shallow = @(& $script:GitExe rev-parse --is-shallow-repository 2>$null) -contains 'true'
+        if (-not $insideWorkTree) {
+            Write-Log 'this folder is not a git checkout - the in-game build info will show "-"' 'WARN'
+        } elseif ($shallow) {
+            Write-Log 'shallow git checkout - the in-game commit count/hash will be incomplete' 'WARN'
+        }
+    } else {
+        $script:GitExe = $null
+        Write-Log 'git not found - installing libraries and the in-game build info need it' 'WARN'
     }
 
     # 0 - passthrough -------------------------------------------------------

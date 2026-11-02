@@ -86,6 +86,33 @@ die()  { err "FAILED: $*"; [ -n "$LOG_FILE" ] && printf 'FAILED: %s\n' "$*" >>"$
 # ---------------------------------------------------------------- helpers
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# building/libs.xml installs almost every library with <git name=".." url=".."/>, which
+# haxelib turns into "git clone", and the engine embeds the commit hash/date at compile
+# time (source/funkin/backend/system/macros/GitCommitMacro.hx). The second one only
+# degrades to "-", the first one fails outright.
+git_version() { # version line when git is usable
+    have git || return 1
+    git --version 2>/dev/null | head -n1
+}
+
+require_git() { # why it is needed, for the message
+    local version
+    if version="$(git_version)"; then
+        ok "git --version -> $version"
+        return 0
+    fi
+    err 'git is not installed (or not on PATH)'
+    log "  $*"
+    log '  every library in building/libs.xml is fetched with "haxelib git", which runs the git command'
+    log '  install git, then run this script again:'
+    log '    Debian/Ubuntu : sudo apt-get install -y git'
+    log '    Fedora        : sudo dnf install -y git'
+    log '    Arch          : sudo pacman -S git'
+    log '    macOS         : xcode-select --install   (or: brew install git)'
+    return 1
+}
+
+
 confirm() { # question, default(1=yes)
     local question="$1" default="${2:-1}" answer
     if [ "$ASSUME_YES" -eq 1 ]; then [ "$default" -eq 1 ]; return $?; fi
@@ -220,6 +247,20 @@ if [ "$DRY_RUN" -eq 0 ]; then
     ok "$(haxe --version 2>&1 | head -n1 | sed 's/^/haxe --version -> /')"
 fi
 
+# git: needed to install the libraries (haxelib git) and, at compile time, to embed the
+# commit hash/date. A build with everything vendored works without it, so only warn here.
+if version="$(git_version)"; then ok "git --version -> $version"; else
+    warn 'git not found - installing libraries and the in-game build info need it'
+fi
+if have git; then
+    # the in-game build info (GitCommitMacro) reads this working copy
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        warn 'this folder is not a git checkout - the in-game build info will show "-"'
+    elif [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+        warn 'shallow git checkout - the in-game commit count/hash will be incomplete'
+    fi
+fi
+
 # ---------------------------------------------------------------- 2 libraries
 step '2/6 libraries (repository-local .haxelib)'
 export HAXELIB_PATH="$REPO_ROOT/.haxelib"
@@ -232,6 +273,7 @@ done
 if [ -n "$missing" ]; then
     warn "the vendored library folder is missing:$missing"
     log 'running the setup command (installs everything listed in building/libs.xml)'
+    require_git 'installing the missing libraries needs git' || die 'git is missing - install it and run this script again'
     run haxe -cp commandline -D analyzer-optimize --run Main setup -si --no-vscheck || die 'the library setup failed'
     [ "$DRY_RUN" -eq 1 ] || ok 'libraries installed'
     # same rule as Build.bat: only ask when something really had to be repaired

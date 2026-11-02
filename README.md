@@ -72,10 +72,16 @@ haxelib run lime build windows -nocolor
 The result is `export/release/windows/bin/CodenameEngine.exe`. Only a clean compile is verified by
 the maintainer; in-game behaviour is tested manually.
 
+`git` is part of the toolchain: [`building/libs.xml`](building/libs.xml) fetches almost every library
+with `haxelib git`, and the engine embeds the commit hash/date at compile time
+(`source/funkin/backend/system/macros/GitCommitMacro.hx`). With all libraries vendored the build still
+succeeds without git, but the in-game build info falls back to `-`; installing a missing library needs
+git outright.
+
 A one-click alternative lives in [`building/Build.bat`](building/Build.bat): it finds or downloads
 Haxe + Neko, checks the vendored `.haxelib` libraries against [`building/libs.xml`](building/libs.xml)
 and `project.xml` — installing whatever is missing with the engine's own `setup` command, then
-re-checking — checks the lime native library and MSVC, builds, and reports the result. It asks
+re-checking — checks git, the lime native library and MSVC, builds, and reports the result. It asks
 whether to start the build only when it actually had to install libraries; a complete checkout
 compiles straight away. `-Setup` installs/repairs libraries only, `-Ask` always asks.
 
