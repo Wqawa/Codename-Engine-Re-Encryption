@@ -37,6 +37,9 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	var keyHandler:KeyboardEvent->Void;
 	var textHandler:String->Void;
 
+	/** True while a box is up, so a second click cannot stack another one. */
+	public static var isOpen:Bool = false;
+
 	public function new(onDone:Bool->Void) {
 		super();
 		this.onDone = onDone;
@@ -44,6 +47,7 @@ class ProtectionUnlockSubstate extends FlxSubState {
 
 	override function create() {
 		super.create();
+		isOpen = true;
 
 		final w = 560.0;
 		final h = 250.0;
@@ -105,6 +109,12 @@ class ProtectionUnlockSubstate extends FlxSubState {
 		}
 	}
 
+	override function destroy() {
+		// a box torn down without going through finish() must not keep the flag up
+		isOpen = false;
+		super.destroy();
+	}
+
 	function onTextInput(text:String):Void {
 		if (closed || text == null) return;
 		for (i in 0...text.length) {
@@ -146,6 +156,7 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	function finish(ok:Bool):Void {
 		if (closed) return;
 		closed = true;
+		isOpen = false;
 		Lib.application.window.onTextInput.remove(textHandler);
 		FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
 		if (onDone != null) onDone(ok);

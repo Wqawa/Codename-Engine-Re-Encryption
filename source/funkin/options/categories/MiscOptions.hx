@@ -16,7 +16,14 @@ class MiscOptions extends TreeMenuScreen {
 			// select() already flipped the box, so every branch puts it back first
 			protect.checked = true;
 			Options.protectionMode = true;
+
+			Logs.trace('Protection option clicked: active=' + state.active + ' available=' + state.available
+				+ ' boxOpen=' + funkin.menus.ProtectionUnlockSubstate.isOpen, INFO);
+
 			if (!state.active || FlxG.state == null) return;
+			// a second click used to stack another box on top, and the one underneath kept
+			// its key listeners alive after being closed
+			if (funkin.menus.ProtectionUnlockSubstate.isOpen) return;
 
 			FlxG.state.openSubState(new funkin.menus.ProtectionUnlockSubstate(function(ok:Bool) {
 				if (!ok) return;
