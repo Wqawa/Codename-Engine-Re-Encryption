@@ -208,18 +208,20 @@ class Main extends Sprite
 			if (FlxG.state == null) return false;
 
 			// The window event fires outside the update loop; switching state from here
-			// left the engine halfway between two states. Queue it for the next frame.
+			// left the engine halfway between two states. Queue it for the next frame -
+			// but make sure a frame actually arrives. A window closed from the taskbar is
+			// not focused, and the queued frame is exactly what may never be delivered.
 			cleanupQueued = true;
-			try {
-				FlxG.signals.preUpdate.addOnce(function() {
-					cleanupQueued = false;
-					if (FlxG.state == null) return;
-					FlxG.switchState(new funkin.menus.ModPackCleanupState());
-				});
-			} catch (e:Dynamic) {
+			FlxG.autoPause = false;
+			WindowUtils.runOnNextFrameOrExit(function() {
 				cleanupQueued = false;
-				Logs.error('Could not queue the cleanup screen: ' + e);
-			}
+				if (FlxG.state == null) {
+					// no state to put a screen in front of; the exit hook still wipes
+					openfl.system.System.exit(0);
+					return;
+				}
+				FlxG.switchState(new funkin.menus.ModPackCleanupState());
+			});
 			return true;
 		});
 	}

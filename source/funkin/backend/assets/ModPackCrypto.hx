@@ -982,12 +982,16 @@ class ModPackCrypto {
 			__closePromptQueued = true;
 			preparePaused = true;
 			// the window event fires outside the update loop, so the prompt is opened on the
-			// next frame instead of from inside the event
-			flixel.FlxG.signals.preUpdate.addOnce(function() {
+			// next frame - and if that frame never comes (a window closed from the taskbar
+			// is not focused), the game exits instead of leaving the window vetoed with
+			// nothing on screen
+			funkin.backend.utils.WindowUtils.runOnNextFrameOrExit(function() {
 				__closePromptQueued = false;
 				var state = flixel.FlxG.state;
 				if (state == null) {
+					// the worker is paused; with no screen to ask on, stopping beats hanging
 					preparePaused = false;
+					openfl.system.System.exit(0);
 					return;
 				}
 				state.openSubState(new funkin.editors.ui.UIWarningSubstate(

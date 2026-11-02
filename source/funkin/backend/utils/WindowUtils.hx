@@ -64,6 +64,53 @@ final class WindowUtils {
 		onCloseVeto.push(handler);
 	}
 
+	/** Tells a queued frame apart from a stale one (see runOnNextFrameOrExit). */
+	static var __frameToken:Int = 0;
+
+	/**
+	 * Runs `action` on the next frame, and exits the game if no frame arrives.
+	 *
+	 * A close request arrives on the window event, which runs outside the update loop.
+	 * Switching state from there left the engine half way between two states, so the
+	 * work has to be queued for a frame. The catch: that queue only runs if a frame is
+	 * delivered, and a window that is minimized, unfocused or otherwise not drawing may
+	 * never deliver one. By then the window is already vetoed, so the process stays
+	 * alive with a frozen picture - the game looks locked. Closing the window from the
+	 * taskbar is exactly that case: the window is not focused when the request arrives.
+	 *
+	 * Exiting inside the timeout is a last resort. The exit hook still wipes what the
+	 * cleanup screen would have wiped; it just does it without showing progress.
+	 */
+	public static function runOnNextFrameOrExit(action:Void->Void, timeoutMs:Int = 3000):Void {
+		if (action == null) return;
+		var token = ++__frameToken;
+		try {
+			flixel.FlxG.signals.preUpdate.addOnce(function() {
+				__frameToken++;
+				action();
+			});
+		} catch (e:Dynamic) {
+			Logs.error('Could not queue a frame for the close path: ' + e);
+			__frameToken++;
+			action();
+			return;
+		}
+
+		haxe.Timer.delay(function() {
+			if (__frameToken != token) return; // the frame made it, nothing to do
+			Logs.warn('No frame arrived after a close request; exiting directly so the window cannot hang.');
+			try {
+				openfl.system.System.exit(0);
+			} catch (e:Dynamic) {
+				// the window may already be gone by now, so nothing is left to dispatch
+				// the exit through; stopping the process is the only thing that helps
+				#if sys
+				Sys.exit(0);
+				#end
+			}
+		}, timeoutMs);
+	}
+
 	/**
 	 * Resets the preventClosing to keep prevent the main game application window from closing.
 	 * see WindowUtils.preventClosing
