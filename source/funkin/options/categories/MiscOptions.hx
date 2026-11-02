@@ -6,7 +6,11 @@ class MiscOptions extends TreeMenuScreen {
 	public function new() {
 		super('optionsTree.miscellaneous-name', 'optionsTree.miscellaneous-desc', 'MiscOptions.');
 
-		add(new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode'));
+		// Locked while a pack asks for protection mode: the value is already forced off,
+		// and a box that can be ticked would look like the setting still works.
+		var dev = new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode');
+		dev.locked = funkin.backend.assets.ProtectionState.isLocked();
+		add(dev);
 
 		// Sits next to devMode because it is what switches devMode off. A pack carrying a
 		// protection marker locks it; clicking asks for that pack's password.
