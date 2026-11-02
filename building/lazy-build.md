@@ -162,7 +162,7 @@ haxelib run lime build windows -nocolor
 
 ## Linux / macOS：`build-linux.sh` / `build-macos.sh`
 
-`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译；第 3 步也会像 Windows 那样探测 `haxelib run lime`，发现 lime 自带的命令行字节码 `tools/tools.n` 比源码旧（`Primitive not found`）就自动重编。第 1 步会打印 `git --version`；没有 git 时会尝试自动装（Linux 用 `apt-get`/`dnf`/`pacman`/`apk`，仅当已是 root 或免密 sudo 可用；macOS 用 `brew`），装不上才给手工命令。`.haxelib` 缺库时必须有 git（`haxelib git`），否则脚本带着安装命令停下，不会留下装了一半的 `.haxelib`：
+`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译；第 3 步也会像 Windows 那样探测 `haxelib run lime`，发现 lime 自带的命令行字节码 `tools/tools.n` 比源码旧（`Primitive not found`）就自动重编。第 1 步会打印 `git --version`；没有 git 时会尝试自动装（Linux 用 `apt-get`/`dnf`/`pacman`/`apk`，仅当已是 root 或免密 sudo 可用；macOS 用 `brew`，没有 brew 就退到 `xcode-select --install`），装不上才给手工命令。`.haxelib` 缺库时必须有 git（`haxelib git`），否则脚本带着安装命令停下，不会留下装了一半的 `.haxelib`：
 
 ```bash
 ./building/build-linux.sh                     # 增量构建

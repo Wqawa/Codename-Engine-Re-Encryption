@@ -107,18 +107,34 @@ git_version() { # version line when git is usable
 }
 
 # Same idea as Build.bat: a missing git is installed instead of being left to the user.
-# Windows unpacks the portable MinGit; on macOS homebrew can do it without a password.
+# Windows unpacks the portable MinGit; macOS uses homebrew, which needs no password.
 install_git() { # returns 0 when git is usable afterwards
     if [ "$DRY_RUN" -eq 1 ]; then
-        log '[dryrun] git would be installed now (brew install git)'
+        log '[dryrun] git would be installed now (brew install git; xcode-select if brew is missing)'
         return 1
     fi
+
     if have brew; then
         log 'installing git with homebrew'
-        brew install git && have git && return 0
-        return 1
+        brew install git || warn 'brew install git failed'
+        # a fresh install lands in the brew prefix, which is not always on PATH yet
+        local dir
+        for dir in "$(brew --prefix 2>/dev/null)/bin" /opt/homebrew/bin /usr/local/bin; do
+            [ -n "$dir" ] && [ -d "$dir" ] || continue
+            case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH" ;; esac
+        done
+        export PATH
+        have git && return 0
     fi
-    warn 'homebrew not found - install git with: xcode-select --install   (or: brew install git)'
+
+    # no homebrew: the Apple stub at /usr/bin/git can pull the command line tools, but
+    # that ends in a dialog the user has to finish, so it is the last resort
+    if have xcode-select; then
+        log 'asking for the command line tools (xcode-select --install) - finish the dialog'
+        xcode-select --install >/dev/null 2>&1 || true
+    fi
+    have git && return 0
+    warn 'git is still missing - install it by hand: xcode-select --install   (or: brew install git)'
     return 1
 }
 
