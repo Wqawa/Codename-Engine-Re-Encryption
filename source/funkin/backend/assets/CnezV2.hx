@@ -188,6 +188,47 @@ class CnezV2 {
 		return same(ScriptCrypto.hmacTag(o.mac, chunk), tag);
 	}
 
+	/**
+	 * Cheap "does this key open that file" check, without loading the pack.
+	 *
+	 * Reads the header, the chunk table and the root tag - a few KB - and checks the
+	 * root tag. Version 1 could get away with decrypting four bytes at a fixed offset,
+	 * because its payload starts right after a 40 byte header; in version 2 the payload
+	 * sits behind a table whose size depends on the pack, so a fixed offset lands in
+	 * that table and decrypts a header field instead of zip data. The root tag is both
+	 * the cheapest and the strongest thing to look at here.
+	 */
+	public static function verifyKeyFile(path:String, ?pass:String):Bool {
+		#if sys
+		if (pass == null) return false;
+		try {
+			var handle = sys.io.File.read(path, true);
+			var head = handle.read(HEADER_SIZE);
+			if (head == null || head.length < HEADER_SIZE || head.get(4) != VERSION) {
+				handle.close();
+				return false;
+			}
+
+			var count = readInt32(head, 44);
+			// a table larger than this cannot belong to a real pack; refuse before allocating
+			if (count <= 0 || count > 1 << 20) {
+				handle.close();
+				return false;
+			}
+
+			var tableSize = count * TAG_SIZE;
+			var table = handle.read(tableSize);
+			var root = handle.read(TAG_SIZE);
+			handle.close();
+			if (table == null || table.length < tableSize || root == null || root.length < TAG_SIZE) return false;
+
+			var keys = ScriptCrypto.deriveKeys(pass, head.sub(8, SALT_SIZE));
+			return same(ScriptCrypto.hmacTag(keys.mac, concat(head, table)), root);
+		} catch (e:Dynamic) {}
+		#end
+		return false;
+	}
+
 	// ------------------------------------------------------------------ helpers
 
 	static function countFor(length:Int, chunkSize:Int):Int {

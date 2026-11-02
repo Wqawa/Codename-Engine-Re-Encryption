@@ -367,8 +367,12 @@ class ModPackCrypto {
 				var head = handle.read(HEADER_SIZE);
 				var probe = handle.read(4);
 				handle.close();
-				if (head == null || head.length < HEADER_SIZE || probe == null || probe.length < 4)
-					return false;
+				if (head == null || head.length < HEADER_SIZE) return false;
+				// A version 2 payload starts behind a variable-size chunk table, so the
+				// four byte probe below would decrypt a header field (the chunk size)
+				// and every key would look wrong. Ask the container itself instead.
+				if (head.get(4) == CnezV2.VERSION) return CnezV2.verifyKeyFile(zipPath, pass);
+				if (probe == null || probe.length < 4) return false;
 				var keys = ScriptCrypto.deriveKeys(pass, head.sub(8, SALT_SIZE));
 				var plain = ChaCha20.xorBytes(keys.enc, head.sub(24, NONCE_SIZE), 1, probe);
 				// every zip magic (local header, empty archive, spanning marker) starts with "PK"
