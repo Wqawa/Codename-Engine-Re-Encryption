@@ -15,6 +15,15 @@ import lime.ui.FileDialog;
 import lime.ui.FileDialogFilter;
 import sys.io.File;
 
+/** One queued pack job; the queue lets a multi-file pick run back to back. */
+typedef PackTask = {
+	var kind:Int;
+	var src:String;
+	var out:String;
+	var key:String;
+	var standard:Bool;
+}
+
 /**
  * General purpose encryption tool, reachable from the editor picker (F7 menu).
  *
@@ -41,6 +50,14 @@ class EncryptionEditor extends UIState {
 
 	public var fileDialogOpen:Bool = false;
 	public var lastDirectory:String = null;
+
+	/**
+	 * Packs waiting for the worker, oldest first.
+	 *
+	 * The job itself is single-slot (startPackJob refuses while one runs), so a pick
+	 * with more than one file is expanded here and fed one at a time by pumpPackQueue.
+	 */
+	var packQueue:Array<PackTask> = [];
 
 	/** 0 = CNEZ container (strong), 1 = standard AES-256 password zip. */
 	public var packModeStrong:UIRadioButton;
@@ -135,7 +152,7 @@ class EncryptionEditor extends UIState {
 					{label: "Mod Pack tab", onSelect: (_) -> showTab(TAB_MODPACK)},
 					{label: "Scripts tab", onSelect: (_) -> showTab(TAB_SCRIPTS)},
 					null,
-					{label: "Self test: script container", onSelect: (_) -> runSelfTest()}
+					{label: "Self test: containers (scripts + mod packs)", onSelect: (_) -> runSelfTest()}
 				]
 			},
 			{
@@ -804,13 +821,93 @@ class EncryptionEditor extends UIState {
 			return;
 		}
 		fileDialogOpen = true;
-		FileDialog.openFile(FlxG.stage.window, "Choose the mod pack (.zip) to encrypt", function(files, filter) {
+		FileDialog.openFile(FlxG.stage.window, "Choose the mod pack(s) (.zip) to encrypt", function(files, filter) {
 			if (files == null || files.length == 0) {
 				fileDialogOpen = false;
 				return;
 			}
+			if (files.length > 1) {
+				fileDialogOpen = false;
+				batchPack(files, true);
+				return;
+			}
 			encryptModPackFile(files[0]);
-		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory);
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory, true);
+	}
+
+	/** Why this file cannot be encrypted, or null when it can. */
+	function encryptProblem(path:String):String {
+		try {
+			if (ModPackCrypto.isEncryptedPackFile(path))
+				return "That file is already an encrypted (CNEZ) mod pack: " + Path.withoutDirectory(path);
+			var handle = File.read(path, true);
+			var head = handle.read(4);
+			handle.close();
+			if (head == null || head.length < 4 || head.get(0) != 0x50 || head.get(1) != 0x4B)
+				return "That file is not a zip archive: " + Path.withoutDirectory(path);
+		} catch (e:Dynamic) {
+			return "Cannot read " + path + ": " + Std.string(e);
+		}
+
+		if (ZipPassword.isProtected(path))
+			return "That zip is already password protected. Remove its password first, the exporter needs a plain zip.";
+		return null;
+	}
+
+	/** Why this file cannot be decrypted, or null when it can. */
+	function decryptProblem(path:String):String {
+		var container = ModPackCrypto.isEncryptedPackFile(path);
+		var protectedZip = !container && ZipPassword.isProtected(path);
+		if (!container && !protectedZip)
+			return "Nothing to decrypt: " + Path.withoutDirectory(path) + " is already a plain zip.";
+		return null;
+	}
+
+	/**
+	 * Expands a multi-file pick into queued jobs.
+	 *
+	 * The single-file path asks where to save, because that is the moment the user is
+	 * thinking about the output. Asking once per file would turn a batch into a dialog
+	 * storm, so a batch writes next to every source instead (`name_encrypted.zip`,
+	 * `name_password.zip`, `name_decrypted.zip`) and says so once in the status line.
+	 */
+	function batchPack(files:Array<String>, encrypt:Bool) {
+		var standard = currentPackMode == 1;
+		var queued = 0;
+		var skipped = 0;
+		var firstProblem:String = null;
+
+		for (path in files) {
+			if (path == null || path.length == 0) continue;
+			var problem = encrypt ? encryptProblem(path) : decryptProblem(path);
+			if (problem != null) {
+				skipped++;
+				if (firstProblem == null) firstProblem = problem;
+				continue;
+			}
+			packQueue.push({
+				kind: encrypt ? JOB_ENCRYPT : JOB_DECRYPT,
+				src: path,
+				out: siblingPath(path, "zip", encrypt ? (standard ? "_password" : "_encrypted") : "_decrypted"),
+				key: packKey(path),
+				standard: standard && encrypt
+			});
+			queued++;
+		}
+
+		if (queued == 0) {
+			status(firstProblem != null ? firstProblem : "Nothing to do - no usable .zip in that selection.");
+			return;
+		}
+		status('$queued pack(s) queued' + (skipped > 0 ? ', $skipped skipped' : '') + ' - each one is written next to its source file.');
+		pumpPackQueue();
+	}
+
+	/** Starts the next queued pack when the worker is free. */
+	function pumpPackQueue() {
+		if (jobActive || packQueue.length == 0) return;
+		var t = packQueue.shift();
+		startPackJob(t.kind, t.src, t.out, t.key, t.standard);
 	}
 
 	function encryptModPackFile(path:String) {
@@ -818,25 +915,9 @@ class EncryptionEditor extends UIState {
 		var key = packKey(path);
 		var standard = currentPackMode == 1;
 
-		try {
-			if (ModPackCrypto.isEncryptedPackFile(path)) {
-				status("That file is already an encrypted (CNEZ) mod pack.");
-				return;
-			}
-			var handle = File.read(path, true);
-			var head = handle.read(4);
-			handle.close();
-			if (head == null || head.length < 4 || head.get(0) != 0x50 || head.get(1) != 0x4B) {
-				status("That file is not a zip archive.");
-				return;
-			}
-		} catch(e:Dynamic) {
-			status("Cannot read " + path + ": " + Std.string(e));
-			return;
-		}
-
-		if (ZipPassword.isProtected(path)) {
-			status("That zip is already password protected. Remove its password first, the exporter needs a plain zip.");
+		var problem = encryptProblem(path);
+		if (problem != null) {
+			status(problem);
 			return;
 		}
 
@@ -863,23 +944,27 @@ class EncryptionEditor extends UIState {
 			return;
 		}
 		fileDialogOpen = true;
-		FileDialog.openFile(FlxG.stage.window, "Choose the encrypted mod pack (.zip) to decrypt", function(files, filter) {
+		FileDialog.openFile(FlxG.stage.window, "Choose the encrypted mod pack(s) (.zip) to decrypt", function(files, filter) {
 			if (files == null || files.length == 0) {
 				fileDialogOpen = false;
 				return;
 			}
+			if (files.length > 1) {
+				fileDialogOpen = false;
+				batchPack(files, false);
+				return;
+			}
 			decryptModPackFile(files[0]);
-		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory);
+		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], lastDirectory, true);
 	}
 
 	function decryptModPackFile(path:String) {
 		fileDialogOpen = false;
 		if (path == null) return;
 
-		var container = ModPackCrypto.isEncryptedPackFile(path);
-		var protectedZip = !container && ZipPassword.isProtected(path);
-		if (!container && !protectedZip) {
-			status("Nothing to decrypt: " + Path.withoutDirectory(path) + " is already a plain zip.");
+		var problem = decryptProblem(path);
+		if (problem != null) {
+			status(problem);
 			return;
 		}
 
@@ -989,6 +1074,8 @@ class EncryptionEditor extends UIState {
 				eachJobText(function(t) t.text = "100%  -  " + Path.withoutDirectory(jobOut) + " (" + amount + ").");
 				status((isEncryptKind(jobKind) ? "Encrypted " : "Decrypted ") + jobName + " to " + jobOut + " (" + amount + ").");
 			}
+			// a batch continues right away instead of letting the row fade first
+			pumpPackQueue();
 		} else if (!jobActive && jobHold > 0) {
 			jobHold -= elapsed;
 			if (jobHold <= 0) {
@@ -1093,15 +1180,26 @@ class EncryptionEditor extends UIState {
 	 * find a script that misbehaves. The details go to the log.
 	 */
 	function runSelfTest() {
-		var summary:String;
+		var scriptSummary:String;
+		var packSummary:String;
 		try {
-			summary = funkin.backend.scripting.bytecode.ScriptContainerSelfTest.run();
+			scriptSummary = funkin.backend.scripting.bytecode.ScriptContainerSelfTest.run();
 		} catch (e:Dynamic) {
-			status("Self test crashed: " + Std.string(e));
+			status("Script container self test crashed: " + Std.string(e));
+			return;
+		}
+		try {
+			packSummary = funkin.backend.assets.ModPackSelfTest.run();
+		} catch (e:Dynamic) {
+			status("Mod pack self test crashed: " + Std.string(e));
 			return;
 		}
 		for (line in funkin.backend.scripting.bytecode.ScriptContainerSelfTest.getLines())
 			Logs.trace(line, line.indexOf("FAIL") == 0 ? ERROR : INFO);
-		status("Container self test: " + summary + (summary.indexOf(" 0 failed") >= 0 ? "  -  all good" : "  -  see the log"));
+		for (line in funkin.backend.assets.ModPackSelfTest.getLines())
+			Logs.trace(line, line.indexOf("FAIL") == 0 ? ERROR : INFO);
+		var ok = scriptSummary.indexOf(" 0 failed") >= 0 && packSummary.indexOf(" 0 failed") >= 0;
+		status("Self test - scripts: " + scriptSummary + " | mod packs: " + packSummary
+			+ (ok ? "  -  all good" : "  -  see the log"));
 	}
 }
