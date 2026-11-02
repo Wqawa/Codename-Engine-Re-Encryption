@@ -22,27 +22,6 @@ class ProtectionState {
 	static var packName:String = null;
 	/** Developer mode as it was before the lock took it, so it can be handed back. */
 	static var devModeBefore:Bool = false;
-	/** Password handed in on the command line, applied once a pack with a marker loads. */
-	static var pendingUnlock:String = null;
-	static inline var ARG:String = '--unlock-protection=';
-
-	/**
-	 * Picks up `--unlock-protection=<password>`.
-	 *
-	 * There is no password prompt in the settings screen yet, so this is how a player who
-	 * knows the password turns protection mode off for a session. The value is only
-	 * checked once the pack that owns the marker is loaded, because that is where the
-	 * digest lives.
-	 */
-	public static function applyUnlockArgument(args:Array<String>):Void {
-		if (args == null) return;
-		for (a in args) {
-			if (a == null || !StringTools.startsWith(a, ARG)) continue;
-			var pass = a.substr(ARG.length);
-			if (pass.length > 0) pendingUnlock = pass;
-			return;
-		}
-	}
 
 	/** Called when the mod goes away, so a stale lock cannot follow the player. */
 	public static function reset():Void {
@@ -84,10 +63,6 @@ class ProtectionState {
 		packName = name;
 		available = true;
 		lock(true);
-
-		// a password given on the command line is checked here, where the digest is
-		if (pendingUnlock != null && unlock(pendingUnlock))
-			Logs.trace('Protection mode: unlocked from the command line for this session.', INFO);
 		#end
 	}
 

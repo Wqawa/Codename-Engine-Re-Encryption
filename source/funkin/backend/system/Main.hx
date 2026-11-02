@@ -165,12 +165,6 @@ class Main extends Sprite
 		// folder must not hold up the window.
 		IntegrityCheck.startVerify();
 
-		// `--unlock-protection=<password>` is the way to turn protection mode off when the
-		// loaded pack asks for it; checked again once that pack is open.
-		#if sys
-		funkin.backend.assets.ProtectionState.applyUnlockArgument(Sys.args());
-		#end
-
 		hscript.Interp.importRedirects = funkin.backend.scripting.Script.getDefaultImportRedirects();
 
 		#if GLOBAL_SCRIPT

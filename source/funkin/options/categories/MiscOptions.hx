@@ -9,16 +9,27 @@ class MiscOptions extends TreeMenuScreen {
 		add(new Checkbox(getNameID('devMode'), getDescID('devMode'), 'devMode'));
 
 		// Sits next to devMode because it is what switches devMode off. A pack carrying a
-		// protection marker locks it; clicking it cannot unlock - that needs the pack's
-		// password (see docs/PROTECTION.md), so the box snaps back.
+		// protection marker locks it; clicking asks for that pack's password.
 		var protect:Checkbox = null;
 		protect = new Checkbox(getNameID('protectionMode'), getDescID('protectionMode'), 'protectionMode', function() {
-			if (funkin.backend.assets.ProtectionState.active) {
-				protect.checked = true;
-				Options.protectionMode = true;
-			}
+			var state = funkin.backend.assets.ProtectionState;
+			// select() already flipped the box, so every branch puts it back first
+			protect.checked = true;
+			Options.protectionMode = true;
+			if (!state.active || FlxG.state == null) return;
+
+			FlxG.state.openSubState(new funkin.menus.ProtectionUnlockSubstate(function(ok:Bool) {
+				if (!ok) return;
+				protect.checked = false;
+				Options.protectionMode = false;
+				// unlocked for this session; the box goes grey because turning it back on
+				// would need the password again
+				protect.locked = true;
+			}));
 		});
-		protect.locked = !funkin.backend.assets.ProtectionState.available;
+		// Only clickable while actually locked: with no marker there is nothing to unlock,
+		// and once unlocked the pack cannot turn it back on without the password.
+		protect.locked = !(funkin.backend.assets.ProtectionState.available && funkin.backend.assets.ProtectionState.active);
 		add(protect);
 
 		add(new Checkbox(getNameID('allowConfigWarning'), getDescID('allowConfigWarning'), 'allowConfigWarning'));
