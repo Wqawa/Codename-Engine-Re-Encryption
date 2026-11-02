@@ -257,21 +257,6 @@ class ModSwitchMenu extends MusicBeatSubstate {
 					}
 				},
 				{
-					// the dialog names the files, so throwing them away is an informed choice
-					// instead of the only way to stop being asked
-					label: TU.translate("saveWarning.discard", null, "Discard Edits"),
-					color: 0xFF6B6B,
-					onClick: function(_) {
-						Logs.trace(funkin.backend.assets.ZipEditCache.discard(staged), INFO);
-						ModsFolder.switchMod(target);
-					}
-				},
-				{
-					label: TU.translate("saveWarning.switchWithout", null, "Switch Without Merging"),
-					color: 0x969533,
-					onClick: function(_) ModsFolder.switchMod(target)
-				},
-				{
 					label: TU.translate("saveWarning.mergeAndSwitch", null, "Merge & Switch"),
 					color: 0x969533,
 					onClick: function(_) {
@@ -279,6 +264,16 @@ class ModSwitchMenu extends MusicBeatSubstate {
 						// this callback froze the window for as long as it took, so it runs
 						// behind a progress screen and the switch continues from there
 						FlxG.switchState(new ModPackMergeState(staged, function() ModsFolder.switchMod(target)));
+					}
+				},
+				{
+					// the dialog names the files, so throwing them away is an informed choice
+					// instead of the only way to stop being asked
+					label: TU.translate("saveWarning.discardAndSwitch", null, "Discard & Switch"),
+					color: 0xFF6B6B,
+					onClick: function(_) {
+						Logs.trace(funkin.backend.assets.ZipEditCache.discard(staged), INFO);
+						ModsFolder.switchMod(target);
 					}
 				}
 			], false));
