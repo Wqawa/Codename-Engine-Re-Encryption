@@ -13,7 +13,8 @@
 
 | 组 | 文件 | 职责 |
 | --- | --- | --- |
-| **A. 容器与密钥** | `assets/ModPackCrypto.hx` | CNEZ 容器：pack/unpack/openEncrypted、密钥候选、失败标记、内存副本管理、退出清理 |
+| **A. 容器与密钥** | `assets/ModPackCrypto.hx` | CNEZ 容器入口：`pack`（v2）/`packV1`/`unpack`/`openEncrypted`、密钥候选、失败标记、内存副本管理、退出清理 |
+| | `assets/CnezV2.hx` | CNEZ v2 布局：分块 tag 表 + 根 tag + 按需校验；v1 的打包逻辑仍留在 `ModPackCrypto.packV1` |
 | | `scripting/crypto/ScriptCrypto.hx` | 密钥派生（SHA256 迭代 2048 轮）、HMAC tag、key token 编解码、脚本密钥文件 |
 | | `scripting/crypto/ChaCha20.hx` / `Aes.hx` / `Pbkdf2.hx` / `HmacSha1.hx` / `Sha1Stream.hx` | 纯 Haxe 密码学原语，不依赖原生库 |
 | | `scripting/protect/ProtectedBuffer.hx` / `SecureBytes.hx` / `OsEntropy.hx` / `Rng.hx` | 内存缓冲按需解密、擦除、随机源 |
