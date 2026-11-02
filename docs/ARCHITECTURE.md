@@ -13,8 +13,8 @@
 
 | 组 | 文件 | 职责 |
 | --- | --- | --- |
-| **A. 容器与密钥** | `assets/ModPackCrypto.hx` | CNEZ 容器入口：`pack`（v2）/`packV1`/`unpack`/`openEncrypted`、密钥候选、失败标记、内存副本管理、退出清理 |
-| | `assets/CnezV2.hx` | CNEZ v2 布局：分块 tag 表 + 根 tag + 按需校验；v1 的打包逻辑仍留在 `ModPackCrypto.packV1` |
+| **A. 容器与密钥** | `assets/ModPackCrypto.hx` | 容器入口：`pack`/`unpack`/`openEncrypted`、密钥候选、失败标记、内存副本管理、退出清理 |
+| | `assets/CnezV2.hx` | 唯一的容器布局：分块 tag 表 + 根 tag + 按需校验。早期单 tag 布局发布前已移除，无兼容分支 |
 | | `scripting/crypto/ScriptCrypto.hx` | 密钥派生（SHA256 迭代 2048 轮）、HMAC tag、key token 编解码、脚本密钥文件 |
 | | `scripting/crypto/ChaCha20.hx` / `Aes.hx` / `Pbkdf2.hx` / `HmacSha1.hx` / `Sha1Stream.hx` | 纯 Haxe 密码学原语，不依赖原生库 |
 | | `scripting/protect/ProtectedBuffer.hx` / `SecureBytes.hx` / `OsEntropy.hx` / `Rng.hx` | 内存缓冲按需解密、擦除、随机源 |
@@ -108,7 +108,7 @@ Main.hx:202       退出时 needsCleanup() → ModPackCleanupState 逐帧擦除
 | 数据 | 位置 | 生命周期 |
 | --- | --- | --- |
 | 加密包本体 | `mods/*.zip` | 永久，只读 |
-| 解密后的包 | **仅内存**（`SysZip` + `ProtectedBuffer`） | 退出时 `releaseZips()` 擦除 |
+| 解密后的包 | 内存（默认，`SysZip` + `ProtectedBuffer`）或原加密文件按需读取（低内存模式，`SysZip.fromCipherFile`） | 退出时释放缓冲 / 关闭文件句柄 |
 | 包内自带密钥 | `.cne/keys/.CNE_<包名>_key.txt` | 退出时删除 |
 | 解出来的视频 | `.cne/mods/<mod>/videos/` | 退出/切 mod 时删除 |
 | 编辑器撤销数据 | `.cne/temp/` | 退出时删除 |

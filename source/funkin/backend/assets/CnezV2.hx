@@ -8,18 +8,17 @@ import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 
 /**
- * CNEZ container, version 2: a chunked tag layout.
+ * The CNEZ container: a chunked tag layout.
  *
- * Version 1 keeps one HMAC over the whole payload, so opening a pack costs a full
- * pass over every byte before a single asset can be read - measured at roughly five
- * times the cost of decrypting that same payload. Nothing about the first screen
- * the player sees needs all of it.
+ * One tag over the whole payload would have to hash every byte before the first asset
+ * could load - measured at several times the cost of decrypting that same payload -
+ * and nothing on the first screen needs all of it.
  *
- * Version 2 splits the ciphertext into fixed size chunks and keeps one tag per
- * chunk in a table next to the header. Opening a pack verifies only the header and
- * that table (a few KB); a chunk is verified the first time something reads through
- * it. The table itself is covered by a root tag, so chunk tags cannot be swapped
- * or dropped without failing the root check.
+ * So the ciphertext is split into fixed size chunks with one tag per chunk in a table
+ * next to the header. Opening a pack verifies only the header and that table (a few
+ * KB); a chunk is verified the first time something reads through it. The table is
+ * covered by a root tag, so chunk tags cannot be swapped or dropped without failing
+ * the root check.
  *
  * Layout (little endian):
  *   0..3    magic "CNEZ"
@@ -34,10 +33,12 @@ import haxe.io.BytesBuffer;
  *   ...     root tag: HMAC-SHA256 over bytes 0 .. end of table
  *   ...     ChaCha20 ciphertext of the raw .zip bytes
  *
- * Trade-off, stated plainly: in version 1 a corrupted byte anywhere is caught
- * before the pack is used. In version 2 it is caught when the chunk containing it
- * is first read, so a pack can run for a while before a damaged region is touched.
- * The root tag still proves the table was not tampered with.
+ * Trade-off, stated plainly: a corrupted byte is caught when the chunk containing it
+ * is first read, not when the pack is opened, so a pack can run for a while before a
+ * damaged region is touched. The root tag still proves the table was not tampered with.
+ *
+ * (An earlier single-tag layout existed while this was being built and was removed
+ * before release, so there is no compatibility branch for it - see VERSION.)
  */
 
 /** What `open` hands out: everything needed to verify and read chunks lazily. */
@@ -51,8 +52,30 @@ typedef OpenedV2 = {
 	var table:Bytes; // count * TAG_SIZE
 }
 
+/**
+ * What `openFile` hands out: the same keys and table, but the payload is left where it
+ * is. A reader seeks to `payloadOffset + position` instead of holding the pack in RAM.
+ */
+typedef FileOpenedV2 = {
+	var enc:Bytes;
+	var mac:Bytes;
+	var nonce:Bytes;
+	var chunkSize:Int;
+	var count:Int;
+	var table:Bytes;
+	var payloadOffset:Int;
+	var payloadLength:Int;
+}
+
 class CnezV2 {
 	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x5A]; // "CNEZ"
+	/**
+	 * Format version written into every container.
+	 *
+	 * Kept at 2 rather than renumbered to 1: the value is part of the bytes on disk and
+	 * of anything already packed, and renumbering a format that only has this one
+	 * revision would buy nothing.
+	 */
 	public static inline var VERSION:Int = 2;
 
 	public static inline var HEADER_SIZE:Int = 48;
@@ -156,6 +179,81 @@ class CnezV2 {
 			count: count,
 			table: data.sub(HEADER_SIZE, tableSize)
 		};
+	}
+
+	/**
+	 * Checks the header and the chunk table, and leaves the payload on disk.
+	 *
+	 * Same checks as `open`, minus reading the payload: the caller gets the keys, the
+	 * table and where the ciphertext starts, so it can seek to a range and decrypt just
+	 * that. This is what the low-memory mode uses - nothing of the pack is held in RAM.
+	 */
+	public static function openFile(path:String, ?pass:String):FileOpenedV2 {
+		#if sys
+		if (pass == null) pass = ScriptCrypto.getPassword();
+		pass = ScriptCrypto.resolveKeyValue(pass);
+		if (pass == null) throw "CnezV2.openFile: no key";
+
+		var handle = sys.io.File.read(path, true);
+		var head = handle.read(HEADER_SIZE);
+		var len = 0;
+		var chunkSize = 0;
+		var count = 0;
+		var table:Bytes = null;
+		var root:Bytes = null;
+		var why:String = null;
+
+		if (head == null || head.length < HEADER_SIZE) {
+			why = "truncated container";
+		} else {
+			for (i in 0...4)
+				if (head.get(i) != MAGIC[i]) why = "not a CNEZ container";
+			if (why == null && head.get(4) != VERSION)
+				why = "unsupported container version " + head.get(4);
+		}
+
+		if (why == null) {
+			len = readInt32(head, 36);
+			chunkSize = readInt32(head, 40);
+			count = readInt32(head, 44);
+			if (len < 0 || chunkSize < MIN_CHUNK_SIZE || chunkSize % 64 != 0)
+				why = "corrupted header";
+			else if (count <= 0 || count != countFor(len, chunkSize))
+				why = "corrupted chunk table";
+		}
+
+		if (why == null) {
+			var tableSize = count * TAG_SIZE;
+			table = handle.read(tableSize);
+			root = handle.read(TAG_SIZE);
+			if (table == null || table.length < tableSize || root == null || root.length < TAG_SIZE)
+				why = "truncated chunk table";
+		}
+		handle.close();
+
+		if (why != null) throw "CnezV2.openFile: " + why;
+
+		var payloadOffset = HEADER_SIZE + count * TAG_SIZE + TAG_SIZE;
+		if (payloadOffset + len > sys.FileSystem.stat(path).size)
+			throw "CnezV2.openFile: corrupted container (bad length)";
+
+		var keys = ScriptCrypto.deriveKeys(pass, head.sub(8, SALT_SIZE));
+		if (!same(ScriptCrypto.hmacTag(keys.mac, concat(head, table)), root))
+			throw "CnezV2.openFile: integrity check failed (wrong key or corrupted header)";
+
+		return {
+			enc: keys.enc,
+			mac: keys.mac,
+			nonce: head.sub(24, NONCE_SIZE),
+			chunkSize: chunkSize,
+			count: count,
+			table: table,
+			payloadOffset: payloadOffset,
+			payloadLength: len
+		};
+		#else
+		throw "CnezV2.openFile: file access is not available on this target";
+		#end
 	}
 
 	/**

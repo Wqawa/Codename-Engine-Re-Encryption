@@ -517,6 +517,10 @@ class ZipEditCache {
 
 	/** Puts the merged zip in place of the pack, re-encrypting it the way it came. */
 	static function replaceWith(pack:String, merged:String):Void {
+		// the low-memory mode keeps the pack open, and Windows will not rename over an
+		// open file; let go of the handle first (a memory pack never holds one)
+		ModPackCrypto.releaseFileHandle(pack);
+
 		var out = merged;
 		if (ModPackCrypto.isEncryptedPackFile(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);

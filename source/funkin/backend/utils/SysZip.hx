@@ -1,7 +1,12 @@
 package funkin.backend.utils;
 
 #if sys
+import funkin.backend.assets.CnezV2;
+import funkin.backend.assets.CnezV2.FileOpenedV2;
+import funkin.backend.scripting.crypto.ChaCha20;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.scripting.protect.ProtectedBuffer;
+import funkin.backend.scripting.protect.SecureBytes;
 import haxe.io.Input;
 import haxe.zip.Reader;
 import sys.io.File;
@@ -25,6 +30,24 @@ class SysZip {
 	/** Set in memory mode; null when the zip is read from a file. */
 	var buffer:ProtectedBuffer;
 
+	/** Size of one ChaCha20 block; a range read starts at a multiple of this. */
+	static inline var BLOCK:Int = 64;
+
+	// --- low-memory mode: the payload stays in the file and only the ranges being read
+	// --- are decrypted, so a pack never occupies RAM
+	var cipherKey:Bytes;
+	var cipherNonce:Bytes;
+	var cipherOffset:Int = 0;
+	var cipherLength:Int = 0;
+	var chunkSize:Int = 0;
+	var chunkCount:Int = 0;
+	var chunkTags:Bytes;
+	var chunkMac:Bytes;
+	var chunkVerified:Array<Bool>;
+
+	/** Set when a chunk failed its tag check; reads return nothing from then on. */
+	public var integrityFailed(default, null):Bool = false;
+
 	public var entries:List<SysZipEntry> = new List();
 
 	/**
@@ -46,24 +69,13 @@ class SysZip {
 
 	/**
 	 * Reads a zip that is still a ChaCha20 ciphertext, decrypting only the ranges that
-	 * are actually read (`ProtectedBuffer.fromCipher` explains why this is not the same
-	 * thing as `fromBytes(plain, true)`).
+	 * are actually read and verifying each chunk the first time a read touches it.
 	 *
 	 * A CNEZ pack arrives here already encrypted under its own key, so no full pass is
 	 * needed before the archive becomes usable: the central directory is decrypted to
-	 * index the entries, and each asset is decrypted when something asks for it.
-	 */
-	public static function fromCipher(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes):SysZip {
-		var zip = new SysZip(null);
-		zip.buffer = ProtectedBuffer.fromCipher(cipher, cipherKey, cipherNonce);
-		zip.updateEntries();
-		return zip;
-	}
-
-	/**
-	 * Same as `fromCipher`, for a version 2 container: each chunk carries its own tag
-	 * and is checked the first time a read touches it, so indexing the archive does not
-	 * pay for hashing the whole pack (`CnezV2` explains the trade-off).
+	 * index the entries, and each asset is decrypted when something asks for it
+	 * (`CnezV2` explains what that costs in detection, and `ProtectedBuffer` how a
+	 * range is decoded).
 	 */
 	public static function fromChunked(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes, chunkSize:Int, chunkTags:Bytes, chunkCount:Int,
 			macKey:Bytes):SysZip {
@@ -88,6 +100,7 @@ class SysZip {
 
 	function size():Int {
 		if (buffer != null) return buffer.length;
+		if (cipherKey != null) return cipherLength;
 		if (fileInput == null) return 0;
 		try return Std.int(sys.FileSystem.stat(filePath).size) catch (e:Dynamic) {}
 		return 0;
@@ -108,11 +121,82 @@ class SysZip {
 			warnReleased();
 			return Bytes.alloc(0);
 		}
+		if (cipherKey != null) return readCipherRange(pos, len);
 		fileInput.seek(pos, SeekBegin);
 		return fileInput.read(len);
 	}
 
-	/** True once dispose() released the archive; reading it is pointless from then on. */
+	/**
+	 * Reads a zip straight out of an encrypted file, decrypting only the ranges that are
+	 * actually read. Nothing of the payload is copied into memory - that is what the
+	 * low-memory option buys; the cost is a seek and a decryption per read.
+	 */
+	public static function fromCipherFile(path:String, opened:FileOpenedV2):SysZip {
+		var zip = new SysZip(null);
+		zip.filePath = path;
+		zip.fileInput = File.read(path, true);
+		zip.cipherKey = opened.enc;
+		zip.cipherNonce = opened.nonce;
+		zip.cipherOffset = opened.payloadOffset;
+		zip.cipherLength = opened.payloadLength;
+		zip.chunkSize = opened.chunkSize;
+		zip.chunkCount = opened.count;
+		zip.chunkTags = opened.table;
+		zip.chunkMac = opened.mac;
+		zip.chunkVerified = [];
+		for (i in 0...opened.count) zip.chunkVerified.push(false);
+		zip.updateEntries();
+		return zip;
+	}
+
+	/**
+	 * Decrypts `[pos, pos + len)` out of the pack file.
+	 *
+	 * Starts on a 64 byte boundary so the keystream lines up, and verifies every chunk
+	 * the range touches by reading that chunk whole - a tag needs all of it. The chunk
+	 * is checked and dropped, not kept: this mode exists so nothing stays in memory.
+	 */
+	function readCipherRange(pos:Int, len:Int):Bytes {
+		if (integrityFailed) return Bytes.alloc(0);
+		if (pos + len > cipherLength) len = cipherLength - pos;
+		if (len <= 0) return Bytes.alloc(0);
+
+		var start = pos - (pos % BLOCK);
+		var head = pos - start;
+		var need = len + head;
+
+		var first = Std.int(start / chunkSize);
+		var last = Std.int((start + need - 1) / chunkSize);
+		if (last >= chunkCount) last = chunkCount - 1;
+		for (i in first...last + 1) {
+			if (chunkVerified[i]) continue;
+			var cStart = i * chunkSize;
+			var cLen = chunkSize;
+			if (cStart + cLen > cipherLength) cLen = cipherLength - cStart;
+			fileInput.seek(cipherOffset + cStart, SeekBegin);
+			var whole = fileInput.read(cLen);
+			if (whole == null || whole.length < cLen
+				|| !CnezV2.same(ScriptCrypto.hmacTag(chunkMac, whole), chunkTags.sub(i * CnezV2.TAG_SIZE, CnezV2.TAG_SIZE))) {
+				integrityFailed = true;
+				Logs.error('A mod pack chunk ($i of $chunkCount) failed its integrity check; '
+					+ 'the pack was modified after it was packed. Reads stop here.');
+				return Bytes.alloc(0);
+			}
+			chunkVerified[i] = true;
+		}
+
+		fileInput.seek(cipherOffset + start, SeekBegin);
+		var raw = fileInput.read(need);
+		if (raw == null || raw.length < need) return Bytes.alloc(0);
+		var plain = ChaCha20.xorBytes(cipherKey, cipherNonce, 1 + Std.int(start / BLOCK), raw);
+		var out = plain.sub(head, len);
+		SecureBytes.wipe(plain);
+		return out;
+	}
+
+	/**
+	 * True once dispose() released the archive; reading it is pointless from then on.
+	 */
 	public var released(default, null):Bool = false;
 	var warnedRelease:Bool = false;
 
@@ -241,6 +325,24 @@ class SysZip {
 	}
 
 	/**
+	 * Closes the file handle of a low-memory pack so the file can be replaced on disk.
+	 *
+	 * The entries stay readable, but further reads return nothing: Windows refuses to
+	 * rename over a file that is still open, and a merge has to put the new pack in its
+	 * place. The archive is marked released, so the loader opens it again next load.
+	 *
+	 * Only the low-memory mode is affected - a memory pack never keeps the file open.
+	 */
+	public function closeHandle():Void {
+		if (cipherKey == null) return;
+		if (fileInput != null) {
+			try fileInput.close() catch (e:Dynamic) {}
+			fileInput = null;
+		}
+		released = true;
+	}
+
+	/**
 	 * calling `dispose` doesn't actually kill the class, you can still access the entries.
 	 * disposing of SysZip will free the compressed file from being used by the engine,
 	 * and wipes an in-memory pack so the decrypted bytes do not outlive it.
@@ -255,6 +357,24 @@ class SysZip {
 			buffer.wipe();
 			buffer = null;
 		}
+		// the low-memory mode holds keys instead of data; they go too
+		if (chunkTags != null) {
+			SecureBytes.wipe(chunkTags);
+			chunkTags = null;
+		}
+		if (chunkMac != null) {
+			SecureBytes.wipe(chunkMac);
+			chunkMac = null;
+		}
+		if (cipherKey != null) {
+			SecureBytes.wipe(cipherKey);
+			cipherKey = null;
+		}
+		if (chunkVerified != null) {
+			for (i in 0...chunkVerified.length) chunkVerified[i] = false;
+			chunkVerified = null;
+		}
+		cipherNonce = null;
 	}
 }
 

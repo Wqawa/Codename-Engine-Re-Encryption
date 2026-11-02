@@ -1,10 +1,8 @@
 package funkin.backend.assets;
 
-import funkin.backend.scripting.crypto.ChaCha20;
 import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.system.MemoryGuard;
 import haxe.io.Bytes;
-import haxe.io.BytesBuffer;
 import haxe.io.Path;
 #if sys
 import funkin.backend.utils.CoolUtil;
@@ -49,14 +47,9 @@ typedef OpenedPack = {
 }
 
 class ModPackCrypto {
-	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x5A]; // "CNEZ"
-	public static inline var VERSION:Int = 1;
-
-	// public so ModPackSelfTest can assert on the layout without duplicating the numbers
-	public static inline var HEADER_SIZE:Int = 40;
-	public static inline var TAG_SIZE:Int = 32;
-	static inline var SALT_SIZE:Int = 16;
-	static inline var NONCE_SIZE:Int = 12;
+	// The layout lives in CnezV2 (magic, version byte, sizes). This class is the
+	// entry point around it: keys, memory copies, cleanup. There is no second format -
+	// the first container layout was removed before release, see CnezV2's header.
 
 	/**
 	 * Where a pack's own key file is copied to. Everything the engine writes while it
@@ -116,11 +109,9 @@ class ModPackCrypto {
 
 	// ------------------------------------------------------------- detection
 
+	/** True for a CNEZ container of the current (only) version. */
 	public static function isEncryptedPack(data:Bytes):Bool {
-		if (data == null || data.length < HEADER_SIZE + TAG_SIZE) return false;
-		for (i in 0...4)
-			if (data.get(i) != MAGIC[i]) return false;
-		return true;
+		return CnezV2.isV2(data);
 	}
 
 	public static function isEncryptedPackFile(path:String):Bool {
@@ -128,12 +119,12 @@ class ModPackCrypto {
 		try {
 			if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) return false;
 			var handle = File.read(path, true);
-			var head = handle.read(4);
+			var head = handle.read(5);
 			handle.close();
-			if (head == null || head.length < 4) return false;
+			if (head == null || head.length < 5) return false;
 			for (i in 0...4)
-				if (head.get(i) != MAGIC[i]) return false;
-			return true;
+				if (head.get(i) != CnezV2.MAGIC[i]) return false;
+			return head.get(4) == CnezV2.VERSION;
 		} catch (e:Dynamic) {}
 		#end
 		return false;
@@ -159,49 +150,12 @@ class ModPackCrypto {
 	/**
 	 * Wraps a zip into a version 2 container (chunked tags).
 	 *
-	 * Version 2 is the default because opening one costs a header check instead of a
-	 * pass over the whole payload; `packV1` still exists for the older layout, which
-	 * `openEncrypted` keeps reading.
+	 * Opening costs a header check instead of a pass over the whole payload; the layout
+	 * and its trade-offs live in CnezV2.
 	 */
 	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		return CnezV2.pack(zipBytes, ScriptCrypto.resolveKeyValue(pass), onProgress);
-	}
-
-	/** Version 1 layout: one tag over the whole payload. Kept for compatibility. */
-	public static function packV1(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
-		if (pass == null) pass = ScriptCrypto.getPassword();
-		pass = ScriptCrypto.resolveKeyValue(pass);
-
-		var salt = ScriptCrypto.randomBytes(SALT_SIZE);
-		var nonce = ScriptCrypto.randomBytes(NONCE_SIZE);
-		var keys = ScriptCrypto.deriveKeys(pass, salt);
-		// the cipher pass is the slow half, so it reports the progress it makes
-		var cipher = onProgress == null
-			? ChaCha20.xorBytes(keys.enc, nonce, 1, zipBytes)
-			: ChaCha20.xorBytes(keys.enc, nonce, 1, zipBytes, function(p:Float) onProgress(0.05 + 0.9 * p));
-
-		var buf = new BytesBuffer();
-		for (v in MAGIC) buf.addByte(v);
-		buf.addByte(VERSION);
-		buf.addByte(0);
-		buf.addByte(0);
-		buf.addByte(0);
-		buf.add(salt);
-		buf.add(nonce);
-		var len = cipher.length;
-		buf.addByte(len & 0xFF);
-		buf.addByte((len >>> 8) & 0xFF);
-		buf.addByte((len >>> 16) & 0xFF);
-		buf.addByte((len >>> 24) & 0xFF);
-		buf.add(cipher);
-		var body = buf.getBytes();
-
-		var out = new BytesBuffer();
-		out.add(body);
-		out.add(ScriptCrypto.hmacTag(keys.mac, body));
-		if (onProgress != null) onProgress(1);
-		return out.getBytes();
 	}
 
 	/**
@@ -220,66 +174,25 @@ class ModPackCrypto {
 		if (!isEncryptedPack(data))
 			throw "ModPackCrypto: not an encrypted mod pack";
 
-		// version 2 hands its payload back as ciphertext with a chunk table, which is
-		// what lets the loader verify lazily; version 1 has one tag for everything
-		var version = data.get(4);
-		if (version == CnezV2.VERSION) {
-			var opened = CnezV2.open(data, pass);
-			return {
-				cipher: opened.payload,
-				enc: opened.enc,
-				nonce: opened.nonce,
-				chunkSize: opened.chunkSize,
-				chunkTags: opened.table,
-				chunkCount: opened.count,
-				mac: opened.mac
-			};
-		}
-		if (version != VERSION)
-			throw 'ModPackCrypto: unsupported container version ' + version;
-
-		// Bytes.sub() copies in one native call instead of a per-byte Haxe loop;
-		// a large pack is copied twice here, so the loop was measurably slow.
-		var salt = data.sub(8, SALT_SIZE);
-		var nonce = data.sub(24, NONCE_SIZE);
-
-		var len = data.get(36) | (data.get(37) << 8) | (data.get(38) << 16) | (data.get(39) << 24);
-		if (len < 0 || HEADER_SIZE + len + TAG_SIZE != data.length)
-			throw "ModPackCrypto: corrupted container (bad length)";
-
-		var body = data.sub(0, HEADER_SIZE + len);
-		var tag = data.sub(HEADER_SIZE + len, TAG_SIZE);
-
-		var keys = ScriptCrypto.deriveKeys(pass, salt);
-		var expected = ScriptCrypto.hmacTag(keys.mac, body);
-		if (expected.length != tag.length) throw "ModPackCrypto: bad tag";
-		// constant-time compare: a diff that stops early leaks where the tag differs
-		var diff = 0;
-		for (i in 0...tag.length) diff |= expected.get(i) ^ tag.get(i);
-		if (diff != 0)
-			throw "ModPackCrypto: integrity check failed (wrong key or corrupted file)";
-
+		// the payload comes back as ciphertext with a chunk table, which is what lets
+		// the loader verify lazily instead of hashing the whole pack up front
+		var opened = CnezV2.open(data, pass);
 		return {
-			cipher: data.sub(HEADER_SIZE, len),
-			enc: keys.enc,
-			nonce: nonce,
-			chunkSize: 0,
-			chunkTags: null,
-			chunkCount: 0,
-			mac: keys.mac
+			cipher: opened.payload,
+			enc: opened.enc,
+			nonce: opened.nonce,
+			chunkSize: opened.chunkSize,
+			chunkTags: opened.table,
+			chunkCount: opened.count,
+			mac: opened.mac
 		};
 	}
 
 	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
-		// a version 2 payload has to be verified chunk by chunk, which is the only
-		// difference in the result: both versions hand back the same plain zip
-		if (CnezV2.isV2(data)) {
-			if (pass == null) pass = ScriptCrypto.getPassword();
-			return CnezV2.unpack(data, pass, onProgress);
-		}
-		var opened = openEncrypted(data, pass);
-		if (onProgress == null) return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher);
-		return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
+		if (pass == null) pass = ScriptCrypto.getPassword();
+		if (!CnezV2.isV2(data))
+			throw "ModPackCrypto: not a CNEZ container of the current version";
+		return CnezV2.unpack(data, pass, onProgress);
 	}
 
 	// ------------------------------------------------------------ key lookup
@@ -362,22 +275,8 @@ class ModPackCrypto {
 		var pass = ScriptCrypto.resolveKeyValue(key);
 		if (pass == null) return false;
 		try {
-			if (isEncryptedPackFile(zipPath)) {
-				var handle = File.read(zipPath, true);
-				var head = handle.read(HEADER_SIZE);
-				var probe = handle.read(4);
-				handle.close();
-				if (head == null || head.length < HEADER_SIZE) return false;
-				// A version 2 payload starts behind a variable-size chunk table, so the
-				// four byte probe below would decrypt a header field (the chunk size)
-				// and every key would look wrong. Ask the container itself instead.
-				if (head.get(4) == CnezV2.VERSION) return CnezV2.verifyKeyFile(zipPath, pass);
-				if (probe == null || probe.length < 4) return false;
-				var keys = ScriptCrypto.deriveKeys(pass, head.sub(8, SALT_SIZE));
-				var plain = ChaCha20.xorBytes(keys.enc, head.sub(24, NONCE_SIZE), 1, probe);
-				// every zip magic (local header, empty archive, spanning marker) starts with "PK"
-				return plain.get(0) == 0x50 && plain.get(1) == 0x4B;
-			}
+			// the container checks its own root tag: reads a few KB, never the payload
+			if (isEncryptedPackFile(zipPath)) return CnezV2.verifyKeyFile(zipPath, pass);
 			if (ZipPassword.isProtected(zipPath)) return ZipPassword.checkPassword(zipPath, pass);
 		} catch (e:Dynamic) {}
 		#end
@@ -566,32 +465,40 @@ class ModPackCrypto {
 			// the progress screen names each step, so the work is split where the
 			// cost actually is: reading the file, checking the tag, the cipher pass,
 			// then indexing the entries of the zip that came out of it
-			var raw = File.getBytes(packPath);
 			var wrapped:Null<Float->Void> = onProgress == null ? null : function(p:Float) {
 				waitWhilePaused();
 				onProgress(p);
 			};
 			var zip:SysZip;
-			if (packed && Options.wrapDecryptedPacks) {
-				// Verify, do not decrypt: the payload stays ciphertext in RAM and each
-				// asset is decrypted as it is read (SysZip.fromCipher). The old path
-				// decrypted the whole pack and then encrypted it again for memory
-				// safety, which was a second full pass over the pack for nothing -
-				// the bytes were secret before that pass and after it.
-				if (wrapped != null) wrapped(0.15);
-				var opened = openEncrypted(raw, key);
-				if (wrapped != null) wrapped(0.75);
-				zip = opened.chunkCount > 0
-					? SysZip.fromChunked(opened.cipher, opened.enc, opened.nonce, opened.chunkSize, opened.chunkTags,
-						opened.chunkCount, opened.mac)
-					: SysZip.fromCipher(opened.cipher, opened.enc, opened.nonce);
-				if (wrapped != null) wrapped(1);
+			if (packed) {
+				if (Options.wrapDecryptedPacks) {
+					// Memory mode: the pack is read once, stays ciphertext, and each asset
+					// is decrypted as it is read (SysZip.fromChunked). Decrypting the whole
+					// pack first and encrypting it again for memory safety was a second
+					// full pass for nothing - the bytes were secret either way.
+					if (wrapped != null) wrapped(0.15);
+					var raw = File.getBytes(packPath);
+					var opened = openEncrypted(raw, key);
+					if (wrapped != null) wrapped(0.75);
+					zip = SysZip.fromChunked(opened.cipher, opened.enc, opened.nonce, opened.chunkSize, opened.chunkTags,
+						opened.chunkCount, opened.mac);
+					if (wrapped != null) wrapped(1);
+				} else {
+					// Low-memory mode: only the header and the chunk table are read. The
+					// payload stays in the file and a range is decrypted, verified and then
+					// dropped when something asks for it, so a large pack costs no RAM.
+					if (wrapped != null) wrapped(0.3);
+					var openedFile = CnezV2.openFile(packPath, key);
+					if (wrapped != null) wrapped(0.9);
+					zip = SysZip.fromCipherFile(packPath, openedFile);
+					if (wrapped != null) wrapped(1);
+				}
 			} else {
-				var bytes = packed
-					? unpack(raw, key, wrapped)
-					: ZipPassword.readableCopyBytes(packPath, key, wrapped);
+				// A password protected zip has no payload-wide stream to seek in, so it is
+				// still rebuilt in memory; it just stays wrapped so a scanner sees nothing.
+				var bytes = ZipPassword.readableCopyBytes(packPath, key, wrapped);
 				if (bytes == null || !looksLikeZip(bytes)) return null;
-				zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
+				zip = SysZip.fromBytes(bytes, true);
 			}
 			if (zip.entries.length == 0) return null;
 			loadedZips.set(id, zip);
@@ -705,6 +612,21 @@ class ModPackCrypto {
 		} catch (e:Dynamic) {}
 		#end
 		return false;
+	}
+
+	/**
+	 * Lets go of a low-memory pack's file handle so the file can be replaced.
+	 *
+	 * Only that mode keeps the pack open; the memory mode never does. A merge calls this
+	 * right before it renames the rebuilt pack into place, which Windows refuses to do
+	 * while the old file is still open. The pack is marked released, so the next load
+	 * opens it again.
+	 */
+	public static function releaseFileHandle(packPath:String):Void {
+		if (packPath == null) return;
+		var zip = loadedZips.get(normalizePath(packPath));
+		if (zip == null) return;
+		try zip.closeHandle() catch (e:Dynamic) {}
 	}
 
 	/** Removes the `*_key.txt` a pack's own key file was copied to, if there is one. */
