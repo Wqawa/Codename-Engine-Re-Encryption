@@ -143,6 +143,10 @@ class Main extends Sprite
 		ShaderResizeFix.init();
 		Paths.init();
 
+		// Runs on a worker thread and reports to the main menu; hashing a large assets
+		// folder must not hold up the window.
+		IntegrityCheck.startVerify();
+
 		hscript.Interp.importRedirects = funkin.backend.scripting.Script.getDefaultImportRedirects();
 
 		#if GLOBAL_SCRIPT

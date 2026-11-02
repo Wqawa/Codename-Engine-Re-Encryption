@@ -99,9 +99,40 @@ class MainMenuState extends MusicBeatState
 	var selectedSomethin:Bool = false;
 	var forceCenterX:Bool = true;
 	var devModeCount:Int = 0;
+	/** The integrity result is shown once per run, on whichever menu comes first. */
+	var integrityNotified:Bool = false;
+
+	/**
+	 * Reports the background integrity check, once it finishes.
+	 *
+	 * The check starts with the window and hashes the shipped files, so it is usually
+	 * done by the time the menu is up - but it is a worker thread, so this polls instead
+	 * of assuming. Nothing is blocked: the player reads the list and continues.
+	 */
+	function reportIntegrity():Void {
+		if (integrityNotified || !funkin.backend.system.IntegrityCheck.done) return;
+		if (!funkin.backend.system.IntegrityCheck.hasProblems()) return;
+		integrityNotified = true;
+
+		var check = funkin.backend.system.IntegrityCheck;
+		var detail = check.manifestProblem;
+		if (detail == null) {
+			var listed = check.changed.length > 0 ? check.changed : check.missing;
+			detail = check.sample(listed);
+		}
+
+		openSubState(new funkin.editors.ui.UIWarningSubstate(
+			"Files Do Not Match This Build",
+			check.summary() + "\n\n" + detail
+			+ "\n\nThese files were changed or are missing. The game keeps running, "
+			+ "but anything loaded from them may not be what was shipped.",
+			[{label: "Continue", color: 0x969533, onClick: function(_) {}}], false));
+	}
 
 	override function update(elapsed:Float)
 	{
+		reportIntegrity();
+
 		if (FlxG.sound.music.volume < 0.8)
 			FlxG.sound.music.volume += 0.5 * elapsed;
 

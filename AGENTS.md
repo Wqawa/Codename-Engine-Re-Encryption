@@ -15,6 +15,7 @@
 | `README.md` | 仓库门面：本 fork 是什么、新增了什么、构建方法、上游 Usage Info / Credits | 本 fork 维护（英文） |
 | `docs/RE-ENCRYPTION.md` | 加密功能说明书：容器格式、脚本四层、密钥与 token、编辑器用法、能力边界 | 本 fork 维护（中文，源码注释为英文） |
 | `docs/ARCHITECTURE.md` | 架构接缝图：36 个新增文件的分组、18 个官方文件接缝点（文件 + 行号）、启动到播放的调用链、数据在磁盘/内存的位置 | 本 fork 维护（中文）；改接缝点必须同步这张表 |
+| `docs/INTEGRITY.md` | 完整性校验：清单格式与签名、启动校验流程、差异分类、**防得住什么/防不住什么** | 本 fork 维护（中文）；每次构建后要重新生成清单 |
 | `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
 | `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |

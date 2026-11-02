@@ -59,6 +59,10 @@ class EncryptionEditor extends UIState {
 	 */
 	var packQueue:Array<PackTask> = [];
 
+	/** Set while the integrity manifest is being written on a worker thread. */
+	var integrityJobRunning:Bool = false;
+	var integrityJobResult:String = null;
+
 	/** 0 = CNEZ container (strong), 1 = standard AES-256 password zip. */
 	public var packModeStrong:UIRadioButton;
 	public var packModeStandard:UIRadioButton;
@@ -152,7 +156,8 @@ class EncryptionEditor extends UIState {
 					{label: "Mod Pack tab", onSelect: (_) -> showTab(TAB_MODPACK)},
 					{label: "Scripts tab", onSelect: (_) -> showTab(TAB_SCRIPTS)},
 					null,
-					{label: "Self test: containers (scripts + mod packs)", onSelect: (_) -> runSelfTest()}
+					{label: "Self test: containers (scripts + mod packs)", onSelect: (_) -> runSelfTest()},
+					{label: "Generate integrity manifest", onSelect: (_) -> generateIntegrityManifest()}
 				]
 			},
 			{
@@ -690,6 +695,15 @@ class EncryptionEditor extends UIState {
 		handleBackInput();
 		updateJob(elapsed);
 
+		// the manifest pass hashes every shipped file, so it runs off the main thread and
+		// reports here when it is done
+		if (integrityJobRunning && integrityJobResult != null) {
+			integrityJobRunning = false;
+			var result = integrityJobResult;
+			integrityJobResult = null;
+			status("Integrity manifest: " + result + " - regenerate it after every build.");
+		}
+
 		// the wrapped help text settles its height over the first frames it is shown,
 		// so keep measuring for a moment and resize the scroll bar when it changes
 		if (currentTab == TAB_HELP && helpMeasureFrames < 12) {
@@ -1201,5 +1215,39 @@ class EncryptionEditor extends UIState {
 		var ok = scriptSummary.indexOf(" 0 failed") >= 0 && packSummary.indexOf(" 0 failed") >= 0;
 		status("Self test - scripts: " + scriptSummary + " | mod packs: " + packSummary
 			+ (ok ? "  -  all good" : "  -  see the log"));
+	}
+
+	/**
+	 * Writes the integrity manifest next to the executable.
+	 *
+	 * Hashing every shipped file takes a while on a full assets folder, so it runs on a
+	 * worker thread and update() picks the result up. The manifest is what the game
+	 * checks at startup, so it has to be regenerated after each build - a stale one
+	 * reports every file as modified.
+	 */
+	function generateIntegrityManifest() {
+		if (integrityJobRunning) {
+			status("The integrity manifest is already being written...");
+			return;
+		}
+		integrityJobRunning = true;
+		integrityJobResult = null;
+		status("Writing the integrity manifest (hashing every shipped file)...");
+
+		var work = function() {
+			var message:String;
+			try {
+				message = funkin.backend.system.IntegrityCheck.generate();
+			} catch (e:Dynamic) {
+				message = "failed: " + Std.string(e);
+			}
+			integrityJobResult = message;
+		};
+
+		#if target.threaded
+		try sys.thread.Thread.create(work) catch (e:Dynamic) work();
+		#else
+		work();
+		#end
 	}
 }
