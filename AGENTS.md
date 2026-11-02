@@ -1,7 +1,12 @@
 # AGENTS.md — 协作规则（本仓库）
 
 本仓库是 Codename Engine 1.1.0（官方代码）+ 从用户 1.0.1 分支迁移来的加密/打包功能。
-分支只有 `main`（本地与远端同名）；baseline 提交 `112aa91`（纯 1.1.0，已打 tag `baseline/upstream-1.1.0`），迁移提交 `e9ac49b`；上游 `main` 已在 `130391f4` 并入（`afe74668`，2026-10-31）。
+分支只有 `main`（本地与远端同名）；最早提交 `112aa91`（纯 1.1.0 快照，已打 tag `baseline/upstream-1.1.0`），
+迁移提交 `e9ac49b`；上游 `main` 已在 `130391f4` 并入（2026-10-31）。`130391f4` 的提交信息里写的
+`afe74668` 是**上游仓库**的提交号，本仓库没有这个对象，`git show afe74668` 会报 MISSING，属正常。
+
+历史状态（2026-11-02 补齐）：完整历史共 76 个提交，已非浅克隆；仓库仍是 `blob:none` 部分克隆，
+旧版本的文件内容在本机首次访问时按需从远端拉取（`git show <旧提交>:<路径>` 会自动联网）。
 
 ## 0. 文档地图（改文档前先看这里）
 
@@ -72,7 +77,6 @@ haxelib run lime build windows -nocolor   # 构建前先关掉运行中的 Coden
 
 ## 5. 回滚
 
-- 引擎仓库：回退单个提交用 `git revert <sha>`；整树回到纯 1.1.0 用 `git reset --hard baseline/upstream-1.1.0`。
-- 远端只保留 `main`（2026-10 清理）。原 17 个远端分支（`archive/*`、`al-mobile`、`old`、`strum-divorce` 等）的 SHA 已保存为本地 tag `backup/remote/<原分支名>`；需要恢复某个分支时执行 `git push origin backup/remote/<原分支名>:refs/heads/<原分支名>`。
-- 迁移来源仓库：`D:/FNF/FNF code/_mig`（`558aa9a` = upstream v1.0.1，`7cd0863` = 用户改动树）。
-- 用户 1.0.1 参考树：`D:/FNF/FNF code/old`。
+- 引擎仓库：回退单个提交用 `git revert <sha>`；整树回到纯 1.1.0 用 `git reset --hard baseline/upstream-1.1.0`（tag 可用，指向 `112aa91`）。
+- 远端只保留 `main`（2026-10 清理）。原先记录的 17 个远端分支（`archive/*`、`al-mobile`、`old`、`strum-divorce` 等）用本地 tag `backup/remote/<原分支名>` 存 SHA，但**这批 tag 已丢失**（2026-11-01 仓库就地重建时未保留，远端也没有推送过），现在没有 SHA 就无法定位恢复，不要再去找这批 tag。
+- 迁移来源仓库 `D:/FNF/FNF code/_mig`（`558aa9a` = upstream v1.0.1，`7cd0863` = 用户改动树）、用户 1.0.1 参考树 `D:/FNF/FNF code/old`：**本机已不存在**，此处只作历史记录。
