@@ -98,7 +98,7 @@ class IntegrityCheck {
 		for (e in entries) body.add('${e.size}\t${e.hash}\t${e.path}$NL');
 		var text = body.toString();
 		File.saveContent(MANIFEST, text + SIGN_PREFIX + sign(text) + NL);
-		Logs.trace('Integrity manifest written for ${entries.length} file(s).', INFO);
+		// no Logs here: this also runs from the build hook, before the log is ready
 		return '${entries.length} file(s), signed';
 		#else
 		return 'not supported on this target';

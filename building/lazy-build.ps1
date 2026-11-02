@@ -1264,6 +1264,33 @@ try {
 
     Write-Log "warnings: $warnings (the deprecated-API noise from upstream code is normal)" 'INFO'
 
+    # ---- integrity manifest -------------------------------------------------
+    # The manifest stores this build's executable, so it has to be rewritten whenever
+    # the exe changes - a stale one makes the next start report the new binary as
+    # modified. The engine writes it and exits. A failure here is a warning, not a
+    # build failure: the game just runs without the startup check.
+    $binDir = Split-Path -Parent $exe
+    $manifest = Join-Path $binDir 'integrity.dat'
+    $manifestCode = 1
+    $manifestOut = ''
+    Push-Location $binDir
+    try {
+        $manifestOut = (& $exe --generate-integrity 2>&1 | Out-String)
+        $manifestCode = $LASTEXITCODE
+    } catch {
+        $manifestOut = $_.Exception.Message
+        $manifestCode = 1
+    } finally {
+        Pop-Location
+    }
+    if ($manifestCode -eq 0 -and (Test-Path -LiteralPath $manifest)) {
+        $manifestKb = [math]::Round((Get-Item -LiteralPath $manifest).Length / 1KB, 1)
+        $manifestLine = ($manifestOut -split "`n" | Where-Object { $_ -match '\[integrity\]' } | Select-Object -First 1)
+        Write-Log ("integrity: {0} ({1} KB)" -f $manifestLine.Trim(), $manifestKb) 'OK'
+    } else {
+        Write-Log "integrity: manifest not written (exit $manifestCode) - the game will run unchecked" 'WARN'
+    }
+
     Write-Host ''
     Write-Host ' BUILD OK ' -ForegroundColor Black -BackgroundColor Green
     Write-Host " run: $exe" -ForegroundColor Green

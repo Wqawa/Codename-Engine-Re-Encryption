@@ -85,6 +85,24 @@ class Main extends Sprite
 	{
 		super();
 
+		// Build hook: `CodenameEngine.exe --generate-integrity` rewrites the manifest and
+		// exits, so a build can refresh it without anyone clicking a menu entry. It has to
+		// run after super() - a subclass cannot skip that call - so the window exists for
+		// the moment it takes to hash the files.
+		#if sys
+		if (Sys.args().indexOf('--generate-integrity') >= 0) {
+			var message:String;
+			try {
+				message = IntegrityCheck.generate();
+			} catch (e:Dynamic) {
+				message = 'failed: ' + Std.string(e);
+			}
+			Sys.println('[integrity] ' + message);
+			Sys.exit(0);
+			return;
+		}
+		#end
+
 		instance = this;
 
 		#if IMGUI_ENABLED
@@ -146,6 +164,12 @@ class Main extends Sprite
 		// Runs on a worker thread and reports to the main menu; hashing a large assets
 		// folder must not hold up the window.
 		IntegrityCheck.startVerify();
+
+		// `--unlock-protection=<password>` is the way to turn protection mode off when the
+		// loaded pack asks for it; checked again once that pack is open.
+		#if sys
+		funkin.backend.assets.ProtectionState.applyUnlockArgument(Sys.args());
+		#end
 
 		hscript.Interp.importRedirects = funkin.backend.scripting.Script.getDefaultImportRedirects();
 

@@ -490,4 +490,14 @@ ok "bundle : $APP"
 ok "built  : $(date -r "$APP" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo unknown)"
 [ "$(date -r "$APP" +%s 2>/dev/null || echo 0)" -lt $((START_TIME - 5)) ] && warn 'the bundle is older than this run - the build was a no-op, try --clean' || true
 
+# The manifest records this build, so it is rewritten here; a failure only warns,
+# the game then starts without the check (see docs/INTEGRITY.md).
+if [ -x "$BINARY" ]; then
+    MANIFEST_OUT="$(cd "$(dirname "$BINARY")" && "$BINARY" --generate-integrity 2>&1)" || MANIFEST_OUT=''
+    case "$MANIFEST_OUT" in
+        *'[integrity]'*) ok "integrity: $MANIFEST_OUT" ;;
+        *) warn 'integrity: manifest not written - the game will run unchecked' ;;
+    esac
+fi
+
 printf '\n%s BUILD OK %s\n run: %s\n log: %s\n' "$C_OK" "$C_OFF" "$APP" "${LOG_FILE:-none}"

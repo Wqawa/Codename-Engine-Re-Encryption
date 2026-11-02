@@ -478,4 +478,14 @@ ok "size   : $SIZE"
 ok "built  : $(date -r "$BINARY" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo unknown)"
 [ "$(date -r "$BINARY" +%s 2>/dev/null || echo 0)" -lt $((START_TIME - 5)) ] && warn 'the binary is older than this run - the build was a no-op, try --clean'
 
+# The manifest records this build, so it is rewritten here; a failure only warns,
+# the game then starts without the check (see docs/INTEGRITY.md).
+if [ -x "$BINARY" ]; then
+    MANIFEST_OUT="$(cd "$(dirname "$BINARY")" && "$BINARY" --generate-integrity 2>&1)" || MANIFEST_OUT=''
+    case "$MANIFEST_OUT" in
+        *'[integrity]'*) ok "integrity: $MANIFEST_OUT" ;;
+        *) warn 'integrity: manifest not written - the game will run unchecked' ;;
+    esac
+fi
+
 printf '\n%s BUILD OK %s\n run: %s\n log: %s\n' "$C_OK" "$C_OFF" "$BINARY" "${LOG_FILE:-none}"
