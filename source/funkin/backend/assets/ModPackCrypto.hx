@@ -34,8 +34,9 @@ class ModPackCrypto {
 	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x5A]; // "CNEZ"
 	public static inline var VERSION:Int = 1;
 
-	static inline var HEADER_SIZE:Int = 40;
-	static inline var TAG_SIZE:Int = 32;
+	// public so ModPackSelfTest can assert on the layout without duplicating the numbers
+	public static inline var HEADER_SIZE:Int = 40;
+	public static inline var TAG_SIZE:Int = 32;
 	static inline var SALT_SIZE:Int = 16;
 	static inline var NONCE_SIZE:Int = 12;
 
@@ -172,10 +173,19 @@ class ModPackCrypto {
 		return out.getBytes();
 	}
 
-	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
+	/**
+	 * Checks the container and hands back its payload **still encrypted**, together with
+	 * the key the payload has to be decrypted with.
+	 *
+	 * Split out of `unpack` so a caller that only needs random access (the loader, see
+	 * zipFor) can verify integrity without paying for a full decryption pass: the HMAC
+	 * still covers every byte, but the cipher is never touched as a whole.
+	 */
+	public static function openEncrypted(data:Bytes, ?pass:String):{cipher:Bytes, enc:Bytes, nonce:Bytes} {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
+		if (pass == null) throw "ModPackCrypto: no key";
 		if (!isEncryptedPack(data))
 			throw "ModPackCrypto: not an encrypted mod pack";
 		if (data.get(4) != VERSION)
@@ -196,14 +206,19 @@ class ModPackCrypto {
 		var keys = ScriptCrypto.deriveKeys(pass, salt);
 		var expected = ScriptCrypto.hmacTag(keys.mac, body);
 		if (expected.length != tag.length) throw "ModPackCrypto: bad tag";
+		// constant-time compare: a diff that stops early leaks where the tag differs
 		var diff = 0;
 		for (i in 0...tag.length) diff |= expected.get(i) ^ tag.get(i);
 		if (diff != 0)
 			throw "ModPackCrypto: integrity check failed (wrong key or corrupted file)";
 
-		var cipher = data.sub(HEADER_SIZE, len);
-		if (onProgress == null) return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher);
-		return ChaCha20.xorBytes(keys.enc, nonce, 1, cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
+		return {cipher: data.sub(HEADER_SIZE, len), enc: keys.enc, nonce: nonce};
+	}
+
+	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
+		var opened = openEncrypted(data, pass);
+		if (onProgress == null) return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher);
+		return ChaCha20.xorBytes(opened.enc, opened.nonce, 1, opened.cipher, function(p:Float) onProgress(0.2 + 0.8 * p));
 	}
 
 	// ------------------------------------------------------------ key lookup
@@ -491,12 +506,25 @@ class ModPackCrypto {
 				waitWhilePaused();
 				onProgress(p);
 			};
-			var bytes = packed
-				? unpack(raw, key, wrapped)
-				: ZipPassword.readableCopyBytes(packPath, key, wrapped);
-			if (bytes == null || !looksLikeZip(bytes)) return null;
-
-			var zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
+			var zip:SysZip;
+			if (packed && Options.wrapDecryptedPacks) {
+				// Verify, do not decrypt: the payload stays ciphertext in RAM and each
+				// asset is decrypted as it is read (SysZip.fromCipher). The old path
+				// decrypted the whole pack and then encrypted it again for memory
+				// safety, which was a second full pass over the pack for nothing -
+				// the bytes were secret before that pass and after it.
+				if (wrapped != null) wrapped(0.15);
+				var opened = openEncrypted(raw, key);
+				if (wrapped != null) wrapped(0.75);
+				zip = SysZip.fromCipher(opened.cipher, opened.enc, opened.nonce);
+				if (wrapped != null) wrapped(1);
+			} else {
+				var bytes = packed
+					? unpack(raw, key, wrapped)
+					: ZipPassword.readableCopyBytes(packPath, key, wrapped);
+				if (bytes == null || !looksLikeZip(bytes)) return null;
+				zip = SysZip.fromBytes(bytes, Options.wrapDecryptedPacks);
+			}
 			if (zip.entries.length == 0) return null;
 			loadedZips.set(id, zip);
 			sessionDecrypted = true;

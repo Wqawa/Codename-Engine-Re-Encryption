@@ -45,6 +45,22 @@ class SysZip {
 	}
 
 	/**
+	 * Reads a zip that is still a ChaCha20 ciphertext, decrypting only the ranges that
+	 * are actually read (`ProtectedBuffer.fromCipher` explains why this is not the same
+	 * thing as `fromBytes(plain, true)`).
+	 *
+	 * A CNEZ pack arrives here already encrypted under its own key, so no full pass is
+	 * needed before the archive becomes usable: the central directory is decrypted to
+	 * index the entries, and each asset is decrypted when something asks for it.
+	 */
+	public static function fromCipher(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes):SysZip {
+		var zip = new SysZip(null);
+		zip.buffer = ProtectedBuffer.fromCipher(cipher, cipherKey, cipherNonce);
+		zip.updateEntries();
+		return zip;
+	}
+
+	/**
 	 * Creates a new SysZip from a specified path.
 	 * @param path Path to the zip file. (With the extension)
 	 */

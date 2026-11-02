@@ -51,6 +51,29 @@ class ProtectedBuffer {
 		}
 	}
 
+	/**
+	 * Wraps a buffer that is **already** a ChaCha20 ciphertext under `cipherKey`/`cipherNonce`.
+	 *
+	 * This is the case for a CNEZ pack: its payload leaves `ModPackCrypto` as ciphertext
+	 * already, under the key derived from the pack's salt. Re-encrypting it with a fresh
+	 * session key (what `new ProtectedBuffer(plain, true)` does) therefore cost a second
+	 * full pass over the whole pack and bought nothing - the bytes in RAM were secret
+	 * before that pass and after it. Reading decrypts a range with the pack's own
+	 * keystream instead, so the pass never happens and the buffer is never plaintext
+	 * in memory either.
+	 *
+	 * The caller keeps ownership of `cipher` and must not touch it afterwards.
+	 */
+	public static function fromCipher(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes):ProtectedBuffer {
+		var b = new ProtectedBuffer(cipher, false);
+		if (b.length > 0) {
+			b.wrapped = true;
+			b.key = cipherKey;
+			b.nonce = cipherNonce;
+		}
+		return b;
+	}
+
 	/** Plaintext copy of `[offset, offset + length)`. */
 	public function read(offset:Int, length:Int):Bytes {
 		if (length <= 0) return Bytes.alloc(0);
