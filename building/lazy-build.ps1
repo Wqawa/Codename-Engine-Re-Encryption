@@ -86,8 +86,14 @@ try { $PSNativeCommandUseErrorActionPreference = $false } catch { }
 # ---------------------------------------------------------------- constants
 $HaxeVersion = '4.3.7'
 $NekoVersion = '2.3.0'
+# MinGit: the official "no installer, no admin rights, no registry" package that the Git
+# for Windows release page ships next to the normal installer. Same treatment as Haxe.
+$GitVersion = '2.56.0.4'
+$GitReleaseTag = 'v2.56.0.windows.4'
 $HaxeUrl = "https://github.com/HaxeFoundation/haxe/releases/download/$HaxeVersion/haxe-$HaxeVersion-win64.zip"
 $NekoUrl = "https://github.com/HaxeFoundation/neko/releases/download/v2-3-0/neko-$NekoVersion-win64.zip"
+$GitUrl64 = "https://github.com/git-for-windows/git/releases/download/$GitReleaseTag/MinGit-$GitVersion-64-bit.zip"
+$GitUrlArm64 = "https://github.com/git-for-windows/git/releases/download/$GitReleaseTag/MinGit-$GitVersion-arm64.zip"
 $VsBuildToolsUrl = 'https://aka.ms/vs/17/release/vs_BuildTools.exe'
 
 $script:LogFile = $null
@@ -284,7 +290,15 @@ function Expand-ZipTo {
     }
     if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    Expand-Archive -LiteralPath $Zip -DestinationPath $Destination -Force
+    # Expand-Archive draws a progress bar per file on Windows PowerShell 5.1, which turns
+    # a 3000-file MinGit archive into thousands of lines in the log
+    $previousProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        Expand-Archive -LiteralPath $Zip -DestinationPath $Destination -Force
+    } finally {
+        $ProgressPreference = $previousProgress
+    }
     Write-Log "extracted to $Destination" 'OK'
 }
 
@@ -415,6 +429,38 @@ function Install-NekoToolchain {
     $target = Resolve-UnpackedExe -Directory $target -ExeName 'neko.exe'
     Write-Log "Neko installed at $target" 'OK'
     return $target
+}
+
+# MinGit unpacked into building\toolchain behaves like the downloaded Haxe/Neko: nothing
+# is installed system-wide, nothing needs admin rights, and a checkout stays reproducible.
+function Install-GitToolchain {
+    $arch = '64-bit'
+    $url = $GitUrl64
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64'; $url = $GitUrlArm64 }
+
+    Write-Log "no git found - installing MinGit $GitVersion ($arch) into $script:ToolchainDir" 'WARN'
+    if (-not $DryRun -and -not (Test-Path -LiteralPath $script:ToolchainDir)) {
+        New-Item -ItemType Directory -Path $script:ToolchainDir -Force | Out-Null
+    }
+
+    $zip = Join-Path $script:ToolchainDir "MinGit-$GitVersion-$arch.zip"
+    [void](Get-RemoteFile -Url $url -Destination $zip)
+    $target = Join-Path $script:ToolchainDir "git-$GitVersion"
+    Expand-ZipTo -Zip $zip -Destination $target -Marker 'git.exe'
+    if ($DryRun) { return (Join-Path $target 'cmd\git.exe') }
+
+    # MinGit keeps the launcher in cmd\ and the real binaries in mingw64\bin;
+    # cmd\git.exe sets that up itself, so only cmd\ has to be on PATH
+    $exe = Join-Path $target 'cmd\git.exe'
+    if (-not (Test-Path -LiteralPath $exe)) {
+        $found = Resolve-UnpackedExe -Directory $target -ExeName 'git.exe'
+        if (Test-Path -LiteralPath (Join-Path $found 'git.exe')) { $exe = Join-Path $found 'git.exe' }
+    }
+    if (-not (Test-Path -LiteralPath $exe)) {
+        throw "the MinGit archive did not contain cmd\git.exe (looked in $target)"
+    }
+    Write-Log "git installed: $exe" 'OK'
+    return $exe
 }
 
 function Find-VisualStudio {
@@ -634,6 +680,7 @@ function Find-GitExe {
 function Get-GitVersion {
     param([string]$GitExe)
     if (-not $GitExe) { return $null }
+    if (-not (Test-Path -LiteralPath $GitExe)) { return $null }
     $out = & $GitExe --version 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $out) { return $null }
     return ([string]($out | Select-Object -First 1)).Trim()
@@ -659,7 +706,8 @@ function Repair-Libraries {
         # every <git .../> entry becomes "haxelib git <name> <url>", i.e. a git clone;
         # without git the setup command fails and leaves .haxelib half-installed
         Write-Log 'the setup command needs git: every library in building\libs.xml is fetched with "haxelib git"' 'ERR'
-        Write-Log 'install Git first, then run Build.bat again:' 'INFO'
+        Write-Log 'installing git automatically did not work - see the git lines in step 1' 'INFO'
+        Write-Log 'install it by hand, then run Build.bat again:' 'INFO'
         Write-Log '  winget install --id Git.Git -e        (or https://git-scm.com/download/win)' 'INFO'
         if ($DryRun) {
             Write-Log '[dryrun] a real run would stop here' 'DRY'
@@ -938,7 +986,7 @@ try {
     if ($DryRun) { Write-Log 'DRY RUN - nothing will be changed' 'DRY' }
 
     # 1 - toolchain ---------------------------------------------------------
-    Write-Step '1/6 toolchain (Haxe + Neko)'
+    Write-Step '1/6 toolchain (Haxe + Neko + git)'
 
     if ($DownloadToolchain) {
         $script:HaxePath = Install-HaxeToolchain
@@ -961,9 +1009,18 @@ try {
     }
 
     # git: needed to install the libraries (haxelib git) and, at compile time, to embed
-    # the commit hash/date (GitCommitMacro). A Git that is installed but not on PATH yet
-    # only needs its folder prepended for this run.
+    # the commit hash/date (GitCommitMacro). Missing git is treated like missing Haxe:
+    # the portable package is downloaded instead of asking the user to install it.
     $script:GitExe = Find-GitExe
+    if (-not $script:GitExe) {
+        try {
+            $script:GitExe = Install-GitToolchain
+        } catch {
+            Write-Log "could not install git automatically: $($_.Exception.Message)" 'WARN'
+            Write-Log 'install it by hand: winget install --id Git.Git -e   (or https://git-scm.com/download/win)' 'INFO'
+            $script:GitExe = $null
+        }
+    }
     $gitVersion = Get-GitVersion -GitExe $script:GitExe
     if ($gitVersion) {
         Write-Log "git --version -> $gitVersion"
@@ -978,9 +1035,11 @@ try {
         } elseif ($shallow) {
             Write-Log 'shallow git checkout - the in-game commit count/hash will be incomplete' 'WARN'
         }
+    } elseif ($DryRun) {
+        Write-Log '[dryrun] git would be unpacked into building\toolchain now' 'DRY'
     } else {
         $script:GitExe = $null
-        Write-Log 'git not found - installing libraries and the in-game build info need it' 'WARN'
+        Write-Log 'git is missing - the libraries cannot be installed and the in-game build info stays empty' 'WARN'
     }
 
     # 0 - passthrough -------------------------------------------------------

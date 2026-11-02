@@ -74,14 +74,16 @@ the maintainer; in-game behaviour is tested manually.
 
 `git` is part of the toolchain: [`building/libs.xml`](building/libs.xml) fetches almost every library
 with `haxelib git`, and the engine embeds the commit hash/date at compile time
-(`source/funkin/backend/system/macros/GitCommitMacro.hx`). With all libraries vendored the build still
-succeeds without git, but the in-game build info falls back to `-`; installing a missing library needs
-git outright.
+(`source/funkin/backend/system/macros/GitCommitMacro.hx`). If no git is found, `Build.bat` downloads
+the official MinGit zip (≈38 MB) into `building/toolchain/git-<version>/` and puts only its `cmd/` on
+`PATH` for that run — no installer, no admin rights, no registry changes, same treatment as Haxe and
+Neko. With all libraries vendored the build still succeeds without git, but the in-game build info
+falls back to `-`; installing a missing library needs git outright.
 
 A one-click alternative lives in [`building/Build.bat`](building/Build.bat): it finds or downloads
-Haxe + Neko, checks the vendored `.haxelib` libraries against [`building/libs.xml`](building/libs.xml)
+Haxe + Neko + git, checks the vendored `.haxelib` libraries against [`building/libs.xml`](building/libs.xml)
 and `project.xml` — installing whatever is missing with the engine's own `setup` command, then
-re-checking — checks git, the lime native library and MSVC, builds, and reports the result. It asks
+re-checking — checks the lime native library and MSVC, builds, and reports the result. It asks
 whether to start the build only when it actually had to install libraries; a complete checkout
 compiles straight away. `-Setup` installs/repairs libraries only, `-Ask` always asks.
 

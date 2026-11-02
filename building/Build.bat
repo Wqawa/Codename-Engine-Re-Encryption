@@ -5,7 +5,7 @@ rem
 rem  It forwards everything to lazy-build.ps1 next to it, so this one file does
 rem  everything the removed setup-windows.bat and cne-windows.bat used to do:
 rem
-rem    1. find (or download) Haxe + Neko,
+rem    1. find (or download) Haxe + Neko + git,
 rem    2. check that every library listed in building\libs.xml is really
 rem       installed, run the engine's own setup command for whatever is missing,
 rem       then continue,

@@ -99,7 +99,27 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # degrades to "-", the first one fails outright.
 git_version() { # version line when git is usable
     have git || return 1
-    git --version 2>/dev/null | head -n1
+    local out
+    # macOS ships a stub that only offers to install the command line tools
+    out="$(git --version 2>/dev/null | head -n1)"
+    [ -n "$out" ] || return 1
+    printf '%s\n' "$out"
+}
+
+# Same idea as Build.bat: a missing git is installed instead of being left to the user.
+# Windows unpacks the portable MinGit; on macOS homebrew can do it without a password.
+install_git() { # returns 0 when git is usable afterwards
+    if [ "$DRY_RUN" -eq 1 ]; then
+        log '[dryrun] git would be installed now (brew install git)'
+        return 1
+    fi
+    if have brew; then
+        log 'installing git with homebrew'
+        brew install git && have git && return 0
+        return 1
+    fi
+    warn 'homebrew not found - install git with: xcode-select --install   (or: brew install git)'
+    return 1
 }
 
 require_git() { # why it is needed, for the message
@@ -195,7 +215,7 @@ log "log        : ${LOG_FILE:-（none）}"
 [ "$DRY_RUN" -eq 1 ] && warn 'DRY RUN - nothing will be changed' || true
 
 # ---------------------------------------------------------------- 1 toolchain
-step '1/6 toolchain (Haxe + Neko)'
+step '1/6 toolchain (Haxe + Neko + git)'
 
 HAXE_BIN=''
 if [ "$DOWNLOAD_TOOLCHAIN" -eq 0 ]; then
@@ -255,9 +275,14 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 # git: needed to install the libraries (haxelib git) and, at compile time, to embed the
-# commit hash/date. A build with everything vendored works without it, so only warn here.
+# commit hash/date. Missing git is installed like a missing Haxe, not left to the user.
 if version="$(git_version)"; then ok "git --version -> $version"; else
-    warn 'git not found - installing libraries and the in-game build info need it'
+    warn 'git not found - trying to install it'
+    if install_git && version="$(git_version)"; then
+        ok "git --version -> $version (just installed)"
+    else
+        warn 'git is missing - installing libraries and the in-game build info need it'
+    fi
 fi
 if have git; then
     # the in-game build info (GitCommitMacro) reads this working copy

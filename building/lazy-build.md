@@ -16,7 +16,7 @@ export\release\windows\bin\CodenameEngine.exe
 
 | 步骤 | 做什么 | 缺东西时怎么办 |
 | --- | --- | --- |
-| 1/6 工具链 | 找 Haxe 4.3.x 和 Neko，顺带探测 `git` | 找不到 Haxe/Neko 就下载 haxe-4.3.7-win64.zip 和 neko-2.3.0-win64.zip 到 `building\toolchain\` 解压使用（**不需要装进系统**）；`git` 没有只警告（装了但没进 PATH 会自动把它的目录加进来） |
+| 1/6 工具链 | 找 Haxe 4.3.x、Neko 和 git | 三个都是**缺什么下什么**：Haxe/Neko 解压到 `building\toolchain\`；git 下载官方 MinGit zip（约 38 MB）解到 `building\toolchain\git-<版本>\`，只把它的 `cmd\` 加进本次运行的 PATH——不装进系统、不改注册表、不需要管理员（装了但没进 PATH 的也会先被找出来，不会重复下载） |
 | 2/6 库 | 用 `haxelib list` 核对 `building\libs.xml` 和 `project.xml` 要求的库（仓库自带 `.haxelib`） | 少一个就调引擎自己的 `setup` 命令（`haxe -cp commandline ... --run Main setup --ignore-sum --no-vscheck`）补齐，回来再核对一遍；补完还缺只警告不中断（lime 会指名是哪个库）。`-Setup` 只做这一步。**补库前先确认有 `git`**（`libs.xml` 里几乎都是 `haxelib git`），没有就停下并提示装 Git |
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64），并探测一次 `haxelib run lime --version` | ndll 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译；命令行本身崩（`Primitive not found` 之类，说明 lime 库自带的 `tools\tools.n` 比源码旧）就在 `lime\tools` 里跑一次 `haxe tools.hxml` 重编，再探测 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
@@ -94,10 +94,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File building\lazy-build.ps1 -DryRun
 
 ## 离线 / 内网机器
 
-把这两个 zip 提前放进 `building\toolchain\downloads\`，脚本会直接复用，不再联网：
+把这几个 zip 提前放进 `building\toolchain\downloads\`，脚本会直接复用，不再联网：
 
 - `haxe-4.3.7-win64.zip`（https://github.com/HaxeFoundation/haxe/releases/tag/4.3.7）
 - `neko-2.3.0-win64.zip`（https://github.com/HaxeFoundation/neko/releases/tag/v2-3-0）
+- `MinGit-2.56.0.4-64-bit.zip`（https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.4，仅在本机没有 git 时才需要）
 
 MSVC 与 VS Build Tools 无法离线绕过，内网机器请提前装好"使用 C++ 的桌面开发"。
 
@@ -112,7 +113,7 @@ MSVC 与 VS Build Tools 无法离线绕过，内网机器请提前装好"使用 
 | `Uncaught exception - ... Primitive not found : lime@lime_xxx` | lime 库自带的命令行字节码 `tools\tools.n` 比同目录源码旧（源码删了某个原生函数，字节码还在找它） | 脚本会在第 3 步自动重编 `tools.n`；若仍失败，删掉 `.haxelib\lime\<版本>\tools\tools.n` 再重跑 |
 | `cl.exe` 找不到 / `Cannot find msvc` | 没装 C++ 工具链 | 装 VS Build Tools 的"使用 C++ 的桌面开发" |
 | `系统禁止运行脚本` / `UnauthorizedAccess` | PowerShell 执行策略 | 不用管，`Build.bat` 已经带 `-ExecutionPolicy Bypass` |
-| `'git' 不是内部或外部命令` / 脚本说 `git is not installed` | 本机没装 Git；`.haxelib` 里缺库时必须靠它执行 `haxelib git` 去拉 | 装 Git for Windows（`winget install --id Git.Git -e`，或 https://git-scm.com/download/win），重开控制台再跑；装了但没进 PATH 的，脚本会自己到 `C:\Program Files\Git\cmd` 之类的地方找 |
+| `'git' 不是内部或外部命令` / 脚本说 `git is not installed` | 本机没有 Git；`.haxelib` 缺库时要靠它执行 `haxelib git` | 一般不用管：脚本会自己下载 MinGit 解到 `building\toolchain\git-<版本>\` 并用它。只有下载失败（离线 / 被墙）时才要手动装 `winget install --id Git.Git -e`，或把 `MinGit-2.56.0.4-64-bit.zip` 放进 `building\toolchain\downloads\` 重跑 |
 | `fatal: unable to access ...` / `SSL certificate problem` / `schannel` | `haxelib git` 拉库时代理或抓包工具替换了证书 | 检查系统代理；给 git 配可信任的 CA（`git config --global http.sslCAInfo <你的pem>`），或临时关掉那个工具的 HTTPS 拦截 |
 | 游戏里版本号 / 提交号显示 `-` | 编译时目录不在 git 仓库里，或没有 git | 用仓库目录编译（要有 `.git`），并确认 `git` 可用；浅克隆只影响提交计数，不影响哈希 |
 | 编译成功但 exe 时间戳没变 | lime 判定无需重编 | `Build.bat -Clean` |
@@ -161,7 +162,7 @@ haxelib run lime build windows -nocolor
 
 ## Linux / macOS：`build-linux.sh` / `build-macos.sh`
 
-`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译；第 3 步也会像 Windows 那样探测 `haxelib run lime`，发现 lime 自带的命令行字节码 `tools/tools.n` 比源码旧（`Primitive not found`）就自动重编。第 1 步会打印 `git --version`；`.haxelib` 里缺库时脚本要求有 git（`haxelib git`），没有就带着安装命令停下来，不会留下装了一半的 `.haxelib`：
+`Build.bat` 跑的是 PowerShell，只在 Windows 上能用。另外两端各有一个同构脚本，走同样的六步（工具链 → 库 → lime 原生库 → C++ 工具链 → 编译 → 验收），补完库同样会问一句要不要编译；第 3 步也会像 Windows 那样探测 `haxelib run lime`，发现 lime 自带的命令行字节码 `tools/tools.n` 比源码旧（`Primitive not found`）就自动重编。第 1 步会打印 `git --version`；没有 git 时会尝试自动装（Linux 用 `apt-get`/`dnf`/`pacman`/`apk`，仅当已是 root 或免密 sudo 可用；macOS 用 `brew`），装不上才给手工命令。`.haxelib` 缺库时必须有 git（`haxelib git`），否则脚本带着安装命令停下，不会留下装了一半的 `.haxelib`：
 
 ```bash
 ./building/build-linux.sh                     # 增量构建

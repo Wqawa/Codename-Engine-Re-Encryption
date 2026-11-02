@@ -92,7 +92,47 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # degrades to "-", the first one fails outright.
 git_version() { # version line when git is usable
     have git || return 1
-    git --version 2>/dev/null | head -n1
+    local out
+    # a distro that ships the "install the developer tools first" stub answers nothing
+    out="$(git --version 2>/dev/null | head -n1)"
+    [ -n "$out" ] || return 1
+    printf '%s\n' "$out"
+}
+
+# Same idea as Build.bat: a missing git is installed instead of being left to the user.
+# Windows unpacks the portable MinGit; here the distribution package is used, and only
+# when it can be installed without a password prompt.
+install_git() { # returns 0 when git is usable afterwards
+    if [ "$DRY_RUN" -eq 1 ]; then
+        log '[dryrun] git would be installed now (apt-get / dnf / pacman / apk)'
+        return 1
+    fi
+    local sudo_cmd=''
+    if [ "$(id -u)" -ne 0 ]; then
+        have sudo || { warn 'not root and sudo is missing - install git by hand'; return 1; }
+        if ! sudo -n true 2>/dev/null; then
+            warn 'sudo asks for a password here - install git by hand: sudo apt-get install -y git'
+            return 1
+        fi
+        sudo_cmd='sudo -n'
+    fi
+    if have apt-get; then
+        log 'installing git with apt-get'
+        $sudo_cmd apt-get update -qq && $sudo_cmd env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+    elif have dnf; then
+        log 'installing git with dnf'
+        $sudo_cmd dnf install -y git
+    elif have pacman; then
+        log 'installing git with pacman'
+        $sudo_cmd pacman -Sy --noconfirm git
+    elif have apk; then
+        log 'installing git with apk'
+        $sudo_cmd apk add --no-cache git
+    else
+        warn 'no known package manager (apt-get / dnf / pacman / apk) - install git by hand'
+        return 1
+    fi
+    have git
 }
 
 require_git() { # why it is needed, for the message
@@ -184,7 +224,7 @@ log "log        : ${LOG_FILE:-（none）}"
 [ "$DRY_RUN" -eq 1 ] && warn 'DRY RUN - nothing will be changed'
 
 # ---------------------------------------------------------------- 1 toolchain
-step '1/6 toolchain (Haxe + Neko)'
+step '1/6 toolchain (Haxe + Neko + git)'
 
 HAXE_BIN=''
 if [ "$DOWNLOAD_TOOLCHAIN" -eq 0 ]; then
@@ -248,9 +288,14 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 # git: needed to install the libraries (haxelib git) and, at compile time, to embed the
-# commit hash/date. A build with everything vendored works without it, so only warn here.
+# commit hash/date. Missing git is installed like a missing Haxe, not left to the user.
 if version="$(git_version)"; then ok "git --version -> $version"; else
-    warn 'git not found - installing libraries and the in-game build info need it'
+    warn 'git not found - trying to install it'
+    if install_git && version="$(git_version)"; then
+        ok "git --version -> $version (just installed)"
+    else
+        warn 'git is missing - installing libraries and the in-game build info need it'
+    fi
 fi
 if have git; then
     # the in-game build info (GitCommitMacro) reads this working copy
