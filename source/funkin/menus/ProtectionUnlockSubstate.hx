@@ -49,6 +49,10 @@ class ProtectionUnlockSubstate extends FlxSubState {
 		super.create();
 		isOpen = true;
 
+		// The options screen drives its own camera list; without pinning one here the box
+		// can end up with a camera that never draws it.
+		cameras = [FlxG.camera];
+
 		final w = 560.0;
 		final h = 250.0;
 		final x = (FlxG.width - w) * 0.5;
@@ -89,6 +93,9 @@ class ProtectionUnlockSubstate extends FlxSubState {
 		textHandler = onTextInput;
 		Lib.application.window.onTextInput.add(textHandler);
 		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
+
+		Logs.trace('Unlock box opened: ' + FlxG.width + 'x' + FlxG.height + ', ' + members.length
+			+ ' sprites, camera ' + (FlxG.camera == null ? 'null' : 'ok'), INFO);
 	}
 
 	override function update(elapsed:Float) {

@@ -99,8 +99,13 @@ class MainMenuState extends MusicBeatState
 	var selectedSomethin:Bool = false;
 	var forceCenterX:Bool = true;
 	var devModeCount:Int = 0;
-	/** The integrity result is shown once per run, on whichever menu comes first. */
-	var integrityNotified:Bool = false;
+	/**
+	 * The integrity result is shown once per run.
+	 *
+	 * Static on purpose: this state is rebuilt every time the player comes back to the
+	 * menu, and an instance field meant the same warning greeted them on every return.
+	 */
+	static var integrityNotified:Bool = false;
 
 	/**
 	 * Reports the background integrity check, once it finishes.
