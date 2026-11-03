@@ -874,9 +874,6 @@ class EncryptionEditor extends UIState {
 
 	/** The protection password to write into the pack, or null when the box is off. */
 	function packProtectPass():String {
-		// a standalone password zip has no CNEZ payload to carry the marker, so the switch
-		// only applies to containers
-		if (currentPackMode == 1) return null;
 		if (packProtectCheck == null || !packProtectCheck.checked) return null;
 		if (packProtectBox == null) return null;
 		var typed = packProtectBox.label.text;
@@ -920,7 +917,7 @@ class EncryptionEditor extends UIState {
 			status("Wait for the current pack job to finish - watch the progress bar.");
 			return;
 		}
-		if (packProtectCheck != null && packProtectCheck.checked && packProtectPass() == null && currentPackMode == 0) {
+		if (packProtectCheck != null && packProtectCheck.checked && packProtectPass() == null) {
 			status("Type the protection password, or uncheck protection mode.");
 			return;
 		}
@@ -1108,7 +1105,27 @@ class EncryptionEditor extends UIState {
 			try {
 				if (kind == JOB_ENCRYPT) {
 					if (standard) {
-						ZipAes.encryptZip(srcPath, outPath, key, function(p:Float) jobProgress = p * 0.98);
+						if (protectPass != null) {
+							// A password zip can carry the marker too - it is just another
+							// entry. encryptZip reads from a path, so the patched archive is
+							// written to a temporary file, encrypted, and removed.
+							jobProgress = 0.01;
+							var source = File.getBytes(srcPath);
+							var patched = ZipInject.addFile(source, ProtectionMark.PATH,
+								ProtectionMark.create(protectPass, collectScripts(source)));
+							sys.FileSystem.createDirectory(funkin.backend.system.RuntimeDirs.TEMP);
+							var temp = funkin.backend.system.RuntimeDirs.TEMP + 'protect_pack.zip';
+							File.saveBytes(temp, patched);
+							try {
+								ZipAes.encryptZip(temp, outPath, key, function(p:Float) jobProgress = p * 0.98);
+							} catch (e:Dynamic) {
+								try sys.FileSystem.deleteFile(temp) catch (_:Dynamic) {}
+								throw e;
+							}
+							try sys.FileSystem.deleteFile(temp) catch (_:Dynamic) {}
+						} else {
+							ZipAes.encryptZip(srcPath, outPath, key, function(p:Float) jobProgress = p * 0.98);
+						}
 					} else {
 						var data = File.getBytes(srcPath);
 						if (protectPass != null) {
