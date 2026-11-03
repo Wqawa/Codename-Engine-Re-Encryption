@@ -7,17 +7,18 @@ import haxe.io.BytesOutput;
 import haxe.zip.Entry;
 import haxe.zip.Writer;
 
+/** Callback the checks report through; `detail` is only read on failure. */
+private typedef Check = String->Bool->?String->Void;
+
 /**
  * Container checks, run from the editor's Tools menu.
  *
- * A pack that decrypts to the wrong bytes still opens, it just plays the wrong thing,
- * so nothing here looks at the screen. Each check builds a container in memory and
- * compares bytes.
+ * A pack that decrypts to the wrong bytes still opens, it just plays the wrong thing, so
+ * nothing here looks at the screen: each check builds a container in memory and compares
+ * bytes. The last one damages a payload byte and expects `open` to succeed while the read
+ * fails - that is the contract the chunk table gives.
  *
- * The last one damages a payload byte and expects open to succeed while reading fails -
- * that is the contract the chunk table gives.
- *
- * Same output shape as ScriptContainerSelfTest: "ok"/"FAIL" lines and an
+ * Output shape matches ScriptContainerSelfTest: "ok"/"FAIL" lines and an
  * "N passed, M failed" summary.
  */
 class ModPackSelfTest {
@@ -36,7 +37,7 @@ class ModPackSelfTest {
 		var passed = 0;
 		var failed = 0;
 
-		function check(name:String, ok:Bool, ?detail:String) {
+		var check:Check = function(name:String, ok:Bool, ?detail:String) {
 			if (ok) {
 				passed++;
 				lines.push("ok   " + name);
@@ -44,7 +45,7 @@ class ModPackSelfTest {
 				failed++;
 				lines.push("FAIL " + name + (detail == null ? "" : " - " + detail));
 			}
-		}
+		};
 
 		var payload = sampleZip();
 		var key = "self-test-key";
@@ -76,8 +77,7 @@ class ModPackSelfTest {
 
 		// the chunk table is covered by the root tag, so flipping a tag must fail
 		var flippedTable = container.sub(0, container.length);
-		var tableAt = CnezV2.HEADER_SIZE;
-		flippedTable.set(tableAt, flippedTable.get(tableAt) ^ 0xFF);
+		flippedTable.set(CnezV2.HEADER_SIZE, flippedTable.get(CnezV2.HEADER_SIZE) ^ 0xFF);
 		var tableRejected = false;
 		try CnezV2.open(flippedTable, key) catch (e:Dynamic) tableRejected = true;
 		check("a flipped chunk tag is rejected", tableRejected);
@@ -91,7 +91,7 @@ class ModPackSelfTest {
 			check("openEncrypted() reports the chunk table", opened.chunkCount > 0, "chunks " + opened.chunkCount);
 			checkLazyRead(check, opened);
 
-			// --- a payload byte is not checked on open, only when a read lands in it
+			// a payload byte is not checked on open, only when a read lands in it
 			var damaged = container.sub(0, container.length);
 			var payloadAt = CnezV2.HEADER_SIZE + opened.chunkCount * CnezV2.TAG_SIZE + CnezV2.TAG_SIZE + 8;
 			damaged.set(payloadAt, damaged.get(payloadAt) ^ 0xFF);
@@ -116,7 +116,7 @@ class ModPackSelfTest {
 	// ------------------------------------------------------------------ helpers
 
 	/** Indexes the archive through the lazy reader and reads the one entry back. */
-	static function checkLazyRead(check:String->Bool->?String->Void, opened:ModPackCrypto.OpenedPack):Void {
+	static function checkLazyRead(check:Check, opened:ModPackCrypto.OpenedPack):Void {
 		var zip:SysZip = null;
 		try {
 			zip = SysZip.fromChunked(opened.cipher, opened.enc, opened.nonce, opened.chunkSize, opened.chunkTags,

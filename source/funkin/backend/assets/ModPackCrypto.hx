@@ -2,6 +2,8 @@ package funkin.backend.assets;
 
 import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.system.MemoryGuard;
+import funkin.backend.system.RuntimeDirs;
+import haxe.crypto.Sha256;
 import haxe.io.Bytes;
 import haxe.io.Path;
 #if sys
@@ -11,31 +13,7 @@ import sys.FileSystem;
 import sys.io.File;
 #end
 
-/**
- * Encrypted container for zip mod packs.
- *
- * Layout (little endian), identical in spirit to the script container but with
- * its own magic so a script can never be mistaken for a mod pack:
- *   0..3    magic "CNEZ"
- *   4       format version (1)
- *   5..7    reserved
- *   8..23   random salt (16)
- *   24..35  random nonce (12)
- *   36..39  payload length
- *   40..    ChaCha20 ciphertext of the raw .zip bytes
- *   ...     HMAC-SHA256 over everything above (32 bytes)
- *
- * The key is the same kind of key the script encryption uses, so a publisher
- * can hand out either the key itself or a key token (see ScriptCrypto).
- */
-
-/**
- * A container that has been checked but not decrypted.
- *
- * `chunkCount` is 0 for a version 1 pack, which carries one tag for the whole
- * payload; a version 2 pack fills the chunk fields and its payload is verified as
- * it is read (see `CnezV2`).
- */
+/** A container that passed its header check, with the payload still encrypted. */
 typedef OpenedPack = {
 	var cipher:Bytes;
 	var enc:Bytes;
@@ -46,74 +24,44 @@ typedef OpenedPack = {
 	var mac:Bytes;
 }
 
+/**
+ * Entry point for encrypted mod packs: keys, in-memory copies and cleanup.
+ *
+ * The container itself lives in `CnezV2`; nothing here parses bytes. This class decides
+ * which key opens a pack, hands the loader a readable `SysZip`, and wipes everything
+ * when the player leaves.
+ */
 class ModPackCrypto {
-	// The layout lives in CnezV2 (magic, version byte, sizes). This class is the
-	// entry point around it: keys, memory copies, cleanup. There is no second format -
-	// the first container layout was removed before release, see CnezV2's header.
+	/** Where a pack's own key file is copied to (`RuntimeDirs.KEYS`). */
+	public static var cacheFolder:String = RuntimeDirs.KEYS;
 
-	/**
-	 * Where a pack's own key file is copied to. Everything the engine writes while it
-	 * runs lives under one hidden folder now (see RuntimeDirs); the key side of it is
-	 * this one.
-	 */
-	public static var cacheFolder:String = funkin.backend.system.RuntimeDirs.KEYS;
-
-	/** Prefix every copied key gets (".CNE_<pack>_key.txt"). */
+	/** Prefix every copied key gets: `.CNE_<pack>_key.txt`. */
 	public static inline var CACHE_PREFIX:String = '.CNE_';
 
-	/** Cache folders used by earlier builds; swept on sight. */
+	/** Cache folders earlier builds used; swept on sight. */
 	public static var legacyCacheFolders:Array<String> = ['./.CNE_mods/', './.cne_mods/'];
 
-	/** Key typed by the player this session, per pack path. */
-	// passwords are kept wrapped (see MemoryGuard) so a memory scan does not find them as plain strings
-	static var sessionKeys:Map<String, Bytes> = new Map<String, Bytes>();
+	/** Keys typed this session, per pack path. Wrapped, see MemoryGuard. */
+	static var sessionKeys:Map<String, Bytes> = new Map();
 
 	/** Set when the player chose "play without mods" after a bad key. */
-	public static var disableMods: Bool = false;
+	public static var disableMods:Bool = false;
 
-	// ---------------------------------------------------- background prepare
-	// Decrypting a big pack takes seconds, so the loading screen starts the work
-	// on a worker thread and only polls these fields from the render loop.
-
-	/** 0..1 progress of the pack currently being prepared. */
-	public static var progress:Float = 0;
-	/** True while the prepare thread is held back because a prompt is open. */
-	public static var preparePaused:Bool = false;
-	/** File name of the pack being prepared (shown on the loading screen). */
-	public static var progressLabel:String = "";
-	/** True while the worker thread is still running. */
-	public static var preparing:Bool = false;
-	/** Set by the worker when it finished (success or not). */
-	public static var prepareDone:Bool = false;
-	/** Packs none of the known keys could open. */
-	public static var prepareFailed:Array<String> = [];
-	/**
-	 * Packs whose prepare pass did not produce a cache file. They are skipped by
-	 * packsNeedingWork so a broken pack cannot bounce between the loader and the
-	 * progress screen forever; typing a new key clears the mark (see setSessionKey).
-	 */
-	static var failedPacks:Map<String, Bool> = new Map<String, Bool>();
-
-	public static function hasFailedBefore(zipPath:String):Bool {
-		return failedPacks.exists(normalizePath(zipPath));
-	}
-
-	public static function clearFailure(zipPath:String):Void {
-		failedPacks.remove(normalizePath(zipPath));
-	}
+	// ------------------------------------------------------------------ paths
 
 	public static function normalizePath(path:String):String {
 		if (path == null) return "";
 		return StringTools.replace(StringTools.trim(path.toLowerCase()), "\\", "/");
 	}
 
-	// ------------------------------------------------------------- detection
+	// -------------------------------------------------------------- detection
 
-	/** True for a CNEZ container of the current (only) version. */
+	/** True for a CNEZ container. */
 	public static function isEncryptedPack(data:Bytes):Bool {
 		return CnezV2.isV2(data);
 	}
 
+	/** Same, for a file: reads five bytes instead of loading it. */
 	public static function isEncryptedPackFile(path:String):Bool {
 		#if sys
 		try {
@@ -132,50 +80,51 @@ class ModPackCrypto {
 
 	/** A raw zip starts with "PK". */
 	public static function looksLikeZip(data:Bytes):Bool {
-		if (data == null || data.length < 4) return false;
-		return data.get(0) == 0x50 && data.get(1) == 0x4B;
+		return data != null && data.length >= 4 && data.get(0) == 0x50 && data.get(1) == 0x4B;
 	}
 
 	/**
-	 * True when the pack cannot be read without a password: either a CNEZ
-	 * container or a plain zip whose entries were password protected.
+	 * True when the pack cannot be read without a password: a CNEZ container, or a zip
+	 * whose entries are password protected.
 	 */
 	public static function needsKey(zipPath:String):Bool {
 		if (isEncryptedPackFile(zipPath)) return true;
 		return ZipPassword.isProtected(zipPath);
 	}
 
-	// ------------------------------------------------------------ container
+	/** True when this mod's own file is an encrypted pack. */
+	public static function isEncryptedMod(mod:String):Bool {
+		#if sys
+		if (mod == null) return false;
+		for (ext in Flags.ALLOWED_ZIP_EXTENSIONS) {
+			var path = ModsFolder.modsPath + mod + "." + ext;
+			try {
+				if (FileSystem.exists(path) && !FileSystem.isDirectory(path) && needsKey(path)) return true;
+			} catch (e:Dynamic) {}
+		}
+		#end
+		return false;
+	}
 
-	/**
-	 * Wraps a zip into a version 2 container (chunked tags).
-	 *
-	 * Opening costs a header check instead of a pass over the whole payload; the layout
-	 * and its trade-offs live in CnezV2.
-	 */
+	// -------------------------------------------------------------- container
+
+	/** Wraps a zip into a CNEZ container. Layout and costs live in `CnezV2`. */
 	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		return CnezV2.pack(zipBytes, ScriptCrypto.resolveKeyValue(pass), onProgress);
 	}
 
 	/**
-	 * Checks the container and hands back its payload **still encrypted**, together with
-	 * the key the payload has to be decrypted with.
-	 *
-	 * Split out of `unpack` so a caller that only needs random access (the loader, see
-	 * zipFor) can verify integrity without paying for a full decryption pass: the HMAC
-	 * still covers every byte, but the cipher is never touched as a whole.
+	 * Checks the container and returns its payload **still encrypted**, with the key
+	 * needed to decrypt it. Lets the loader verify without a full decryption pass.
 	 */
 	public static function openEncrypted(data:Bytes, ?pass:String):OpenedPack {
 		if (pass == null) pass = ScriptCrypto.getPassword();
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
 		if (pass == null) throw "ModPackCrypto: no key";
-		if (!isEncryptedPack(data))
-			throw "ModPackCrypto: not an encrypted mod pack";
+		if (!isEncryptedPack(data)) throw "ModPackCrypto: not an encrypted mod pack";
 
-		// the payload comes back as ciphertext with a chunk table, which is what lets
-		// the loader verify lazily instead of hashing the whole pack up front
 		var opened = CnezV2.open(data, pass);
 		return {
 			cipher: opened.payload,
@@ -195,17 +144,15 @@ class ModPackCrypto {
 		return CnezV2.unpack(data, pass, onProgress);
 	}
 
-	// ------------------------------------------------------------ key lookup
+	// ------------------------------------------------------------- key lookup
 
 	public static function setSessionKey(zipPath:String, key:String):Void {
 		sessionKeys.set(normalizePath(zipPath), MemoryGuard.sealString(key));
-		// a freshly typed key deserves a new attempt on the progress screen
+		// a freshly typed key deserves a new attempt; the memo is derived from passwords,
+		// so dropping it keeps fewer of them around
 		failedPacks.remove(normalizePath(zipPath));
-	}
-
-	/** Records that a full decryption attempt for this pack already failed. */
-	public static function markFailed(zipPath:String):Void {
-		failedPacks.set(normalizePath(zipPath), true);
+		keyCheckCache = new Map();
+		keyCheckEntries = 0;
 	}
 
 	public static function clearSessionKey(zipPath:String):Void {
@@ -217,39 +164,54 @@ class ModPackCrypto {
 	}
 
 	public static function clearSessionKeys():Void {
-		sessionKeys = new Map<String, Bytes>();
+		sessionKeys = new Map();
+		keyCheckCache = new Map();
+		keyCheckEntries = 0;
 	}
+
+	/** Records that a full decryption attempt for this pack already failed. */
+	public static function markFailed(zipPath:String):Void {
+		failedPacks.set(normalizePath(zipPath), true);
+	}
+
+	public static function hasFailedBefore(zipPath:String):Bool {
+		return failedPacks.exists(normalizePath(zipPath));
+	}
+
+	public static function clearFailure(zipPath:String):Void {
+		failedPacks.remove(normalizePath(zipPath));
+	}
+
+	/** Packs that already failed a full attempt, so they are not retried in a loop. */
+	static var failedPacks:Map<String, Bool> = new Map();
 
 	/** True when at least one key (typed, script_key.txt or built-in) is known. */
 	public static function hasKnownKey(zipPath:String):Bool {
 		return candidateKeys(zipPath).length > 0;
 	}
 
-	/** Memo for keyWorks(): decryption is never repeated for the same pack + key. */
-	static var keyCheckCache:Map<String, Bool> = new Map<String, Bool>();
+	/** Memo for keyWorks(): never run a KDF twice for the same pack and key. */
+	static var keyCheckCache:Map<String, Bool> = new Map();
 	static var keyCheckEntries:Int = 0;
 
 	/**
-	 * Cheap "does this key actually open the pack" check, so a wrong password can
-	 * be rejected on the prompt itself instead of after a pointless loading screen.
+	 * Cheap "does this key really open the pack" check, so a wrong password is rejected
+	 * on the prompt instead of after a pointless loading screen.
 	 *
-	 * A CNEZ container only needs the first four bytes of the payload decrypted (a
-	 * zip always starts with "PK"), so this costs a KDF run and nothing else; a
-	 * password protected zip is verified through ZipPassword (12 byte entry header,
-	 * or the AES password verifier).
+	 * A CNEZ container only needs its root tag checked, which costs one KDF and a few KB
+	 * of reads; a password protected zip goes through ZipPassword.
 	 */
 	public static function keyWorks(zipPath:String, key:String):Bool {
 		#if sys
 		if (key == null) return false;
-		var id = normalizePath(zipPath) + "|" + packStamp(zipPath) + "|" + key;
+		var id = normalizePath(zipPath) + '|' + packStamp(zipPath) + '|' + keyId(key);
 		if (keyCheckCache.exists(id)) return keyCheckCache.get(id);
 		var ok = keyWorksUncached(zipPath, key);
-		// The memo is not supposed to grow for the whole session: a player who
-		// types a lot of wrong passwords should not leak one entry per try.
-		// (Map has no size in Haxe 4.2, so the entries are counted on the side.)
+		// the memo must not grow for a whole session of wrong passwords; Map has no size
+		// in Haxe 4.2, so entries are counted on the side
 		keyCheckEntries++;
 		if (keyCheckEntries > 256) {
-			keyCheckCache = new Map<String, Bool>();
+			keyCheckCache = new Map();
 			keyCheckEntries = 1;
 		}
 		keyCheckCache.set(id, ok);
@@ -259,12 +221,20 @@ class ModPackCrypto {
 		#end
 	}
 
+	/**
+	 * The memo is keyed by a digest: a map full of plaintext passwords would be the
+	 * easiest place in the process to find them.
+	 */
+	static function keyId(key:String):String {
+		return Sha256.make(Bytes.ofString(key)).toHex().substr(0, 32);
+	}
+
 	/** size:mtime of the pack, so a replaced file is never answered from a stale memo. */
 	static function packStamp(zipPath:String):String {
 		#if sys
 		try {
 			var st = FileSystem.stat(zipPath);
-			return Std.string(st.size) + ":" + Std.string(st.mtime);
+			return '${st.size}:${st.mtime}';
 		} catch (e:Dynamic) {}
 		#end
 		return "";
@@ -275,7 +245,6 @@ class ModPackCrypto {
 		var pass = ScriptCrypto.resolveKeyValue(key);
 		if (pass == null) return false;
 		try {
-			// the container checks its own root tag: reads a few KB, never the payload
 			if (isEncryptedPackFile(zipPath)) return CnezV2.verifyKeyFile(zipPath, pass);
 			if (ZipPassword.isProtected(zipPath)) return ZipPassword.checkPassword(zipPath, pass);
 		} catch (e:Dynamic) {}
@@ -283,14 +252,14 @@ class ModPackCrypto {
 		return false;
 	}
 
-	/** True when one of the known keys really opens the pack (cheap check). */
+	/** True when one of the known keys really opens the pack. */
 	public static function hasWorkingKey(zipPath:String):Bool {
 		for (key in candidateKeys(zipPath))
 			if (keyWorks(zipPath, key)) return true;
 		return false;
 	}
 
-	/** Keys worth trying for a pack: the typed one first, then script_key.txt, then the built-in. */
+	/** Keys worth trying: typed first, then script_key.txt, then the built-in one. */
 	public static function candidateKeys(zipPath:String):Array<String> {
 		var list:Array<String> = [];
 		function push(k:String) {
@@ -310,36 +279,38 @@ class ModPackCrypto {
 		return list;
 	}
 
-	// -------------------------------------------------------------- cache
+	/** First known key that actually opens the pack, or null. */
+	public static function resolveKey(zipPath:String):String {
+		for (key in candidateKeys(zipPath))
+			if (keyWorks(zipPath, key)) return key;
+		return null;
+	}
 
-
-	// ------------------------------------------------------- cache hygiene
-	// Everything decrypted lands on disk as a readable zip. It stays hidden and
-	// prefixed while the game runs, is deleted when the game closes, and a crashed
-	// run (taskkill, power loss) is swept the next time the game reaches the cache.
+	// ---------------------------------------------------------- cache hygiene
+	// The only thing decryption leaves on disk is a copied key file; the packs themselves
+	// stay in RAM. Copies are hidden, deleted on exit, and swept on the next start after
+	// a crash.
 
 	static var __cacheSwept:Bool = false;
 	static var __exitHooked:Bool = false;
 
 	#if sys
-	/** Hides a path from Explorer (Windows; elsewhere the dot prefix already does it). */
+	/** Hides a path from Explorer (Windows; the dot prefix covers the rest). */
 	static function hidePath(path:String):Void {
 		#if windows
 		try CoolUtil.safeAddAttributes(path, NativeAPI.FileAttribute.HIDDEN) catch (e:Dynamic) {}
 		#end
 	}
 
-	/** Creates the key folder when missing and hides it. */
 	public static function ensureCacheFolder():Void {
-		funkin.backend.system.RuntimeDirs.ensure(cacheFolder);
+		RuntimeDirs.ensure(cacheFolder);
 	}
 
 	/** Hides one decrypted copy. */
 	public static function hideCacheFile(path:String):Void hidePath(path);
 
 	#if MOD_SUPPORT
-	/** Releases the open zip handles: a decrypted copy cannot be deleted while
-	 *  the library still reads from it. Only used right before the exit cleanup. */
+	/** Releases the open zip handles; a copy cannot be deleted while it is still read. */
 	static function closePackHandles():Void {
 		try {
 			if (Paths.assetsTree == null) return;
@@ -376,12 +347,12 @@ class ModPackCrypto {
 	public static function sweepCache():Void {
 		if (__cacheSwept) return;
 		__cacheSwept = true;
-		// edits an earlier build staged in [zip]temp/ are the player's unmerged work:
-		// they are moved into .cne/mods/ first, and only then do the old folders go
-		funkin.backend.system.RuntimeDirs.migrateLegacy();
+		// staged edits from an older build are the player's work: they move into
+		// .cne/mods/ before the old folders are deleted
+		RuntimeDirs.migrateLegacy();
 		cleanCache();
-		funkin.backend.system.RuntimeDirs.clearVideos();
-		funkin.backend.system.RuntimeDirs.clearTemp();
+		RuntimeDirs.clearVideos();
+		RuntimeDirs.clearTemp();
 		ensureCacheFolder();
 		hookExit();
 	}
@@ -403,7 +374,6 @@ class ModPackCrypto {
 				#if MOD_SUPPORT
 				closePackHandles();
 				#end
-				// the decrypted packs only exist in RAM now; wipe them on the way out
 				releaseZips();
 				cleanCache();
 			});
@@ -412,27 +382,15 @@ class ModPackCrypto {
 	#end
 
 	// ------------------------------------------------------- decrypted packs
-	// A decrypted pack is never written to disk: it is handed to the asset library
-	// as an in-memory SysZip and wiped when the pack is unloaded or the game closes.
+	// A decrypted pack is never written to disk: the loader gets an in-memory SysZip and
+	// the buffer is wiped when the pack is unloaded or the game closes.
 
 	/** Decrypted packs held in RAM, keyed by normalized pack path. */
 	static var loadedZips:Map<String, SysZip> = new Map();
 
 	/**
-	 * First known key that actually opens the pack, or null.
-	 *
-	 * Cheap by design: it only probes a few bytes per candidate (see keyWorks), so it
-	 * runs on the main thread without decrypting the whole pack.
-	 */
-	public static function resolveKey(zipPath:String):String {
-		for (key in candidateKeys(zipPath))
-			if (keyWorks(zipPath, key)) return key;
-		return null;
-	}
-
-	/**
-	 * Decrypts the pack into memory and returns it, or null when the pack is not
-	 * protected at all or no known key opens it. Repeated calls return the same copy.
+	 * Decrypts the pack into memory and returns it, or null when the pack is unprotected
+	 * or no known key opens it. Repeated calls return the same copy.
 	 */
 	public static function zipFor(packPath:String, ?onProgress:Float->Void):SysZip {
 		#if sys
@@ -440,21 +398,18 @@ class ModPackCrypto {
 		var id = normalizePath(packPath);
 		var known = loadedZips.get(id);
 		if (known != null) {
-			// a released zip still sitting in the map is worse than no entry at all: it
-			// looks loaded, so the loader would take it and read from a wiped buffer. A
-			// stale one is the copy of a file a merge replaced - decrypting again is the
-			// only way to see the merged entries.
+			// a released copy looks loaded but reads nothing; a stale one belongs to a file
+			// a merge replaced. Neither can be handed out.
 			if (!known.released && !known.stale) return known;
 			loadedZips.remove(id);
-			// never wipe a buffer a library still reads from; the next load resets the tree
-			// first and retainZips() disposes it then
+			// never wipe a buffer a library still reads from; the next load disposes it
 			if (!known.released && !heldByLibrary(known)) try known.dispose() catch (e:Dynamic) {}
 		}
 
 		var packed = isEncryptedPackFile(packPath);
 		var protectedZip = !packed && ZipPassword.isProtected(packPath);
 		if (!packed && !protectedZip) return null;
-		// a pack that failed a full attempt must not be decrypted again on the main thread
+		// a pack that already failed a full attempt must not run again on this thread
 		if (hasFailedBefore(packPath)) return null;
 
 		var key = resolveKey(packPath);
@@ -462,9 +417,8 @@ class ModPackCrypto {
 
 		try {
 			initCache();
-			// the progress screen names each step, so the work is split where the
-			// cost actually is: reading the file, checking the tag, the cipher pass,
-			// then indexing the entries of the zip that came out of it
+			// the progress screen names each step, so progress is reported where the cost
+			// actually is: reading the file, checking the tag, the cipher pass, indexing
 			var wrapped:Null<Float->Void> = onProgress == null ? null : function(p:Float) {
 				waitWhilePaused();
 				onProgress(p);
@@ -472,10 +426,7 @@ class ModPackCrypto {
 			var zip:SysZip;
 			if (packed) {
 				if (Options.wrapDecryptedPacks) {
-					// Memory mode: the pack is read once, stays ciphertext, and each asset
-					// is decrypted as it is read (SysZip.fromChunked). Decrypting the whole
-					// pack first and encrypting it again for memory safety was a second
-					// full pass for nothing - the bytes were secret either way.
+					// memory mode: read once, stay ciphertext, decrypt each asset on read
 					if (wrapped != null) wrapped(0.15);
 					var raw = File.getBytes(packPath);
 					var opened = openEncrypted(raw, key);
@@ -484,9 +435,8 @@ class ModPackCrypto {
 						opened.chunkCount, opened.mac);
 					if (wrapped != null) wrapped(1);
 				} else {
-					// Low-memory mode: only the header and the chunk table are read. The
-					// payload stays in the file and a range is decrypted, verified and then
-					// dropped when something asks for it, so a large pack costs no RAM.
+					// low-memory mode: only header and table are read; ranges are decrypted,
+					// verified and dropped on demand, so a large pack costs no RAM
 					if (wrapped != null) wrapped(0.3);
 					var openedFile = CnezV2.openFile(packPath, key);
 					if (wrapped != null) wrapped(0.9);
@@ -494,8 +444,8 @@ class ModPackCrypto {
 					if (wrapped != null) wrapped(1);
 				}
 			} else {
-				// A password protected zip has no payload-wide stream to seek in, so it is
-				// still rebuilt in memory; it just stays wrapped so a scanner sees nothing.
+				// a password protected zip has no stream to seek in, so it is rebuilt in
+				// memory; it stays wrapped so a scanner sees nothing readable
 				var bytes = ZipPassword.readableCopyBytes(packPath, key, wrapped);
 				if (bytes == null || !looksLikeZip(bytes)) return null;
 				zip = SysZip.fromBytes(bytes, true);
@@ -515,23 +465,19 @@ class ModPackCrypto {
 	public static function hasLoaded(packPath:String):Bool {
 		if (packPath == null) return false;
 		var zip = loadedZips.get(normalizePath(packPath));
-		// released means wiped, stale means the file was rewritten under it: neither can be
-		// handed to the loader as "already decrypted"
+		// released means wiped, stale means the file was rewritten under it
 		return zip != null && !zip.released && !zip.stale;
 	}
 
 	/**
-	 * Marks the in-memory copy of a pack as outdated because its file was rewritten.
+	 * Marks the in-memory copy as outdated because its file was rewritten.
 	 *
-	 * Merging staged files into a pack replaces the archive, so the copy decrypted from the
-	 * old bytes no longer matches it. That copy stays alive - the libraries of the running
-	 * load still read through it - but it is never handed out again and the next load
-	 * decrypts the new file (retainZips disposes it, hasLoaded/zipFor ignore it).
+	 * The copy stays alive for whatever still reads through it, but it is never handed
+	 * out again: the next load decrypts the new file.
 	 */
 	public static function invalidatePack(packPath:String):Void {
 		if (packPath == null) return;
-		var id = normalizePath(packPath);
-		var zip = loadedZips.get(id);
+		var zip = loadedZips.get(normalizePath(packPath));
 		if (zip == null || zip.released) return;
 		zip.stale = true;
 		Logs.trace('The decrypted copy of "${Path.withoutDirectory(packPath)}" is outdated after the merge; it will be read again on the next load.', INFO);
@@ -539,22 +485,18 @@ class ModPackCrypto {
 
 	/** Wipes every decrypted pack (game exit, or everything being unloaded). */
 	public static function releaseZips():Void {
-		for (zip in loadedZips) {
+		for (zip in loadedZips)
 			try zip.dispose() catch (e:Dynamic) {}
-		}
-		loadedZips = new Map<String, SysZip>();
+		loadedZips = new Map();
 	}
 
 	/**
-	 * Drops the decrypted packs that are not part of `libPaths` and keeps the rest.
+	 * Drops the decrypted packs that are not part of `libPaths`, and keeps the rest.
 	 *
-	 * The loader re-enters MainState right after the progress screen, so a plain
-	 * releaseZips() there threw away the copy that had just been built and sent the
-	 * loader straight back to decrypting it - an endless loop, with a fresh multi
-	 * hundred megabyte buffer allocated and dropped every round. Only what this load
-	 * does not use is let go, which is the mod switch case.
-	 *
-	 * An empty list (the "play without mods" pick) releases everything.
+	 * The loader re-enters MainState right after the progress screen: releasing
+	 * everything there threw away the copy that had just been built and sent the loader
+	 * back to decrypting it, round after round. An empty list (the "play without mods"
+	 * pick) releases everything.
 	 */
 	public static function retainZips(libPaths:Array<String>):Void {
 		var keep = new Map<String, Bool>();
@@ -569,9 +511,7 @@ class ModPackCrypto {
 		var drop:Array<String> = [];
 		for (id in loadedZips.keys()) {
 			var zip = loadedZips.get(id);
-			// A pack a merge rewrote no longer matches the copy decrypted from the old bytes,
-			// so the copy goes even when this load still uses the pack: the loading screen
-			// decrypts it again, which is the only way the merged entries become visible.
+			// a pack a merge rewrote no longer matches the copy made from the old bytes
 			if (zip != null && zip.stale) {
 				drop.push(id);
 				continue;
@@ -585,10 +525,8 @@ class ModPackCrypto {
 				loadedZips.remove(id);
 				continue;
 			}
-			// The libraries hold the very zip the wipe would free, and disposing one that a
-			// library still reads from turns the next asset lookup into a dead process.
-			// A pack that is still held stays in the map on purpose, so the exit wipe still
-			// knows about it instead of losing track of a decrypted buffer.
+			// disposing a zip a library still reads from turns the next asset lookup into a
+			// dead process; the entry stays so the exit wipe still knows about it
 			if (heldByLibrary(zip)) {
 				Logs.warn('"$id" is still held by an asset library, so its decrypted copy is kept for now.');
 				continue;
@@ -617,10 +555,8 @@ class ModPackCrypto {
 	/**
 	 * Lets go of a low-memory pack's file handle so the file can be replaced.
 	 *
-	 * Only that mode keeps the pack open; the memory mode never does. A merge calls this
-	 * right before it renames the rebuilt pack into place, which Windows refuses to do
-	 * while the old file is still open. The pack is marked released, so the next load
-	 * opens it again.
+	 * Only that mode keeps the pack open. Windows refuses to rename over an open file,
+	 * and a merge has to put the rebuilt pack in place of the old one.
 	 */
 	public static function releaseFileHandle(packPath:String):Void {
 		if (packPath == null) return;
@@ -634,19 +570,150 @@ class ModPackCrypto {
 		#if sys
 		try {
 			var name = Path.withoutExtension(Path.withoutDirectory(packPath));
-			var safeName = funkin.backend.system.RuntimeDirs.sanitize(name);
-			var file = cacheFolder + CACHE_PREFIX + safeName + "_key.txt";
+			var file = cacheFolder + CACHE_PREFIX + RuntimeDirs.sanitize(name) + "_key.txt";
 			if (FileSystem.exists(file)) FileSystem.deleteFile(file);
 		} catch (e:Dynamic) {}
 		#end
 	}
 
+	// --------------------------------------------------------------- prepare
+	// Decrypting a big pack takes seconds, so the loading screen starts the work on a
+	// worker thread and polls these fields from the render loop.
+
+	/** 0..1 progress of the pack currently being prepared. */
+	public static var progress:Float = 0;
+	/** True while the prepare thread is held back because a prompt is open. */
+	public static var preparePaused:Bool = false;
+	/** File name of the pack being prepared. */
+	public static var progressLabel:String = "";
+	/** True while the worker thread is still running. */
+	public static var preparing:Bool = false;
+	/** Set by the worker when it finished, successfully or not. */
+	public static var prepareDone:Bool = false;
+	/** Packs none of the known keys could open. */
+	public static var prepareFailed:Array<String> = [];
+
+	/** Blocks the prepare thread while the player is answering a prompt. */
+	static function waitWhilePaused():Void {
+		#if sys
+		// the cipher reports every 128 KB, so this reacts quickly without busy waiting
+		while (preparePaused) Sys.sleep(0.02);
+		#end
+	}
+
+	/**
+	 * Starts decrypting the given packs on a worker thread. The loading screen polls
+	 * preparing / progress / prepareDone and then reads prepareFailed.
+	 */
+	public static function startPrepare(packs:Array<String>):Void {
+		// two passes would both write loadedZips and prepareFailed from their own threads
+		if (preparing) {
+			Logs.warn('A decryption pass is already running - not starting a second one.');
+			return;
+		}
+		prepareFailed = [];
+		prepareDone = false;
+		preparing = true;
+		progress = 0;
+		progressLabel = "";
+		preparePaused = false;
+
+		#if target.threaded
+		sys.thread.Thread.create(function() runPrepare(packs));
+		#else
+		runPrepare(packs);
+		#end
+	}
+
+	static function runPrepare(packs:Array<String>):Void {
+		var total = packs.length;
+		try {
+			for (i in 0...total) {
+				var pack = packs[i];
+				progressLabel = Path.withoutExtension(Path.withoutDirectory(pack));
+				var base = i / total;
+				var span = 1 / total;
+				progress = base;
+				var zip = zipFor(pack, function(p:Float) progress = base + span * p);
+				if (zip == null) {
+					prepareFailed.push(pack);
+					failedPacks.set(normalizePath(pack), true);
+				} else {
+					failedPacks.remove(normalizePath(pack));
+				}
+				progress = (i + 1) / total;
+			}
+		} catch (e:Dynamic) {
+			prepareFailed = packs.copy();
+			for (pack in packs)
+				failedPacks.set(normalizePath(pack), true);
+		}
+		preparing = false;
+		prepareDone = true;
+	}
+
+	// ------------------------------------------------------------ close veto
+
+	/**
+	 * Asks before the window closes while a pack is still being decrypted.
+	 *
+	 * The pass runs on a worker thread, so without this the window would vanish
+	 * mid-decryption. The thread is paused first so the screen cannot finish on its own
+	 * while the player is still deciding.
+	 */
+	static var __closeVetoInstalled:Bool = false;
+	static var __closePromptQueued:Bool = false;
+
+	public static function installCloseVeto():Void {
+		if (__closeVetoInstalled) return;
+		__closeVetoInstalled = true;
+		WindowUtils.addCloseVeto(function() {
+			if (!preparing) return false;
+			if (flixel.FlxG.state == null) return false;
+			if (__closePromptQueued) return true;
+			__closePromptQueued = true;
+			preparePaused = true;
+			// the window event fires outside the update loop, so the prompt opens on the next
+			// frame; if that frame never comes (a window closed from the taskbar is not
+			// focused), the game exits instead of staying vetoed with nothing on screen
+			WindowUtils.runOnNextFrameOrExit(function() {
+				__closePromptQueued = false;
+				var state = flixel.FlxG.state;
+				if (state == null) {
+					preparePaused = false;
+					openfl.system.System.exit(0);
+					return;
+				}
+				state.openSubState(new funkin.editors.ui.UIWarningSubstate(
+					"Still unlocking",
+					"The pack is still being decrypted. Closing now throws that work away.\n"
+					+ "Decryption is paused while this is open.",
+					[
+						{
+							label: "Exit Game",
+							color: 0xFF6B6B,
+							onClick: function(_) {
+								preparePaused = false;
+								openfl.system.System.exit(0);
+							}
+						},
+						{
+							label: "Keep Decrypting",
+							color: 0x969533,
+							onClick: function(_) preparePaused = false
+						}
+					],
+					funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING));
+			});
+			return true;
+		});
+	}
+
 	// --------------------------------------------------------------- cleanup
-	// A decrypted pack exists only while the game runs: the buffers in loadedZips,
-	// the zip handles the libraries hold, the key files copied out of packs and the
-	// videos in the video cache. None of it is written to disk on purpose, so closing has to
-	// wipe it instead of leaving it to the next start - and that wipe is what the
-	// window close waits for (see Main.loadGameSettings and ModPackCleanupState).
+	// A decrypted pack exists only while the game runs: the buffers in loadedZips, the zip
+	// handles the libraries hold, the key files copied out of packs and the videos in the
+	// cache. Closing has to wipe that, and the window close waits for the wipe (see
+	// Main.loadGameSettings and ModPackCleanupState).
 
 	/** True once a pack was decrypted in this session. */
 	public static var sessionDecrypted:Bool = false;
@@ -654,7 +721,7 @@ class ModPackCrypto {
 	public static var cleanupDone:Bool = false;
 	public static var cleanupProgress:Float = 0;
 	public static var cleanupLabel:String = "";
-	/** What was actually removed, one line per kind, shown on the cleanup screen. */
+	/** What was actually removed, one line per kind. */
 	public static var cleanupSummary:String = "";
 	/** One line per finished step, so the screen can list everything it touched. */
 	public static var cleanupLines:Array<String> = [];
@@ -663,8 +730,7 @@ class ModPackCrypto {
 	 * The encrypted pack of the mod that was loaded before the current one, or null.
 	 *
 	 * Set by ModsFolder.switchMod before it changes the mod. What the engine lifted out
-	 * of that pack (its videos) is decrypted content sitting on disk, so it goes with
-	 * the pack instead of being kept like a plain mod's cache.
+	 * of that pack (its videos) is decrypted content on disk, so it goes with the pack.
 	 */
 	public static var outgoingEncryptedPack:String = null;
 	/** The mod a finished cleanup pass should switch to, when it was not closing. */
@@ -684,24 +750,13 @@ class ModPackCrypto {
 			var path = ModsFolder.modsPath + mod + "." + ext;
 			try {
 				if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) continue;
-				if (needsKey(path)) { outgoingEncryptedPack = path; return; }
+				if (needsKey(path)) {
+					outgoingEncryptedPack = path;
+					return;
+				}
 			} catch (e:Dynamic) {}
 		}
 		#end
-	}
-
-	/** True when this mod's own file is an encrypted pack. */
-	public static function isEncryptedMod(mod:String):Bool {
-		#if sys
-		if (mod == null) return false;
-		for (ext in Flags.ALLOWED_ZIP_EXTENSIONS) {
-			var path = ModsFolder.modsPath + mod + "." + ext;
-			try {
-				if (FileSystem.exists(path) && !FileSystem.isDirectory(path) && needsKey(path)) return true;
-			} catch (e:Dynamic) {}
-		}
-		#end
-		return false;
 	}
 
 	/**
@@ -722,9 +777,8 @@ class ModPackCrypto {
 		if (flixel.FlxG.state == null) return false;
 
 		queuedSwitch = target;
-		// a switch wipes what the decrypted pack left on disk and in memory, but keeps the
-		// copied key: the player is staying in the game, and switching back should not ask
-		// for the password again. Closing the game is what takes the credentials with it.
+		// a switch wipes what the pack left on disk and in memory, but keeps the copied
+		// key: switching back should not ask for the password again. Closing does remove it.
 		cleanupKeepsKeys = true;
 		cleanupScopeMod = ModsFolder.currentModFolder;
 		flixel.FlxG.switchState(new funkin.menus.ModPackCleanupState(true));
@@ -747,8 +801,7 @@ class ModPackCrypto {
 	public static function needsCleanup():Bool {
 		if (cleanupDone) return false;
 		if (sessionDecrypted) return true;
-		for (_ in loadedZips.keys()) return true;
-		return false;
+		return loadedZips.keys().hasNext();
 	}
 
 	/** Starts the wipe; ModPackCleanupState calls stepCleanup() once per frame. */
@@ -767,13 +820,8 @@ class ModPackCrypto {
 	/**
 	 * Runs one cleanup step and returns true once everything is done.
 	 *
-	 * Deliberately synchronous, one step per frame. The wipe used to run on a worker
-	 * thread, which disposed buffers the main thread still referenced and took the
-	 * game down when the window was closed; nothing here touches a thread.
-	 *
-	 * Every step appends what it actually removed to cleanupLines: the screen lists
-	 * them instead of a single "done" line, so the player can see the wipe covered the
-	 * handles, the memory copy, the keys and the extracted videos.
+	 * One step per frame, on the main thread. Running this on a worker thread disposed
+	 * buffers the main thread still referenced and killed the game on close.
 	 */
 	public static function stepCleanup():Bool {
 		if (cleanupDone) return true;
@@ -781,9 +829,7 @@ class ModPackCrypto {
 		try {
 			switch (cleanupStep) {
 				case 0:
-					// The asset libraries hold the very zip handles the wipe is about to
-					// release, so they go first: disposing a buffer that a library still
-					// reads from is what made closing crash.
+					// the libraries hold the very handles the wipe is about to release
 					#if MOD_SUPPORT
 					var handles = countPackHandles();
 					closePackHandles();
@@ -823,11 +869,11 @@ class ModPackCrypto {
 					cleanupStep = 3;
 				case 3:
 					var videos = cleanupScopeMod == null
-						? funkin.backend.system.RuntimeDirs.clearVideos()
-						: funkin.backend.system.RuntimeDirs.clearVideos(cleanupScopeMod);
+						? RuntimeDirs.clearVideos()
+						: RuntimeDirs.clearVideos(cleanupScopeMod);
 					if (videos > 0) cleanupLines.push('Removed $videos extracted video(s)');
-					var temp = funkin.backend.system.RuntimeDirs.countFiles(funkin.backend.system.RuntimeDirs.TEMP);
-					funkin.backend.system.RuntimeDirs.clearTemp();
+					var temp = RuntimeDirs.countFiles(RuntimeDirs.TEMP);
+					RuntimeDirs.clearTemp();
 					if (temp > 0) cleanupLines.push('Removed $temp scratch file(s) from .cne/temp');
 					cleanupProgress = 0.9;
 					cleanupStep = 4;
@@ -896,31 +942,6 @@ class ModPackCrypto {
 		#end
 	}
 
-	/**
-	 * Zip of a mod library (the "mods/Name" base path, without extension) that is
-	 * encrypted and that no known key can open, or null.
-	 *
-	 * Only libraries the engine actually loads are asked about: a zip that merely
-	 * sits in the mods folder must never interrupt a session that plays a different,
-	 * unencrypted mod.
-	 */
-	public static function pendingPackFor(libPath:String):String {
-		#if sys
-		if (libPath == null) return null;
-		try {
-			var zip = libPath + ".zip";
-			if (!FileSystem.exists(zip) || FileSystem.isDirectory(zip)) return null;
-			if (!needsKey(zip)) return null;
-			// Never decrypt here: this runs on the main thread from the startup
-			// check, so only ask for a key when none of the known keys works.
-			// A pack with a working key is prepared by the loading screen instead.
-			if (hasWorkingKey(zip)) return null;
-			return zip;
-		} catch (e:Dynamic) {}
-		#end
-		return null;
-	}
-
 	// -------------------------------------------------- loader entry points
 
 	/** True when the pack is already decrypted in memory. */
@@ -929,7 +950,7 @@ class ModPackCrypto {
 	}
 
 	/**
-	 * Libraries (the mods/Name path, without .zip) whose pack still has to be
+	 * Libraries (the `mods/Name` path, without extension) whose pack still has to be
 	 * decrypted before the loader can read it. Cheap: it only asks what is in memory.
 	 */
 	public static function packsNeedingWork(libPaths:Array<String>):Array<String> {
@@ -951,120 +972,25 @@ class ModPackCrypto {
 	}
 
 	/**
-	 * Starts decrypting the given packs on a worker thread. The loading screen polls
-	 * preparing / progress / prepareDone and then reads prepareFailed.
-	 */
-	/** Blocks the prepare thread while the player is answering a prompt. */
-	static function waitWhilePaused():Void {
-		#if sys
-		// the cipher reports every 128 KB, so this reacts quickly without busy waiting
-		while (preparePaused) Sys.sleep(0.02);
-		#end
-	}
-
-	/**
-	 * Asks before the window closes while a pack is still being decrypted.
+	 * Zip of a mod library (the `mods/Name` base path) that is encrypted and that no
+	 * known key can open, or null.
 	 *
-	 * The pass runs on a worker thread, so without this the window would simply vanish
-	 * mid-decryption. The thread is paused first (see waitWhilePaused) so the screen does
-	 * not finish on its own while the player is still deciding.
+	 * Only libraries the engine actually loads are asked about: a zip that merely sits in
+	 * the mods folder must not interrupt a session playing a different mod.
 	 */
-	static var __closeVetoInstalled:Bool = false;
-	static var __closePromptQueued:Bool = false;
-
-	public static function installCloseVeto():Void {
-		if (__closeVetoInstalled) return;
-		__closeVetoInstalled = true;
-		WindowUtils.addCloseVeto(function() {
-			if (!preparing) return false;
-			if (flixel.FlxG.state == null) return false;
-			if (__closePromptQueued) return true;
-			__closePromptQueued = true;
-			preparePaused = true;
-			// the window event fires outside the update loop, so the prompt is opened on the
-			// next frame - and if that frame never comes (a window closed from the taskbar
-			// is not focused), the game exits instead of leaving the window vetoed with
-			// nothing on screen
-			funkin.backend.utils.WindowUtils.runOnNextFrameOrExit(function() {
-				__closePromptQueued = false;
-				var state = flixel.FlxG.state;
-				if (state == null) {
-					// the worker is paused; with no screen to ask on, stopping beats hanging
-					preparePaused = false;
-					openfl.system.System.exit(0);
-					return;
-				}
-				state.openSubState(new funkin.editors.ui.UIWarningSubstate(
-					"Still unlocking",
-					"The pack is still being decrypted. Closing now throws that work away.\n"
-					+ "Decryption is paused while this is open.",
-					[
-						{
-							label: "Exit Game",
-							color: 0xFF6B6B,
-							onClick: function(_) {
-								preparePaused = false;
-								openfl.system.System.exit(0);
-							}
-						},
-						{
-							label: "Keep Decrypting",
-							color: 0x969533,
-							onClick: function(_) preparePaused = false
-						}
-					],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
-			});
-			return true;
-		});
-	}
-
-	public static function startPrepare(packs:Array<String>):Void {
-		// Two passes at once would both write loadedZips and prepareFailed from their own
-		// threads, which is a crash waiting to happen. The screen that asked for the
-		// second one simply displays the pass that is already running.
-		if (preparing) {
-			Logs.warn('A decryption pass is already running - not starting a second one.');
-			return;
-		}
-		prepareFailed = [];
-		prepareDone = false;
-		preparing = true;
-		progress = 0;
-		progressLabel = "";
-		preparePaused = false;
-
-		#if target.threaded
-		sys.thread.Thread.create(function() runPrepare(packs));
-		#else
-		runPrepare(packs);
-		#end
-	}
-
-	static function runPrepare(packs:Array<String>):Void {
-		var total = packs.length;
+	public static function pendingPackFor(libPath:String):String {
+		#if sys
+		if (libPath == null) return null;
 		try {
-			for (i in 0...total) {
-				var pack = packs[i];
-				progressLabel = Path.withoutExtension(Path.withoutDirectory(pack));
-				var base = i / total;
-				var span = 1 / total;
-				progress = base;
-				// decrypting into memory is the expensive step, so it happens here and the
-				// loader later finds the pack already readable
-				var zip = zipFor(pack, function(p:Float) progress = base + span * p);
-				if (zip == null) {
-					prepareFailed.push(pack);
-					failedPacks.set(normalizePath(pack), true);
-				} else
-					failedPacks.remove(normalizePath(pack));
-				progress = (i + 1) / total;
-			}
-		} catch (e:Dynamic) {
-			prepareFailed = packs.copy();
-			for (pack in packs)
-				failedPacks.set(normalizePath(pack), true);
-		}
-		preparing = false;
-		prepareDone = true;
+			var zip = libPath + ".zip";
+			if (!FileSystem.exists(zip) || FileSystem.isDirectory(zip)) return null;
+			if (!needsKey(zip)) return null;
+			// never decrypt here: this runs on the main thread from the startup check, so
+			// only ask for a key when none of the known ones works
+			if (hasWorkingKey(zip)) return null;
+			return zip;
+		} catch (e:Dynamic) {}
+		#end
+		return null;
 	}
 }
