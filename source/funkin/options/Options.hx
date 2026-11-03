@@ -100,6 +100,13 @@ class Options
 	public static var editorStagePrettyPrint:Bool = true;
 
 	public static var editorsResizable:Bool = true;
+	/**
+	 * Mirrors console output to `.cne/logs/engine.log`.
+	 *
+	 * On by default and deliberately independent of developer mode: protection mode turns
+	 * that off, and the one time a log matters is when something went wrong under it.
+	 */
+	public static var saveLogs:Bool = true;
 	public static var bypassEditorsResize:Bool = false;
 	public static var maxUndos:Int = 120;
 	public static var songOffsetAffectEditors:Bool = false;

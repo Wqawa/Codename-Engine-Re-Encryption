@@ -10,6 +10,7 @@ class DebugOptions extends TreeMenuScreen {
 		add(new Checkbox(getNameID("useNativeConsole"), getDescID("useNativeConsole"), "useNativeConsole", () -> { @:privateAccess if (Options.useNativeConsole) funkin.backend.system.console.ConsoleUI.instance.active = false; }));
 		#end
 		#end
+		add(new Checkbox(getNameID("saveLogs"), getDescID("saveLogs"), "saveLogs"));
 		add(new Checkbox(getNameID("editorsResizable"), getDescID("editorsResizable"), "editorsResizable"));
 		add(new Checkbox(getNameID("bypassEditorsResize"), getDescID("bypassEditorsResize"), "bypassEditorsResize"));
 		add(new Checkbox(getNameID("editorSFX"), getDescID("editorSFX"), "editorSFX"));

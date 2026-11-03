@@ -2,8 +2,8 @@ package funkin.menus;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
-import flixel.FlxSubState;
 import flixel.text.FlxText;
+import funkin.backend.MusicBeatSubstate;
 import funkin.backend.assets.ProtectionState;
 import openfl.Lib;
 import openfl.events.KeyboardEvent;
@@ -19,7 +19,7 @@ import openfl.events.KeyboardEvent;
  * Input is masked. A typo means retyping, which is the usual trade for not showing a
  * password on screen.
  */
-class ProtectionUnlockSubstate extends FlxSubState {
+class ProtectionUnlockSubstate extends MusicBeatSubstate {
 	static inline var MAX_LEN:Int = 64;
 
 	var entered:String = "";
@@ -41,7 +41,8 @@ class ProtectionUnlockSubstate extends FlxSubState {
 	public static var isOpen:Bool = false;
 
 	public function new(onDone:Bool->Void) {
-		super();
+		// no script: this is a fixed dialog, not mod content
+		super(false);
 		this.onDone = onDone;
 	}
 

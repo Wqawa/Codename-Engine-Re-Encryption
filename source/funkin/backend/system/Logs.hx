@@ -114,6 +114,33 @@ final class Logs {
 		};
 	}
 
+	#if sys
+	static var logReady:Bool = false;
+	static inline var LOG_PATH:String = './.cne/logs/engine.log';
+
+	/**
+	 * Mirrors each line to `.cne/logs/engine.log`.
+	 *
+	 * The console needs developer mode, and protection mode turns that off - which made
+	 * "check the log" impossible exactly when someone needed it. The file is independent
+	 * of that switch. Each run starts a fresh file: what matters is the run that just
+	 * happened, not a growing archive.
+	 */
+	static function writeToFile(text:Array<LogText>):Void {
+		try {
+			if (!funkin.options.Options.saveLogs) return;
+			if (!logReady) {
+				logReady = true;
+				sys.FileSystem.createDirectory('./.cne/logs/');
+				sys.io.File.saveContent(LOG_PATH, '--- Codename Engine, ${Date.now()} ---\n');
+			}
+			var out = sys.io.File.append(LOG_PATH, false);
+			out.writeString([for (t in text) t.text].join("") + "\n");
+			out.close();
+		} catch (e:Dynamic) {}
+	}
+	#end
+
 	public static function __showInConsole(text:Array<LogText>) {
 		#if (sys && !mobile)
 		while(__showing) {
@@ -143,6 +170,10 @@ final class Logs {
 		#if IMGUI_ENABLED
 		@:privateAccess
 		ConsoleUI.instance.addToConsole(text);
+		#end
+
+		#if sys
+		writeToFile(text);
 		#end
 	}
 

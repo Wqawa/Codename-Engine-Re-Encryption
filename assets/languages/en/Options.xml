@@ -207,6 +207,8 @@
 		<str id="useNativeConsole-name">Use Native Console</str>
 		<str id="useNativeConsole-desc">If checked, will always use the native console instead of the ImGui console when pressing its keybind.</str>
 
+		<str id="saveLogs-name">Save Log To File</str>
+		<str id="saveLogs-desc">Writes everything the console shows to .cne/logs/engine.log, one file per run. Works even when developer mode is off, which is why it is not tied to it.</str>
 		<str id="editorsResizable-name">Resizable Editors</str>
 		<str id="editorsResizable-desc">If checked, this will allow the editors to render beyond the base 1280x720 resolution of FNF (allowing for more detail and space...)</str>
 
