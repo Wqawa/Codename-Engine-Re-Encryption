@@ -21,7 +21,7 @@ export\release\windows\bin\CodenameEngine.exe
 | 3/6 原生库 | 检查 `lime.ndll`（Windows64），并探测一次 `haxelib run lime --version` | ndll 缺失或加 `-RebuildLime` 时，执行 `lime rebuild windows -64` 现场编译；命令行本身崩（`Primitive not found` 之类，说明 lime 库自带的 `tools\tools.n` 比源码旧）就在 `lime\tools` 里跑一次 `haxe tools.hxml` 重编，再探测 |
 | 4/6 C++ 工具链 | 用 `vswhere` 查 MSVC | 没有就下载 VS Build Tools 安装器；**需要管理员权限**，没有就打印手动步骤 |
 | 5/6 编译 | `haxelib run lime build windows -nocolor`，并打开 hxcpp 的编译缓存 | 顺带检测/关闭正在运行的 `CodenameEngine.exe`（否则链接器写不进 exe） |
-| 6/6 验收 | 检查 exe 是否存在、时间戳是否比本次构建新、统计 warning | 失败时把日志里第一批 `error:` 行摘出来，并给出对应处理建议 |
+| 6/6 验收 | 检查 exe 是否存在、时间戳是否比本次构建新、统计 warning；随后跑一次 `--generate-integrity` 重写 `integrity.dat` | 失败时把日志里第一批 `error:` 行摘出来，并给出对应处理建议；清单没写出来只警告，游戏会以"未校验"启动 |
 
 ## 缺库时会发生什么（原来单独跑 `setup-windows.bat` 就是这一步）
 
