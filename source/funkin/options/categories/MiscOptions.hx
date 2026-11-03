@@ -22,21 +22,43 @@ class MiscOptions extends TreeMenuScreen {
 			Options.protectionMode = true;
 
 			Logs.trace('Protection option clicked: active=' + state.active + ' available=' + state.available
-				+ ' boxOpen=' + funkin.menus.ProtectionUnlockSubstate.isOpen, INFO);
+				+ ' dialogOpen=' + (FlxG.state != null && FlxG.state.subState != null), INFO);
 
 			if (!state.active || FlxG.state == null) return;
-			// a second click used to stack another box on top, and the one underneath kept
-			// its key listeners alive after being closed
-			if (funkin.menus.ProtectionUnlockSubstate.isOpen) return;
+			// one dialog at a time: a second click would stack another on top
+			if (FlxG.state.subState != null) return;
 
-			FlxG.state.openSubState(new funkin.menus.ProtectionUnlockSubstate(function(ok:Bool) {
-				if (!ok) return;
-				protect.checked = false;
-				Options.protectionMode = false;
-				// unlocked for this session; the box goes grey because turning it back on
-				// would need the password again
-				protect.locked = true;
-			}));
+			FlxG.state.openSubState(new funkin.editors.ui.UIWarningSubstate(
+				"Unlock Protection Mode",
+				'Type the password for "${funkin.backend.assets.ProtectionState.owner()}".',
+				[
+					{
+						label: "Unlock",
+						color: 0x969533,
+						onClick: function(dialog) {
+							if (!funkin.backend.assets.ProtectionState.unlock(dialog.entered)) {
+								// wrong password: stay open so it can be retyped
+								dialog.keepOpen = true;
+							} else {
+								protect.checked = false;
+								Options.protectionMode = false;
+								protect.locked = true;
+							}
+						}
+					},
+					{label: "Cancel", color: 0x969533, onClick: function(_) {}}
+				],
+				false,
+				function(text:String) {
+					// Enter and the Unlock button do the same thing
+					if (funkin.backend.assets.ProtectionState.unlock(text)) {
+						protect.checked = false;
+						Options.protectionMode = false;
+						protect.locked = true;
+						FlxG.state.closeSubState();
+					}
+				}
+			));
 		});
 		// Only clickable while actually locked: with no marker there is nothing to unlock,
 		// and once unlocked the pack cannot turn it back on without the password.

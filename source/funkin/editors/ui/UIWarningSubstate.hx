@@ -2,7 +2,9 @@ package funkin.editors.ui;
 
 import openfl.display.ShaderParameter;
 import openfl.display.ShaderInput;
+import openfl.events.KeyboardEvent;
 import openfl.filters.ShaderFilter;
+import openfl.Lib;
 import flixel.tweens.FlxEase;
 import flixel.tweens.FlxTween;
 import funkin.backend.shaders.CustomShader;
@@ -29,6 +31,19 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	var buttons:Array<WarningButton>;
 	var isError:Bool = true;
 
+	// Optional text field. Null onSubmit keeps the dialog exactly as it was: a message
+	// and buttons, no input, no key listeners.
+	var onSubmit:String->Void;
+	/** What has been typed so far; masked on screen, plain here for the caller. */
+	public var entered:String = "";
+	var inputText:UIText;
+	var inputHint:UIText;
+	var keyHandler:KeyboardEvent->Void;
+	var textHandler:String->Void;
+
+	/** A button can set this to stay open, for input that failed its check. */
+	public var keepOpen:Bool = false;
+
 	var titleSpr:UIText;
 	var messageSpr:UIText;
 
@@ -41,6 +56,9 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	}
 
 	public override function create() {
+		// a row for the input field, above the buttons
+		if (onSubmit != null) bHeight += 72;
+
 		for(c in FlxG.cameras.list) {
 			// Prevent adding a shader if it already has one
 			@:privateAccess if(c._filters != null) {
@@ -101,11 +119,32 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		messageSpr.y = sprIcon.y;
 		add(messageSpr);
 
+		if (onSubmit != null) {
+			var boxY = spr.y + spr.bHeight - (36 + 16) - 58;
+			var boxW = Std.int(spr.bWidth - 200);
+			add(new FlxSprite(spr.x + 100, boxY).makeGraphic(boxW, 36, 0xFF111119));
+
+			inputText = new UIText(spr.x + 112, boxY + 9, boxW - 24, "", 14, 0xFFFFFFFF, false);
+			add(inputText);
+
+			inputHint = new UIText(spr.x + 100, boxY + 40, spr.bWidth - 200, "Enter to confirm, Esc to cancel", 11, 0xFF8A8A96, false);
+			add(inputHint);
+
+			// characters come from lime's text input: charCode on key events is empty on
+			// native, so a key listener would never receive anything printable
+			keyHandler = onKey;
+			textHandler = onText;
+			Lib.application.window.onTextInput.add(textHandler);
+			FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
+		}
+
 		var xPos = (FlxG.width - (30 + (170 * buttons.length))) / 2;
 		for(k=>b in buttons) {
 			var button = new UIButton(xPos + 20 + (170 * k), spr.y + spr.bHeight - (36 + 16), b.label, function() {
 				b.onClick(this);
-				close();
+				// a button that rejected the input keeps the dialog up
+				if (!keepOpen) close();
+				keepOpen = false;
 			}, 160, 30);
 			if (b.color != null) {
 				button.frames = Paths.getFrames("editors/ui/grayscale-button");
@@ -120,6 +159,33 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		CoolUtil.playMenuSFX(WARNING);
 	}
 
+	function onKey(e:KeyboardEvent):Void {
+		if (e == null) return;
+		switch (e.keyCode) {
+			case 8: // backspace
+				if (entered.length > 0) entered = entered.substr(0, entered.length - 1);
+			case 13: // enter
+				if (onSubmit != null) onSubmit(entered);
+			case 27: // escape
+				close();
+		}
+		refresh();
+		e.stopPropagation();
+	}
+
+	function onText(text:String):Void {
+		if (text == null) return;
+		entered += text;
+		refresh();
+	}
+
+	function refresh():Void {
+		if (inputText == null) return;
+		var masked = "";
+		for (i in 0...entered.length) masked += "*";
+		inputText.text = masked;
+	}
+
 	public override function destroy() {
 		super.destroy();
 		for(e in camShaders)
@@ -127,14 +193,20 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 		FlxTween.cancelTweensOf(warnCam);
 		FlxG.cameras.remove(warnCam);
+
+		// removing by the stored references, not by `this.onText`: evaluated inline, those
+		// produce new closures and the listeners would outlive the dialog
+		if (textHandler != null) Lib.application.window.onTextInput.remove(textHandler);
+		if (keyHandler != null) FlxG.stage.removeEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
 	}
 
-	public function new(title:String, message:String, buttons:Array<WarningButton>, ?isError:Bool = true) {
+	public function new(title:String, message:String, buttons:Array<WarningButton>, ?isError:Bool = true, ?onSubmit:String->Void = null) {
 		super();
 		this.title = title;
 		this.message = message;
 		this.buttons = buttons;
 		this.isError = isError;
+		this.onSubmit = onSubmit;
 	}
 }
 
