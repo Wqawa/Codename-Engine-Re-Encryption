@@ -121,10 +121,8 @@ final class Logs {
 	/**
 	 * Mirrors each line to `.cne/logs/engine.log`.
 	 *
-	 * The console needs developer mode, and protection mode turns that off - which made
-	 * "check the log" impossible exactly when someone needed it. The file is independent
-	 * of that switch. Each run starts a fresh file: what matters is the run that just
-	 * happened, not a growing archive.
+	 * The console needs developer mode; the file does not. Each run starts fresh - what
+	 * matters is the run that just happened, not a growing archive.
 	 */
 	static function writeToFile(text:Array<LogText>):Void {
 		try {

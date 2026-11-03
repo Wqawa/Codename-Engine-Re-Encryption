@@ -179,10 +179,9 @@ class IntegrityCheck {
 			return;
 		}
 
-		// A manifest written for a different build describes files that are not these ones.
-		// Comparing against it reports every asset as modified, which is exactly what a
-		// rebuild looks like from here. Whoever rebuilt the exe could delete this check
-		// anyway, so skipping costs nothing that was not already reachable.
+		// A manifest from an older build describes files that no longer exist in that
+		// shape, so comparing would flag every asset as modified. The exe digest tells the
+		// two apart, and skipping costs nothing: whoever rebuilt it could drop the check.
 		for (e in entries) {
 			if (!StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
 			if (!FileSystem.exists(e.path)) break;
