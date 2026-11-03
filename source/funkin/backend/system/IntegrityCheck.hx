@@ -179,17 +179,16 @@ class IntegrityCheck {
 			return;
 		}
 
-		// A manifest from an older build describes files that no longer exist in that
-		// shape, so comparing would flag every asset as modified. The exe digest tells the
-		// two apart, and skipping costs nothing: whoever rebuilt it could drop the check.
+		// A rebuild changes the exe but leaves assets alone, so only the exe line is
+		// skipped when it no longer matches. Skipping the whole check meant one rebuild
+		// disabled it until somebody regenerated the manifest - which is how a renamed
+		// asset slid through unnoticed.
+		var exeChanged = false;
 		for (e in entries) {
 			if (!StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
 			if (!FileSystem.exists(e.path)) break;
-			if (Sha256.make(File.getBytes(e.path)).toHex() != e.hash) {
-				Logs.trace('Integrity: this manifest belongs to an older build; skipping the check.', INFO);
-				manifestFound = false;
-				return;
-			}
+			exeChanged = Sha256.make(File.getBytes(e.path)).toHex() != e.hash;
+			if (exeChanged) Logs.trace('Integrity: the exe does not match the manifest; checking everything else.', INFO);
 			break;
 		}
 
@@ -197,6 +196,8 @@ class IntegrityCheck {
 		var listed = new Map<String, Bool>();
 		for (e in entries) {
 			listed.set(e.path, true);
+			// the exe was already compared above and is expected to differ after a rebuild
+			if (exeChanged && StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
 			if (!FileSystem.exists(e.path)) {
 				missing.push(e.path);
 				continue;
