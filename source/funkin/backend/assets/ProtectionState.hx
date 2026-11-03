@@ -48,6 +48,7 @@ class ProtectionState {
 		if (data == null) data = readEntry(zip, 'cne_protect.dat');
 		if (data == null) {
 			// an encrypted pack without a marker is still a normal mod
+			Logs.trace('Protection: "$name" carries no marker; the setting stays as it is.', INFO);
 			reset();
 			return;
 		}
@@ -63,6 +64,22 @@ class ProtectionState {
 		packName = name;
 		available = true;
 		lock(true);
+
+		// A password zip has no whole-archive integrity: each entry carries its own MAC, so
+		// deleting one leaves a perfectly valid archive that still passes every remaining
+		// check. Only an explicit list can notice, so every script the marker names has to
+		// still be present.
+		var listed = Lambda.count(parsed.scripts);
+		var missing = 0;
+		if (parsed.scripts != null) {
+			for (script in parsed.scripts.keys()) {
+				if (readEntry(zip, script) != null) continue;
+				missing++;
+				ScriptGuard.violations.push('$script is missing from the pack');
+				Logs.error('Protection: "$script" is listed but no longer in the pack.');
+			}
+		}
+		Logs.trace('Protection: marker in "$name", $listed script(s) listed, $missing missing.', INFO);
 		#end
 	}
 
