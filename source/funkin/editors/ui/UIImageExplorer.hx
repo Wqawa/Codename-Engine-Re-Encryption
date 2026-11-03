@@ -392,7 +392,7 @@ class UIImageExplorer extends UIFileExplorer {
 				}
 			];
 			(FlxG.state.subState != null && !FlxG.state._requestSubStateReset ? FlxG.state.subState : FlxG.state).openSubState(new UIWarningSubstate("Alreadly Existing Files!!!", 
-				TU.getRaw("uiImageExplorer.fileAlreadyExists").format([alreadlyExistingFiles.join('\n')]), buttons, false));
+				TU.getRaw("uiImageExplorer.fileAlreadyExists").format([alreadlyExistingFiles.join('\n')]), buttons,  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
 		} else acuttalySaveFiles();
 	}
 

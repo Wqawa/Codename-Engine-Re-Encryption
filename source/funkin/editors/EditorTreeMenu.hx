@@ -70,7 +70,7 @@ class EditorTreeMenu extends funkin.options.TreeMenu {
 			if (l is funkin.backend.assets.IModsAssetLibrary) cast(l, funkin.backend.assets.IModsAssetLibrary).modName;
 		}];
 		warningMessage += modNameList.join(", ");
-		var zipLibraryWarning = new funkin.editors.ui.UIWarningSubstate("Compressed Library Detected!", warningMessage, [{label: "Ok", color: 0x969533, onClick: (state) -> {} }], false);
+		var zipLibraryWarning = new funkin.editors.ui.UIWarningSubstate("Compressed Library Detected!", warningMessage, [{label: "Ok", color: 0x969533, onClick: (state) -> {} }],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING );
 
 		openSubState(zipLibraryWarning);
 	}

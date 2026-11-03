@@ -1012,7 +1012,7 @@ class ModPackCrypto {
 							color: 0x969533,
 							onClick: function(_) preparePaused = false
 						}
-					], false));
+					],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
 			});
 			return true;
 		});

@@ -76,7 +76,7 @@ class SaveWarning {
 					else leaveWithoutSaving();
 				}
 			}
-		], false));
+		],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
 	}
 
 	static function leaveWithoutSaving():Void {

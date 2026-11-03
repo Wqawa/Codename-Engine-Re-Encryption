@@ -72,7 +72,7 @@ LOGO_TEXT=""
 					goBack();
 				}
 			}
-		], false) : new UIWarningSubstate(TU.translate("modConfigWarning.warningTitle"), TU.translate("modConfigWarning.warningDesc"), [
+		],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ) : new UIWarningSubstate(TU.translate("modConfigWarning.warningTitle"), TU.translate("modConfigWarning.warningDesc"), [
 			{
 				label: TU.translate("editor.notNow"),
 				color: 0x969533,
@@ -92,10 +92,10 @@ LOGO_TEXT=""
 								goBack();
 							}
 						},
-					], false));
+					],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
 				}
 			}
-		], false);
+		],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING );
 		openSubState(substate);
 	}
 }

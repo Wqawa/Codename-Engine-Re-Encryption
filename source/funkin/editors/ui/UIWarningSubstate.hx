@@ -29,9 +29,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	var title:String;
 	var message:String;
 	var buttons:Array<WarningButton>;
-	var isError:Bool = true;
-	/** Blue variant for plain information: a question mark and a blue rim. */
-	var isInfo:Bool = false;
+	var kind:UIWarningKind = ERROR;
 
 	// Optional text field, built from the engine's own UITextBox. Null when the dialog was
 	// created without one.
@@ -92,9 +90,9 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		FlxG.cameras.add(warnCam, false);
 
 
-		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), bHeight, 'editors/ui/${isError ? "normal" : "grayscale"}-popup');
+		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), bHeight, 'editors/ui/${kind == ERROR ? "normal" : "grayscale"}-popup');
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : (isInfo ? "info" : "warning")}'));
+		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${kind}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 
@@ -103,7 +101,11 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 		spr.x = (FlxG.width - spr.bWidth) / 2;
 		spr.y = (FlxG.height - spr.bHeight) / 2;
-		spr.color = isError ? 0xFFFF0000 : (isInfo ? 0xFF4D9EFF : 0xFFFFFF00);
+		spr.color = switch (kind) {
+			case ERROR: 0xFFFF0000;
+			case INFO: 0xFF4D9EFF;
+			default: 0xFFFFFF00;
+		};
 		add(spr);
 
 		if(title != null) {
@@ -111,7 +113,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 			titleSpr.y = spr.y + ((30 - titleSpr.height) / 2);
 		}
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : (isInfo ? "info" : "warning")}'));
+		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${kind}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 		sprIcon.antialiasing = true;
@@ -173,15 +175,24 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	 *                   caller decides what it means, since the same field serves a
 	 *                   password and, later, any other value a dialog has to ask for.
 	 */
-	public function new(title:String, message:String, buttons:Array<WarningButton>, ?isError:Bool = true, ?wantsInput:Bool = false, ?isInfo:Bool = false) {
+	public function new(title:String, message:String, buttons:Array<WarningButton>, ?kind:UIWarningKind = ERROR, ?wantsInput:Bool = false) {
 		super();
 		this.title = title;
 		this.message = message;
 		this.buttons = buttons;
-		this.isError = isError;
+		this.kind = kind;
 		this.wantsInput = wantsInput;
-		this.isInfo = isInfo;
 	}
+}
+
+/**
+ * What the dialog is for. The name doubles as the icon file under `editors/warnings/`:
+ * a red exclamation, a yellow triangle or a blue question mark.
+ */
+enum abstract UIWarningKind(String) from String to String {
+	var ERROR = 'error';
+	var WARNING = 'warning';
+	var INFO = 'info';
 }
 
 typedef WarningButton = {
