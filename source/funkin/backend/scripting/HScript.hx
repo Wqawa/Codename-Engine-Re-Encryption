@@ -58,35 +58,22 @@ class HScript extends Script {
 		try {
 			if(Assets.exists(rawPath)) {
 				if(Path.extension(rawPath).toLowerCase() == ScriptContainer.EXTENSION) {
-					var rawBytes = Assets.getBytes(rawPath);
-					// Protection mode refuses scripts the pack did not declare, and scripts
-					// whose bytes changed. A refused one keeps an empty body and the
-					// constructor still runs to the end - returning here would skip the
-					// parser set-up further down and the script would crash on load instead
-					// of doing nothing.
-					if (funkin.backend.assets.ScriptGuard.allows(rawPath, rawBytes)) {
-						// Protected container: the password comes from the key files / the resolved CNEK1- token.
-						var packed = ScriptContainer.unpack(rawBytes, null, fileName);
-						code = packed.source;
-						containerFlags = packed.flags;
-						if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
-							// Legacy bytecode came from a compiler that ignored the map type hint on empty
-							// literals, so the VM would die with "Null Function Pointer". The container still
-							// carries its source (FALLBACK), so run that instead until it is re-packed.
-							Logs.warn('$fileName: pack was built by an older bytecode compiler, running its source fallback');
-							bytecode = null;
-							opMap = null;
-						} else {
-							bytecode = packed.chunk;
-							opMap = packed.map;
-						}
+					// Protected container: the password comes from the key files / the resolved CNEK1- token.
+					var packed = ScriptContainer.unpack(Assets.getBytes(rawPath), null, fileName);
+					code = packed.source;
+					containerFlags = packed.flags;
+					if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
+						// Legacy bytecode came from a compiler that ignored the map type hint on empty
+						// literals, so the VM would die with "Null Function Pointer". The container still
+						// carries its source (FALLBACK), so run that instead until it is re-packed.
+						Logs.warn('$fileName: pack was built by an older bytecode compiler, running its source fallback');
+						bytecode = null;
+						opMap = null;
 					} else {
-						code = "";
+						bytecode = packed.chunk;
+						opMap = packed.map;
 					}
-				} else {
-					var plain = Assets.getText(rawPath);
-					code = funkin.backend.assets.ScriptGuard.allows(rawPath, haxe.io.Bytes.ofString(plain)) ? plain : "";
-				}
+				} else code = Assets.getText(rawPath);
 			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');
 

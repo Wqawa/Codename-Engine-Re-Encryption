@@ -129,10 +129,6 @@ class ModsFolder {
 				var packName = Path.withoutExtension(Path.withoutDirectory(packPath));
 				if (memoryZip != null) registerKeyFilesFromPack(memoryZip, packName);
 				else registerKeyFilesFromPath(packPath, packName);
-				// An encrypted pack may ask for protection mode; a plain zip cannot carry the
-				// marker, and a pack without one leaves the setting alone.
-				if (memoryZip != null) ProtectionState.applyFromPack(memoryZip, packName);
-				else ProtectionState.reset();
 				return loadLibraryFromZip('$path'.toLowerCase(), packPath, force, modName, MODS, overlayFolder, memoryZip);
 			} catch (e:Dynamic) {
 				// a broken or unsupported zip must not take the whole game down

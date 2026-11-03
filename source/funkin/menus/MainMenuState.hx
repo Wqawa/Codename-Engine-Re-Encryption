@@ -106,32 +106,6 @@ class MainMenuState extends MusicBeatState
 	 * menu, and an instance field meant the same warning greeted them on every return.
 	 */
 	static var integrityNotified:Bool = false;
-	/** Script refusals are reported once per run, same as the integrity result. */
-	static var scriptNotified:Bool = false;
-
-	/** Red dialog for scripts protection mode refused. */
-	function reportRefusedScripts():Bool {
-		if (scriptNotified) return false;
-		var refused = funkin.backend.assets.ScriptGuard.violations;
-		if (refused == null || refused.length == 0) return false;
-
-		scriptNotified = true;
-		var detail = "";
-		var shown = 0;
-		for (r in refused) {
-			if (shown++ >= 6) {
-				detail += '... and ${refused.length - 6} more\n';
-				break;
-			}
-			detail += r + "\n";
-		}
-		openSubState(new funkin.editors.ui.UIWarningSubstate(
-			"Scripts Refused",
-			"Protection mode blocked scripts that do not belong to this pack:\n\n" + detail,
-			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],
-			true));
-		return true;
-	}
 
 	/**
 	 * Reports the background integrity check, once it finishes.
@@ -141,8 +115,6 @@ class MainMenuState extends MusicBeatState
 	 * of assuming. Nothing is blocked: the player reads the list and continues.
 	 */
 	function reportIntegrity():Void {
-		if (reportRefusedScripts()) return;
-
 		if (integrityNotified || !funkin.backend.system.IntegrityCheck.done) return;
 		if (!funkin.backend.system.IntegrityCheck.hasProblems()) return;
 		integrityNotified = true;

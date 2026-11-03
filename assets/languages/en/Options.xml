@@ -184,8 +184,6 @@
 
 		<str id="devMode-name">Developer Mode</str>
 		<str id="devMode-desc">If checked, you will be able to access developer features like certain keybinds, editors, developer options, state reloads, console and more.</str>
-		<str id="protectionMode-name">Protection Mode</str>
-		<str id="protectionMode-desc">On while the loaded mod asks for it: developer mode is off and this option cannot be changed. Only the mod's password turns it off.</str>
 
 		<str id="allowConfigWarning-name">Show Modpacks Warning</str>
 		<str id="allowConfigWarning-desc">If checked, a popup at the start of the game will appear if there are some warnings about the modpack, such as missing configs, incompatible versions and more</str>

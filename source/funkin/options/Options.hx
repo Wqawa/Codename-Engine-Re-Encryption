@@ -48,14 +48,6 @@ class Options
 	public static var colorHealthBar:Bool = true;
 	public static var lowMemoryMode:Bool = false;
 	public static var devMode:Bool = false;
-	/**
-	 * On while the loaded mod asked for protection mode.
-	 *
-	 * Not saved on purpose: the pack's own marker decides it on every load, so a value
-	 * from the last session would be wrong for the next mod.
-	 */
-	@:doNotSave
-	public static var protectionMode:Bool = false;
 	public static var betaUpdates:Bool = false;
 	public static var splashesEnabled:Bool = true;
 	public static var legacyMemoryCounter:Bool = false;

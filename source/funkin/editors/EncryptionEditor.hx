@@ -2,9 +2,7 @@ package funkin.editors;
 
 import flixel.math.FlxRect;
 import funkin.backend.assets.ModPackCrypto;
-import funkin.backend.assets.ProtectionMark;
 import funkin.backend.assets.ZipAes;
-import funkin.backend.assets.ZipInject;
 import funkin.backend.assets.ZipPassword;
 import funkin.backend.scripting.bytecode.ScriptContainer;
 import funkin.backend.scripting.bytecode.ScriptContainer.PackOptions;
@@ -24,8 +22,6 @@ typedef PackTask = {
 	var out:String;
 	var key:String;
 	var standard:Bool;
-	/** Null unless protection mode was on when the job was queued. */
-	var protectPass:String;
 }
 
 /**
@@ -71,10 +67,6 @@ class EncryptionEditor extends UIState {
 	public var packModeStrong:UIRadioButton;
 	public var packModeStandard:UIRadioButton;
 	public var packModeText:UIText;
-	/** Writes a protection marker into the pack, and locks developer mode while it loads. */
-	public var packProtectCheck:UICheckbox;
-	/** Password that turns protection mode back off; only used when the box above is on. */
-	public var packProtectBox:UITextBox;
 	public var currentPackMode:Int = 0;
 
 	// pack jobs: sealing a mod pack or unwrapping one again. Both run on a worker
@@ -277,15 +269,6 @@ class EncryptionEditor extends UIState {
 
 		track(g, packModeText = new UIText(30, CONTENT_Y + 272, FlxG.width - 70, packModeDescription(0), 13, 0xFFC8C8D2, false));
 		packModeText.wordWrap = true;
-
-		// Protection mode: a marker inside the pack that makes the game switch developer
-		// mode off while it is loaded, and asks for this password before letting it back.
-		track(g, packProtectCheck = new UICheckbox(30, CONTENT_Y + 330,
-			"Enable protection mode - locks developer mode while this mod is loaded", false, 760));
-		track(g, new UIText(30, CONTENT_Y + 372, 110, "Password:", 14, 0xFFFFFFFF, false));
-		track(g, packProtectBox = new UITextBox(150, CONTENT_Y + 368, "", 420));
-		track(g, clearFieldButton(packProtectBox, 580, CONTENT_Y + 368));
-		track(g, new UIButton(640, CONTENT_Y + 368, "Copy", onCopyProtectPass, 130, 32));
 
 		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
 		track(g, new UIButton(440, CONTENT_Y + 430, "Choose encrypted .zip and Decrypt...", decryptModPack, 440, 40));
@@ -867,21 +850,6 @@ class EncryptionEditor extends UIState {
 
 	function onCopyToken() copyToClipboard(tokenTokenBox.label.text, "Token");
 
-	function onCopyProtectPass() {
-		var text = packProtectBox == null ? null : packProtectBox.label.text;
-		copyToClipboard(text == null ? "" : StringTools.trim(text), "Protection password");
-	}
-
-	/** The protection password to write into the pack, or null when the box is off. */
-	function packProtectPass():String {
-		if (packProtectCheck == null || !packProtectCheck.checked) return null;
-		if (packProtectBox == null) return null;
-		var typed = packProtectBox.label.text;
-		if (typed == null) return null;
-		typed = StringTools.trim(typed);
-		return typed.length == 0 ? null : typed;
-	}
-
 	// ----------------------------------------------------------- mod pack export
 
 	function selectPackMode(index:Int) {
@@ -915,10 +883,6 @@ class EncryptionEditor extends UIState {
 	function encryptModPack() {
 		if (jobActive) {
 			status("Wait for the current pack job to finish - watch the progress bar.");
-			return;
-		}
-		if (packProtectCheck != null && packProtectCheck.checked && packProtectPass() == null) {
-			status("Type the protection password, or uncheck protection mode.");
 			return;
 		}
 		fileDialogOpen = true;
@@ -991,8 +955,7 @@ class EncryptionEditor extends UIState {
 				src: path,
 				out: siblingPath(path, "zip", encrypt ? (standard ? "_password" : "_encrypted") : "_decrypted"),
 				key: packKey(path),
-				standard: standard && encrypt,
-				protectPass: encrypt ? packProtectPass() : null
+				standard: standard && encrypt
 			});
 			queued++;
 		}
@@ -1009,7 +972,7 @@ class EncryptionEditor extends UIState {
 	function pumpPackQueue() {
 		if (jobActive || packQueue.length == 0) return;
 		var t = packQueue.shift();
-		startPackJob(t.kind, t.src, t.out, t.key, t.standard, t.protectPass);
+		startPackJob(t.kind, t.src, t.out, t.key, t.standard);
 	}
 
 	function encryptModPackFile(path:String) {
@@ -1028,7 +991,7 @@ class EncryptionEditor extends UIState {
 		FileDialog.saveFile(FlxG.stage.window, standard ? "Save AES-256 Password Zip" : "Save Encrypted Mod Pack", function(outPath, filter) {
 			fileDialogOpen = false;
 			if (outPath == null || outPath.length == 0) return;
-			startPackJob(JOB_ENCRYPT, path, outPath, key, standard, packProtectPass());
+			startPackJob(JOB_ENCRYPT, path, outPath, key, standard);
 		}, [new FileDialogFilter("Mod pack", "zip"), new FileDialogFilter("All files", "*")], defaultPath);
 	}
 
@@ -1083,7 +1046,7 @@ class EncryptionEditor extends UIState {
 	 * Runs an encrypt or a decrypt job on a worker thread. Both go through the same
 	 * progress row, so the editor never freezes on a 100+ MB pack.
 	 */
-	function startPackJob(kind:Int, srcPath:String, outPath:String, key:String, standard:Bool, ?protectPass:String) {
+	function startPackJob(kind:Int, srcPath:String, outPath:String, key:String, standard:Bool) {
 		if (jobActive) return;
 
 		jobActive = true;
@@ -1105,37 +1068,9 @@ class EncryptionEditor extends UIState {
 			try {
 				if (kind == JOB_ENCRYPT) {
 					if (standard) {
-						if (protectPass != null) {
-							// A password zip can carry the marker too - it is just another
-							// entry. encryptZip reads from a path, so the patched archive is
-							// written to a temporary file, encrypted, and removed.
-							jobProgress = 0.01;
-							var source = File.getBytes(srcPath);
-							var patched = ZipInject.addFile(source, ProtectionMark.PATH,
-								ProtectionMark.create(protectPass, collectScripts(source)));
-							sys.FileSystem.createDirectory(funkin.backend.system.RuntimeDirs.TEMP);
-							var temp = funkin.backend.system.RuntimeDirs.TEMP + 'protect_pack.zip';
-							File.saveBytes(temp, patched);
-							try {
-								ZipAes.encryptZip(temp, outPath, key, function(p:Float) jobProgress = p * 0.98);
-							} catch (e:Dynamic) {
-								try sys.FileSystem.deleteFile(temp) catch (_:Dynamic) {}
-								throw e;
-							}
-							try sys.FileSystem.deleteFile(temp) catch (_:Dynamic) {}
-						} else {
-							ZipAes.encryptZip(srcPath, outPath, key, function(p:Float) jobProgress = p * 0.98);
-						}
+						ZipAes.encryptZip(srcPath, outPath, key, function(p:Float) jobProgress = p * 0.98);
 					} else {
 						var data = File.getBytes(srcPath);
-						if (protectPass != null) {
-							// the marker goes into a copy of the archive before it is sealed;
-							// appending keeps every existing byte where it was
-							jobProgress = 0.01;
-							var scripts = collectScripts(data);
-							data = ZipInject.addFile(data, ProtectionMark.PATH,
-								ProtectionMark.create(protectPass, scripts));
-						}
 						jobProgress = 0.03;
 						var bytes = ModPackCrypto.pack(data, key, function(p:Float) jobProgress = 0.03 + p * 0.92);
 						File.saveBytes(outPath, bytes);
@@ -1341,29 +1276,6 @@ class EncryptionEditor extends UIState {
 	 * checks at startup, so it has to be regenerated after each build - a stale one
 	 * reports every file as modified.
 	 */
-	/**
-	 * Hashes every script in the archive for the protection marker.
-	 *
-	 * Not just scripts/: a pack can also ship stage, state, note and event scripts under
-	 * data/, and those are just as good a place to inject code. Every .hx/.hxs/.hxb is
-	 * listed, at its full path.
-	 *
-	 * The std reader inflates each entry, so a pack full of media pays for that pass. It
-	 * runs on the job thread with the progress bar up.
-	 */
-	static function collectScripts(zip:haxe.io.Bytes):Map<String, String> {
-		var out = new Map<String, String>();
-		var entries = new haxe.zip.Reader(new haxe.io.BytesInput(zip)).read();
-		for (e in entries) {
-			var name = e.fileName.replace('\\', '/').toLowerCase();
-			var dot = name.lastIndexOf('.');
-			if (dot < 0) continue;
-			var ext = name.substr(dot + 1);
-			if (ext != 'hx' && ext != 'hxs' && ext != 'hxb') continue;
-			out.set(name, haxe.crypto.Sha256.make(e.data).toHex());
-		}
-		return out;
-	}
 
 	function generateIntegrityManifest() {
 		if (integrityJobRunning) {
