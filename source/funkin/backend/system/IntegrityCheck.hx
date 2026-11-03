@@ -179,6 +179,21 @@ class IntegrityCheck {
 			return;
 		}
 
+		// A manifest written for a different build describes files that are not these ones.
+		// Comparing against it reports every asset as modified, which is exactly what a
+		// rebuild looks like from here. Whoever rebuilt the exe could delete this check
+		// anyway, so skipping costs nothing that was not already reachable.
+		for (e in entries) {
+			if (!StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
+			if (!FileSystem.exists(e.path)) break;
+			if (Sha256.make(File.getBytes(e.path)).toHex() != e.hash) {
+				Logs.trace('Integrity: this manifest belongs to an older build; skipping the check.', INFO);
+				manifestFound = false;
+				return;
+			}
+			break;
+		}
+
 		total = entries.length;
 		var listed = new Map<String, Bool>();
 		for (e in entries) {
