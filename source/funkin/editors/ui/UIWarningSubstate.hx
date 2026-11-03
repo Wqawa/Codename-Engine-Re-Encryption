@@ -92,7 +92,9 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), bHeight, 'editors/ui/${kind == ERROR ? "normal" : "grayscale"}-popup');
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${kind}'));
+		// built before the panel is centred: its height feeds the panel height. Placed and
+		// added further down, once spr.x and spr.y are final.
+		var sprIcon:FlxSprite = new FlxSprite(0, 0).loadGraphic(Paths.image('editors/warnings/${kind}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 
@@ -113,9 +115,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 			titleSpr.y = spr.y + ((30 - titleSpr.height) / 2);
 		}
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${kind}'));
-		sprIcon.scale.set(1.4, 1.4);
-		sprIcon.updateHitbox();
+		sprIcon.setPosition(spr.x + 18, spr.y + 28 + 26);
 		sprIcon.antialiasing = true;
 		add(sprIcon);
 

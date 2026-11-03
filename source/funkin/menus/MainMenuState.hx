@@ -131,7 +131,7 @@ class MainMenuState extends MusicBeatState
 			check.summary() + "\n\n" + detail
 			+ "\n\nThese files were changed or are missing. The game keeps running, "
 			+ "but anything loaded from them may not be what was shipped.",
-			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING ));
+			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.INFO ));
 	}
 
 	override function update(elapsed:Float)
