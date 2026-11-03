@@ -30,6 +30,7 @@ class ProtectionUnlockSubstate extends MusicBeatSubstate {
 	var onDone:Bool->Void;
 	var blink:Float = 0;
 	var closed:Bool = false;
+	var loggedParent:Bool = false;
 
 	// Held as fields on purpose: `this.onKeyDown` produces a fresh bound closure every
 	// time it is evaluated, so add/removeEventListener with that expression removes
@@ -95,12 +96,26 @@ class ProtectionUnlockSubstate extends MusicBeatSubstate {
 		Lib.application.window.onTextInput.add(textHandler);
 		FlxG.stage.addEventListener(KeyboardEvent.KEY_DOWN, keyHandler);
 
+		// The options tree scrolls its camera to walk the menu. A dialog that follows the
+		// camera scrolls off screen with it - which is exactly what happened: twelve
+		// sprites, a valid camera, nothing visible.
+		for (m in members) {
+			if (Std.isOfType(m, FlxSprite)) cast(m, FlxSprite).scrollFactor.set(0, 0);
+		}
+
 		Logs.trace('Unlock box opened: ' + FlxG.width + 'x' + FlxG.height + ', ' + members.length
 			+ ' sprites, camera ' + (FlxG.camera == null ? 'null' : 'ok'), INFO);
 	}
 
 	override function update(elapsed:Float) {
 		super.update(elapsed);
+		if (!loggedParent) {
+			loggedParent = true;
+			// tells "never attached" apart from "attached but not drawn"
+			Logs.trace('Unlock box update: parent=' + (parent == null ? 'null' : 'ok')
+				+ ', attached=' + (FlxG.state != null && FlxG.state.subState == this)
+				+ ', scroll=' + (FlxG.camera == null ? '?' : FlxG.camera.scroll.x + ',' + FlxG.camera.scroll.y), INFO);
+		}
 		if (closed || field == null) return;
 		blink += elapsed;
 
