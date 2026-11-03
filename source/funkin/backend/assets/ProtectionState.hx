@@ -86,14 +86,29 @@ class ProtectionState {
 	}
 
 	/**
+	 * Checks a password without changing anything.
+	 *
+	 * Separate from unlock(): turning protection back on needs the same password check,
+	 * but must not clear the state the way unlocking does.
+	 */
+	public static function verify(pass:String):Bool {
+		return available && mark != null && ProtectionMark.matches(mark, pass);
+	}
+
+	/** Turns protection mode on or off, for a caller that already checked the password. */
+	public static function setActive(on:Bool):Void {
+		if (!available) return;
+		lock(on);
+	}
+
+	/**
 	 * Tries a password. Returns true when it turns protection mode off.
 	 *
 	 * The caller is responsible for asking; this only answers yes or no, so a wrong
 	 * password never changes anything.
 	 */
 	public static function unlock(pass:String):Bool {
-		if (!available || mark == null) return false;
-		if (!ProtectionMark.matches(mark, pass)) {
+		if (!verify(pass)) {
 			Logs.trace('Protection mode: the password did not match.', INFO);
 			return false;
 		}
