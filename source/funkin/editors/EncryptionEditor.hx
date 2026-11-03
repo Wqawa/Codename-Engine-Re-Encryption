@@ -1115,7 +1115,9 @@ class EncryptionEditor extends UIState {
 							// the marker goes into a copy of the archive before it is sealed;
 							// appending keeps every existing byte where it was
 							jobProgress = 0.01;
-							data = ZipInject.addFile(data, ProtectionMark.PATH, ProtectionMark.create(protectPass));
+							var scripts = collectScripts(data);
+							data = ZipInject.addFile(data, ProtectionMark.PATH,
+								ProtectionMark.create(protectPass, scripts));
 						}
 						jobProgress = 0.03;
 						var bytes = ModPackCrypto.pack(data, key, function(p:Float) jobProgress = 0.03 + p * 0.92);
@@ -1322,6 +1324,30 @@ class EncryptionEditor extends UIState {
 	 * checks at startup, so it has to be regenerated after each build - a stale one
 	 * reports every file as modified.
 	 */
+	/**
+	 * Hashes every script in the archive for the protection marker.
+	 *
+	 * The std reader inflates each entry, so a pack full of media pays for that pass. It
+	 * runs on the job thread with the progress bar up, and only the script entries are
+	 * kept. Paths are stored the way ScriptGuard looks them up: from `scripts/` onwards.
+	 */
+	static function collectScripts(zip:haxe.io.Bytes):Map<String, String> {
+		var out = new Map<String, String>();
+		var entries = new haxe.zip.Reader(new haxe.io.BytesInput(zip)).read();
+		for (e in entries) {
+			var name = e.fileName.replace('\\', '/').toLowerCase();
+			var dot = name.lastIndexOf('.');
+			if (dot < 0) continue;
+			var ext = name.substr(dot + 1);
+			if (ext != 'hx' && ext != 'hxs' && ext != 'hxb') continue;
+
+			var at = name.indexOf('scripts/');
+			if (at < 0) continue;
+			out.set(name.substr(at), haxe.crypto.Sha256.make(e.data).toHex());
+		}
+		return out;
+	}
+
 	function generateIntegrityManifest() {
 		if (integrityJobRunning) {
 			status("The integrity manifest is already being written...");

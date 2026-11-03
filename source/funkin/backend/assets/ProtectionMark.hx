@@ -4,10 +4,12 @@ import funkin.backend.scripting.crypto.ScriptCrypto;
 import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
 
-/** A parsed protection mark: the salt it was made with and the digest to compare. */
+/** A parsed protection mark: the salt, the digest to compare, and the script list. */
 typedef ProtectionData = {
 	var salt:Bytes;
 	var hash:Bytes;
+	/** Script path (lower case, forward slashes) -> sha256 hex. Empty for v1 marks. */
+	var scripts:Map<String, String>;
 }
 
 /**
@@ -20,15 +22,30 @@ typedef ProtectionData = {
  */
 class ProtectionMark {
 	public static inline var PATH:String = 'data/cne_protect.dat';
-	static inline var HEADER:String = 'CNEZ-PROTECT 1';
+	static inline var HEADER:String = 'CNEZ-PROTECT 2';
+	static inline var HEADER_V1:String = 'CNEZ-PROTECT 1';
 	static inline var SALT_SIZE:Int = 16;
 
-	/** Builds the file content for a password the pack author typed. */
-	public static function create(pass:String):Bytes {
+	/**
+	 * Builds the file content.
+	 *
+	 * @param scripts Path -> sha256 for every script the pack ships. Protection mode
+	 *                refuses anything not listed, and anything whose bytes changed.
+	 */
+	public static function create(pass:String, ?scripts:Map<String, String>):Bytes {
 		if (pass == null || pass.length == 0) throw "ProtectionMark: empty password";
 		var salt = ScriptCrypto.randomBytes(SALT_SIZE);
-		var text = HEADER + '\nsalt ' + salt.toHex() + '\nhash ' + digest(salt, pass).toHex() + '\n';
-		return Bytes.ofString(text);
+		var out = new StringBuf();
+		out.add(HEADER + '\nsalt ' + salt.toHex() + '\nhash ' + digest(salt, pass).toHex() + '\n');
+
+		var count = scripts == null ? 0 : Lambda.count(scripts);
+		out.add('scripts $count\n');
+		if (scripts != null) {
+			var names = [for (k in scripts.keys()) k];
+			names.sort(Reflect.compare);
+			for (name in names) out.add(scripts.get(name) + ' ' + name + '\n');
+		}
+		return Bytes.ofString(out.toString());
 	}
 
 	/** Reads a mark back, or null when the bytes are not one. */
@@ -36,19 +53,34 @@ class ProtectionMark {
 		if (data == null || data.length == 0) return null;
 		var text = StringTools.trim(data.toString());
 		var lines = text.split('\n');
-		if (lines.length < 3 || StringTools.trim(lines[0]) != HEADER) return null;
+		if (lines.length < 3) return null;
+
+		var head = StringTools.trim(lines[0]);
+		if (head != HEADER && head != HEADER_V1) return null;
 
 		var salt:String = null;
 		var hash:String = null;
+		var scripts = new Map<String, String>();
+		var inScripts = false;
+
 		for (i in 1...lines.length) {
 			var line = StringTools.trim(lines[i]);
+			if (line.length == 0) continue;
 			if (StringTools.startsWith(line, 'salt ')) salt = line.substr(5);
 			else if (StringTools.startsWith(line, 'hash ')) hash = line.substr(5);
+			else if (StringTools.startsWith(line, 'scripts ')) inScripts = true;
+			else if (inScripts) {
+				var space = line.indexOf(' ');
+				if (space <= 0) continue;
+				var digestHex = line.substr(0, space);
+				var scriptPath = StringTools.trim(line.substr(space + 1)).toLowerCase();
+				if (digestHex.length == 64 && scriptPath.length > 0) scripts.set(scriptPath, digestHex);
+			}
 		}
 		if (salt == null || hash == null) return null;
 
 		try {
-			return {salt: Bytes.ofHex(StringTools.trim(salt)), hash: Bytes.ofHex(StringTools.trim(hash))};
+			return {salt: Bytes.ofHex(StringTools.trim(salt)), hash: Bytes.ofHex(StringTools.trim(hash)), scripts: scripts};
 		} catch (e:Dynamic) {
 			return null;
 		}

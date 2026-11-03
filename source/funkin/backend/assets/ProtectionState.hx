@@ -117,6 +117,11 @@ class ProtectionState {
 		return true;
 	}
 
+	/** Script hashes recorded in the marker, or null when the pack carried none. */
+	public static function scripts():Map<String, String> {
+		return mark == null ? null : mark.scripts;
+	}
+
 	/** Name of the pack that owns the lock, for the dialog. */
 	public static function owner():String {
 		return packName;

@@ -58,8 +58,16 @@ class HScript extends Script {
 		try {
 			if(Assets.exists(rawPath)) {
 				if(Path.extension(rawPath).toLowerCase() == ScriptContainer.EXTENSION) {
+					var rawBytes = Assets.getBytes(rawPath);
+					// Protection mode refuses scripts the pack did not declare, and scripts
+					// whose bytes changed. An empty body keeps the rest of the pipeline
+					// intact - the script simply does nothing.
+					if (!funkin.backend.assets.ScriptGuard.allows(rawPath, rawBytes)) {
+						code = "";
+						return;
+					}
 					// Protected container: the password comes from the key files / the resolved CNEK1- token.
-					var packed = ScriptContainer.unpack(Assets.getBytes(rawPath), null, fileName);
+					var packed = ScriptContainer.unpack(rawBytes, null, fileName);
 					code = packed.source;
 					containerFlags = packed.flags;
 					if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
@@ -73,7 +81,14 @@ class HScript extends Script {
 						bytecode = packed.chunk;
 						opMap = packed.map;
 					}
-				} else code = Assets.getText(rawPath);
+				} else {
+					var plain = Assets.getText(rawPath);
+					if (!funkin.backend.assets.ScriptGuard.allows(rawPath, haxe.io.Bytes.ofString(plain))) {
+						code = "";
+						return;
+					}
+					code = plain;
+				}
 			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');
 
