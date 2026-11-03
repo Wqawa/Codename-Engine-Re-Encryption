@@ -7,27 +7,21 @@ import sys.FileSystem;
 /**
  * The one hidden folder the engine writes to while it runs.
  *
- * There used to be three of them, all next to the executable and all there for the
- * same reason - a zip cannot be read or written in place:
- *
- *   .CNE_mods/   the key file copied out of a packed mod
- *   [zip]temp/   edits the editors staged for a packed mod
- *   .temp/       videos lifted out of a pack, editor undo data, updater scratch
- *
- * Three folders nobody can tell apart is three folders nobody looks after, so they
- * are one now:
+ * Older builds used three of them next to the executable, all for the same reason - a zip
+ * cannot be read or written in place. Three folders nobody can tell apart are three
+ * folders nobody looks after, so they are one:
  *
  *   .cne/keys/              what a pack's own script_key.txt was copied to
  *   .cne/mods/<mod>/        edits staged by the editors, laid over the pack as-is
  *   .cne/mods/<mod>/videos/ videos lifted out of the pack; read only, never merged
  *   .cne/temp/              genuinely temporary: editor undo, updater scratch
+ *   .cne/logs/              engine.log, written while the game runs
  *
- * `mods/` and `videos/` are the mod-asset side of the folder (the video part is what
- * hxvlc needs on disk, see ZipFolderLibrary.getVideoRemap); `keys/` is the key side.
- * Everything under the root is removed when the game closes.
+ * The root is hidden on Windows and swept on exit, except for the staged edits and the
+ * log: those are the two things a player would miss.
  */
 class RuntimeDirs {
-	/** Root, hidden by attribute on Windows and swept on exit. */
+	/** Root, hidden by attribute on Windows. */
 	public static inline var ROOT:String = './.cne/';
 
 	/** Key files copied out of packed mods. */
@@ -39,28 +33,46 @@ class RuntimeDirs {
 	/** Anything genuinely temporary. */
 	public static inline var TEMP:String = ROOT + 'temp/';
 
+	/** Log file of the current run. */
+	public static inline var LOGS:String = ROOT + 'logs/';
+
 	/** Folders earlier builds wrote to; swept on sight. */
 	public static var legacyFolders:Array<String> = ['./.CNE_mods/', './.cne_mods/', './[zip]temp/', './.temp/'];
 
-	/** Creates `path` (and the root) when missing, and keeps every level hidden. */
+	/** Creates `path` (and every missing parent) and keeps the chain hidden. */
 	public static function ensure(path:String):Void {
 		#if sys
 		try {
-			if (path == null) return;
-			if (!FileSystem.exists(ROOT)) FileSystem.createDirectory(ROOT);
-			if (!FileSystem.exists(path)) FileSystem.createDirectory(path);
+			if (path == null || path.length == 0) return;
+			makeDirs(path);
 			hideChain(path);
 		} catch (e:Dynamic) {}
 		#end
 	}
 
+	#if sys
+	/** createDirectory only handles one level, and these paths are always nested. */
+	static function makeDirs(path:String):Void {
+		var target = trimSeparator(path);
+		if (target.length == 0 || FileSystem.exists(target)) return;
+		var parent = haxe.io.Path.directory(target);
+		if (parent != null && parent.length > 1 && parent != target) makeDirs(parent);
+		try FileSystem.createDirectory(target) catch (e:Dynamic) {}
+	}
+
+	static function trimSeparator(path:String):String {
+		var out = path;
+		while (out.length > 1 && (out.endsWith('/') || out.endsWith('\\'))) out = out.substr(0, out.length - 1);
+		return out;
+	}
+	#end
+
 	/**
 	 * Hides the root, the folder itself and the folder above it.
 	 *
 	 * Windows hides a directory by attribute, so a child created later is visible again
-	 * even though its parent is hidden: hiding only the root left the inside of .cne
-	 * half visible. This walks the chain every time something is created, and
-	 * hideAll() catches whatever was already there.
+	 * even when its parent is hidden: hiding only the root left the inside of .cne half
+	 * visible. hideAll() catches whatever was already there.
 	 */
 	static function hideChain(path:String):Void {
 		#if windows
@@ -87,7 +99,7 @@ class RuntimeDirs {
 			hide(path);
 			if (!FileSystem.isDirectory(path)) return;
 			for (name in FileSystem.readDirectory(path)) {
-				var child = path + name;
+				var child = join(path, name);
 				if (FileSystem.isDirectory(child)) hideTree(child + "/");
 				else hide(child);
 			}
@@ -99,8 +111,7 @@ class RuntimeDirs {
 	 * Brings what earlier builds left behind into the new layout, once per start.
 	 *
 	 * `[zip]temp/<mod>/` holds the player's unmerged edits, so it is moved rather than
-	 * deleted. The other old folders only ever held rebuildable data - the key copies
-	 * and the video scratch - so they just go.
+	 * deleted. The other old folders only held rebuildable data and just go.
 	 */
 	public static function migrateLegacy():Void {
 		#if sys
@@ -116,7 +127,7 @@ class RuntimeDirs {
 			}
 		} catch (e:Dynamic) {}
 
-		for (folder in ["./.CNE_mods/", "./.cne_mods/", "./[zip]temp/", "./.temp/"]) {
+		for (folder in legacyFolders) {
 			try {
 				if (!FileSystem.exists(folder) || !FileSystem.isDirectory(folder)) continue;
 				funkin.backend.utils.CoolUtil.deleteFolder(folder);
@@ -159,9 +170,9 @@ class RuntimeDirs {
 	 * Where the videos of a packed mod are lifted to.
 	 *
 	 * hxvlc is handed a path here rather than bytes, which is what upstream's
-	 * ZipFolderLibrary does too; `Video.load` does accept Bytes, but a cutscene is
-	 * usually the largest file in a pack and reading it back through the asset
-	 * library on every play is worse than one extraction per launch.
+	 * ZipFolderLibrary does too; a cutscene is usually the largest file in a pack, and
+	 * reading it back through the asset library on every play costs more than one
+	 * extraction per launch.
 	 */
 	public static function modVideos(mod:String):String {
 		if (mod == null) return null;
@@ -192,8 +203,8 @@ class RuntimeDirs {
 	 * Drops the videos lifted out of the packs; they are extracted again on demand.
 	 *
 	 * With a mod name only that mod's folder goes, which is what a switch away from an
-	 * encrypted pack uses: those videos are decrypted content on disk, while a plain
-	 * mod's copy is a cache that is cheaper to keep than to extract again.
+	 * encrypted pack uses: those videos are decrypted content on disk, while a plain mod's
+	 * copy is a cache that is cheaper to keep than to extract again.
 	 * Returns how many files were removed.
 	 */
 	public static function clearVideos(?mod:String):Int {
@@ -209,8 +220,8 @@ class RuntimeDirs {
 				}
 				return removed;
 			}
-			for (mod in FileSystem.readDirectory(MODS)) {
-				var dir = MODS + mod + "/videos/";
+			for (name in FileSystem.readDirectory(MODS)) {
+				var dir = MODS + name + "/videos/";
 				if (FileSystem.exists(dir) && FileSystem.isDirectory(dir)) {
 					removed += countFiles(dir);
 					funkin.backend.utils.CoolUtil.deleteFolder(dir);
@@ -230,7 +241,7 @@ class RuntimeDirs {
 		try {
 			if (!FileSystem.exists(dir) || !FileSystem.isDirectory(dir)) return 0;
 			for (entry in FileSystem.readDirectory(dir)) {
-				var path = '$dir/$entry';
+				var path = join(dir, entry);
 				if (FileSystem.isDirectory(path)) n += countFiles(path);
 				else n++;
 			}
@@ -239,5 +250,11 @@ class RuntimeDirs {
 		#else
 		return 0;
 		#end
+	}
+
+	/** `dir` + `name`, with exactly one separator in between. */
+	static function join(dir:String, name:String):String {
+		if (dir == null || dir.length == 0) return name;
+		return dir.endsWith('/') || dir.endsWith('\\') ? dir + name : dir + '/' + name;
 	}
 }

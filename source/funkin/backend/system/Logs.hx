@@ -115,27 +115,30 @@ final class Logs {
 	}
 
 	#if sys
-	static var logReady:Bool = false;
-	static inline var LOG_PATH:String = './.cne/logs/engine.log';
+	static var logFile:String = null;
 
 	/**
 	 * Mirrors each line to `.cne/logs/engine.log`.
 	 *
-	 * The console needs developer mode; the file does not. Each run starts fresh - what
-	 * matters is the run that just happened, not a growing archive.
+	 * The console needs developer mode; the file does not. Every run starts a new file -
+	 * what matters is the run that just happened, not a growing archive.
 	 */
 	static function writeToFile(text:Array<LogText>):Void {
 		try {
 			if (!funkin.options.Options.saveLogs) return;
-			if (!logReady) {
-				logReady = true;
-				sys.FileSystem.createDirectory('./.cne/logs/');
-				sys.io.File.saveContent(LOG_PATH, '--- Codename Engine, ${Date.now()} ---\n');
+			var line = [for (t in text) t.text].join("") + "\n";
+			if (logFile == null) {
+				RuntimeDirs.ensure(RuntimeDirs.LOGS);
+				logFile = RuntimeDirs.LOGS + 'engine.log';
+				sys.io.File.saveContent(logFile, '--- Codename Engine, ${Date.now()} ---\n');
 			}
-			var out = sys.io.File.append(LOG_PATH, false);
-			out.writeString([for (t in text) t.text].join("") + "\n");
+			var out = sys.io.File.append(logFile, false);
+			out.writeString(line);
 			out.close();
-		} catch (e:Dynamic) {}
+		} catch (e:Dynamic) {
+			// the log is a convenience; a full disk or a locked file must not stop the game
+			logFile = null;
+		}
 	}
 	#end
 
