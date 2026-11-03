@@ -36,28 +36,21 @@ class MiscOptions extends TreeMenuScreen {
 						label: "Unlock",
 						color: 0x969533,
 						onClick: function(dialog) {
-							if (!funkin.backend.assets.ProtectionState.unlock(dialog.entered)) {
-								// wrong password: stay open so it can be retyped
+							// the dialog hands back the text and nothing else; whether it is
+							// the right password is decided here
+							if (!funkin.backend.assets.ProtectionState.unlock(dialog.inputValue())) {
 								dialog.keepOpen = true;
-							} else {
-								protect.checked = false;
-								Options.protectionMode = false;
-								protect.locked = true;
+								return;
 							}
+							protect.checked = false;
+							Options.protectionMode = false;
+							protect.locked = true;
 						}
 					},
 					{label: "Cancel", color: 0x969533, onClick: function(_) {}}
 				],
 				false,
-				function(text:String) {
-					// Enter and the Unlock button do the same thing
-					if (funkin.backend.assets.ProtectionState.unlock(text)) {
-						protect.checked = false;
-						Options.protectionMode = false;
-						protect.locked = true;
-						FlxG.state.closeSubState();
-					}
-				}
+				true
 			));
 		});
 		// Only clickable while actually locked: with no marker there is nothing to unlock,
