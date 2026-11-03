@@ -135,7 +135,7 @@ class ZipEditCache {
 			for (file in files) {
 				var entry = null;
 				for (e in zip.entries)
-					if (e.fileName == file || e.fileName.split("\\").join("/") == file) { entry = e; break; }
+					if (entryKey(e.fileName) == entryKey(file)) { entry = e; break; }
 				// a staged file the pack does not have is a new file: always an edit
 				if (entry == null) { left++; continue; }
 
@@ -415,13 +415,16 @@ class ZipEditCache {
 		return pack;
 	}
 
-	/** Rewrites `source` into `out`, replacing/appending everything listed in `files`. */
+	/** Rewrites `source` into `out`, replacing and appending everything listed in `files`. */
 	static function writeMerged(source:String, overlay:String, files:Array<String>, out:String):Void {
 		var entries = ZipPassword.readCentral(source);
 		if (entries == null) throw 'cannot read the zip index of ${Path.withoutDirectory(source)}';
 
-		var staged = new Map<String, Bool>();
-		for (file in files) staged.set(file.toLowerCase(), true);
+		// archive names may use either separator and any casing; the staging folder uses '/'
+		// and the casing of the file the editor saved. Key on the normalised name, but keep
+		// the staged path itself so the bytes are read from the file that actually exists.
+		var staged = new Map<String, String>();
+		for (file in files) staged.set(entryKey(file), file);
 
 		var input = File.read(source, true);
 		var output = File.write(out, true);
@@ -432,13 +435,14 @@ class ZipEditCache {
 		try {
 			for (e in entries) {
 				var name = e.name;
-				var isStaged = staged.exists(name.toLowerCase());
-				staged.remove(name.toLowerCase());
+				var key = entryKey(name);
+				var stagedPath = staged.get(key);
+				if (stagedPath != null) staged.remove(key);
 
 				// A staged file can disappear between the scan and the merge (a cleanup pass,
 				// the player emptying the folder by hand). Keep the pack's own copy then,
 				// instead of throwing away the whole merge.
-				var plain = isStaged ? readStaged(overlay, name) : null;
+				var plain = stagedPath != null ? readStaged(overlay, stagedPath) : null;
 
 				var raw:Bytes;
 				var method:Int;
@@ -465,7 +469,7 @@ class ZipEditCache {
 
 			// staged files the pack does not have yet
 			for (file in files) {
-				if (!staged.exists(file.toLowerCase())) continue;
+				if (!staged.exists(entryKey(file))) continue;
 				var plain = readStaged(overlay, file);
 				if (plain == null) continue;
 				var packed = deflate(plain);
@@ -507,6 +511,11 @@ class ZipEditCache {
 		} catch (e:Dynamic) {
 			return null;
 		}
+	}
+
+	/** Archive name normalised for comparison: forward slashes, lower case. */
+	static function entryKey(name:String):String {
+		return StringTools.replace(name, "\\", "/").toLowerCase();
 	}
 
 	/** Deflates a staged file; falls back to storing it when that does not help. */
