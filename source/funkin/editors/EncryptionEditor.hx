@@ -1271,12 +1271,10 @@ class EncryptionEditor extends UIState {
 	/**
 	 * Writes the integrity manifest next to the executable.
 	 *
-	 * Hashing every shipped file takes a while on a full assets folder, so it runs on a
-	 * worker thread and update() picks the result up. The manifest is what the game
-	 * checks at startup, so it has to be regenerated after each build - a stale one
-	 * reports every file as modified.
+	 * Hashing a full assets folder takes a while, so it runs on a worker thread and
+	 * update() picks the result up. The manifest is what the game checks at startup, so
+	 * it has to be regenerated after each build - a stale one reports every file.
 	 */
-
 	function generateIntegrityManifest() {
 		if (integrityJobRunning) {
 			status("The integrity manifest is already being written...");

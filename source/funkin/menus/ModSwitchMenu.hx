@@ -276,7 +276,7 @@ class ModSwitchMenu extends MusicBeatSubstate {
 						ModsFolder.switchMod(target);
 					}
 				}
-			], false));
+			], funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING));
 	}
 
 	function addonControls(scrollChange:Int) {

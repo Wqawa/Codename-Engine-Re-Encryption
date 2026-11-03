@@ -10,21 +10,21 @@ import funkin.editors.ui.UIText;
  * Shown while the staged files of a packed mod are merged into its pack.
  *
  * Merging copies every entry of the archive and re-encrypts it when the pack is
- * encrypted, so on a big mod it is seconds of work - and doing that from the button's
- * callback left the window frozen with no sign of life. The work runs on a worker thread
- * (ZipEditCache.startMergeAsync) and this screen only reports it, then hands over to
+ * encrypted, so a big mod means seconds of work. That runs on a worker thread
+ * (ZipEditCache.startMergeAsync); this screen only reports it and then hands over to
  * whatever the caller wanted to do next (usually the mod switch).
  *
  * A failed merge still continues: the staged files are left on disk on purpose, so the
- * player keeps their work, and the error is shown long enough to read.
+ * player keeps their work.
  */
 class ModPackMergeState extends UIState {
 	static inline var MARGIN:Int = 40;
+	/** How long a finished merge stays up before the next screen, in seconds. */
 	static inline var MIN_VISIBLE:Float = 0.4;
 	static inline var ERROR_VISIBLE:Float = 3;
 
 	public var mod:String;
-	public var next:Void->Void;
+	public var onDone:Void->Void;
 
 	public var statusText:UIText;
 	public var hintText:UIText;
@@ -35,10 +35,10 @@ class ModPackMergeState extends UIState {
 	public var finishedAt:Float = -1;
 	var appliedMerge:Bool = false;
 
-	public function new(mod:String, next:Void->Void) {
+	public function new(mod:String, onDone:Void->Void) {
 		super();
 		this.mod = mod;
-		this.next = next;
+		this.onDone = onDone;
 	}
 
 	override function create() {
@@ -55,8 +55,7 @@ class ModPackMergeState extends UIState {
 		add(statusText = new UIText(MARGIN, 300, w, ZipEditCache.mergeMessage, 15, 0xFF9BE28C, false));
 		add(hintText = new UIText(MARGIN, 336, w, "", 13, 0xFF7A7A88, false));
 
-		// A merge is seconds of work with nothing to look at otherwise; the bar is the only
-		// thing that says it is still moving.
+		// a merge is seconds of work with nothing else moving; the bar is the only sign
 		add(barBg = new FlxSprite(MARGIN, 380).makeGraphic(w, 18, 0xFF2A2A34));
 		add(bar = new FlxSprite(MARGIN + 2, 382).makeGraphic(w - 4, 14, 0xFF61C4FF));
 		// scaling around the left edge keeps the bar growing to the right
@@ -96,15 +95,14 @@ class ModPackMergeState extends UIState {
 		}
 		if (finishedAt < 0) finishedAt = waited;
 
-		// a failed merge is worth reading; a successful one only needs a beat so the
-		// screen does not flash
+		// a failed merge is worth reading; a successful one only needs a beat
 		var hold = ZipEditCache.mergeFailed ? ERROR_VISIBLE : MIN_VISIBLE;
 		if (waited - finishedAt < hold) return;
 
 		if (done) return;
 		done = true;
-		var target = next;
-		next = null;
+		var target = onDone;
+		onDone = null;
 		if (target == null) return;
 		// a broken switch must not leave the player on a screen that never moves again
 		try {
