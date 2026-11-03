@@ -60,34 +60,32 @@ class HScript extends Script {
 				if(Path.extension(rawPath).toLowerCase() == ScriptContainer.EXTENSION) {
 					var rawBytes = Assets.getBytes(rawPath);
 					// Protection mode refuses scripts the pack did not declare, and scripts
-					// whose bytes changed. An empty body keeps the rest of the pipeline
-					// intact - the script simply does nothing.
-					if (!funkin.backend.assets.ScriptGuard.allows(rawPath, rawBytes)) {
-						code = "";
-						return;
-					}
-					// Protected container: the password comes from the key files / the resolved CNEK1- token.
-					var packed = ScriptContainer.unpack(rawBytes, null, fileName);
-					code = packed.source;
-					containerFlags = packed.flags;
-					if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
-						// Legacy bytecode came from a compiler that ignored the map type hint on empty
-						// literals, so the VM would die with "Null Function Pointer". The container still
-						// carries its source (FALLBACK), so run that instead until it is re-packed.
-						Logs.warn('$fileName: pack was built by an older bytecode compiler, running its source fallback');
-						bytecode = null;
-						opMap = null;
+					// whose bytes changed. A refused one keeps an empty body and the
+					// constructor still runs to the end - returning here would skip the
+					// parser set-up further down and the script would crash on load instead
+					// of doing nothing.
+					if (funkin.backend.assets.ScriptGuard.allows(rawPath, rawBytes)) {
+						// Protected container: the password comes from the key files / the resolved CNEK1- token.
+						var packed = ScriptContainer.unpack(rawBytes, null, fileName);
+						code = packed.source;
+						containerFlags = packed.flags;
+						if (packed.codeRev < ScriptContainer.CODE_REV && packed.source != null) {
+							// Legacy bytecode came from a compiler that ignored the map type hint on empty
+							// literals, so the VM would die with "Null Function Pointer". The container still
+							// carries its source (FALLBACK), so run that instead until it is re-packed.
+							Logs.warn('$fileName: pack was built by an older bytecode compiler, running its source fallback');
+							bytecode = null;
+							opMap = null;
+						} else {
+							bytecode = packed.chunk;
+							opMap = packed.map;
+						}
 					} else {
-						bytecode = packed.chunk;
-						opMap = packed.map;
+						code = "";
 					}
 				} else {
 					var plain = Assets.getText(rawPath);
-					if (!funkin.backend.assets.ScriptGuard.allows(rawPath, haxe.io.Bytes.ofString(plain))) {
-						code = "";
-						return;
-					}
-					code = plain;
+					code = funkin.backend.assets.ScriptGuard.allows(rawPath, haxe.io.Bytes.ofString(plain)) ? plain : "";
 				}
 			}
 		} catch(e) Logs.error('Error while reading $path: ${Std.string(e)}');

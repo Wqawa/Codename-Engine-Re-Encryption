@@ -24,6 +24,13 @@ class ScriptGuard {
 		if (scripts == null || Lambda.count(scripts) == 0) return true;
 
 		var key = normalize(path);
+		// another mod's script, or one outside any mod folder: not this pack's business
+		if (key == null) return true;
+
+		// The engine ships its own scripts under assets/. They are not this pack's to
+		// police, and refusing them would break the game instead of protecting it.
+		if (StringTools.startsWith(key, 'assets/')) return true;
+
 		var expected = scripts.get(key);
 		if (expected == null) {
 			refuse('$path is not listed in this pack');
@@ -46,13 +53,22 @@ class ScriptGuard {
 	}
 
 	/**
-	 * Packs address scripts through their mod prefix (`mods/x/scripts/a.hx`), while the
-	 * list stores the archive path (`scripts/a.hx`). Reduce both to the part after the
-	 * first `scripts/` so the two can meet.
+	 * Reduces a runtime path to the form the marker stores.
+	 *
+	 * A script reached through the mod folder looks like `mods/<name>/data/a.hx` here and
+	 * `data/a.hx` in the archive, so the prefix is dropped. Returns null for a path that
+	 * belongs to a different mod, which the caller treats as "not ours, leave it alone".
 	 */
 	static function normalize(path:String):String {
 		var p = StringTools.replace(path, '\\', '/').toLowerCase();
-		var at = p.indexOf('scripts/');
-		return at >= 0 ? p.substr(at) : p;
+		if (!StringTools.startsWith(p, 'mods/')) return p;
+
+		var rest = p.substr(5);
+		var slash = rest.indexOf('/');
+		if (slash < 0) return p;
+
+		var owner = ProtectionState.owner();
+		if (owner != null && rest.substr(0, slash) != owner.toLowerCase()) return null;
+		return rest.substr(slash + 1);
 	}
 }

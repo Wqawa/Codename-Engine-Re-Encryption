@@ -1344,9 +1344,12 @@ class EncryptionEditor extends UIState {
 	/**
 	 * Hashes every script in the archive for the protection marker.
 	 *
+	 * Not just scripts/: a pack can also ship stage, state, note and event scripts under
+	 * data/, and those are just as good a place to inject code. Every .hx/.hxs/.hxb is
+	 * listed, at its full path.
+	 *
 	 * The std reader inflates each entry, so a pack full of media pays for that pass. It
-	 * runs on the job thread with the progress bar up, and only the script entries are
-	 * kept. Paths are stored the way ScriptGuard looks them up: from `scripts/` onwards.
+	 * runs on the job thread with the progress bar up.
 	 */
 	static function collectScripts(zip:haxe.io.Bytes):Map<String, String> {
 		var out = new Map<String, String>();
@@ -1357,10 +1360,7 @@ class EncryptionEditor extends UIState {
 			if (dot < 0) continue;
 			var ext = name.substr(dot + 1);
 			if (ext != 'hx' && ext != 'hxs' && ext != 'hxb') continue;
-
-			var at = name.indexOf('scripts/');
-			if (at < 0) continue;
-			out.set(name.substr(at), haxe.crypto.Sha256.make(e.data).toHex());
+			out.set(name, haxe.crypto.Sha256.make(e.data).toHex());
 		}
 		return out;
 	}
