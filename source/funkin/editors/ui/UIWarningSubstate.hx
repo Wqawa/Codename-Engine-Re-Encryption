@@ -30,6 +30,8 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	var message:String;
 	var buttons:Array<WarningButton>;
 	var isError:Bool = true;
+	/** Blue variant for plain information: a question mark and a blue rim. */
+	var isInfo:Bool = false;
 
 	// Optional text field, built from the engine's own UITextBox. Null when the dialog was
 	// created without one.
@@ -92,7 +94,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 		var spr = new UISliceSprite(0, 0, CoolUtil.maxInt(560, 30 + (170 * buttons.length)), bHeight, 'editors/ui/${isError ? "normal" : "grayscale"}-popup');
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : "warning"}'));
+		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : (isInfo ? "info" : "warning")}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 
@@ -101,7 +103,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 		spr.x = (FlxG.width - spr.bWidth) / 2;
 		spr.y = (FlxG.height - spr.bHeight) / 2;
-		spr.color = isError ? 0xFFFF0000 : 0xFFFFFF00;
+		spr.color = isError ? 0xFFFF0000 : (isInfo ? 0xFF4D9EFF : 0xFFFFFF00);
 		add(spr);
 
 		if(title != null) {
@@ -109,7 +111,7 @@ class UIWarningSubstate extends MusicBeatSubstate {
 			titleSpr.y = spr.y + ((30 - titleSpr.height) / 2);
 		}
 
-		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : "warning"}'));
+		var sprIcon:FlxSprite = new FlxSprite(spr.x + 18, spr.y + 28 + 26).loadGraphic(Paths.image('editors/warnings/${isError ? "error" : (isInfo ? "info" : "warning")}'));
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 		sprIcon.antialiasing = true;
@@ -171,13 +173,14 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	 *                   caller decides what it means, since the same field serves a
 	 *                   password and, later, any other value a dialog has to ask for.
 	 */
-	public function new(title:String, message:String, buttons:Array<WarningButton>, ?isError:Bool = true, ?wantsInput:Bool = false) {
+	public function new(title:String, message:String, buttons:Array<WarningButton>, ?isError:Bool = true, ?wantsInput:Bool = false, ?isInfo:Bool = false) {
 		super();
 		this.title = title;
 		this.message = message;
 		this.buttons = buttons;
 		this.isError = isError;
 		this.wantsInput = wantsInput;
+		this.isInfo = isInfo;
 	}
 }
 
