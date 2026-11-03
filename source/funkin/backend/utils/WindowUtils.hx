@@ -213,7 +213,13 @@ final class WindowUtils {
 
 	/**
 	 * Updates the window title to have the current title and prefix/suffix.
+	 *
+	 * Guarded because Flags and mods set titles during startup, before the application
+	 * window exists.
 	**/
-	public static inline function updateTitle()
-		Lib.application.window.title = '$prefix$title$suffix';
+	public static function updateTitle() {
+		var app = Lib.application;
+		if (app == null || app.window == null) return;
+		app.window.title = '$prefix$title$suffix';
+	}
 }
