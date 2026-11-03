@@ -33,6 +33,8 @@ working branch      main
 | **Encryption Tool editor** | Editor-picker entry (`F7` menu) with *Mod Pack* / *Scripts* / *Help* tabs: seal or unwrap a pack, protect scripts, export an AES zip other tools can open, and turn keys into shareable tokens. | `source/funkin/editors/EncryptionEditor.hx` |
 | **Key prompt & key tokens** | A sealed pack asks for its key before the mod loads (or a `CNEK1-...` token that resolves back to the key), and can fall back to playing without mods. | `ModPackKeyState.hx`, `scripting/crypto/ScriptCrypto.hx` |
 | **Memory hygiene** | Secrets are kept wrapped in a per-session ChaCha20 stream and wiped when no longer needed; raises the bar against memory scanners, nothing more. | `backend/system/MemoryGuard.hx` |
+| **Build integrity manifest** | A signed `integrity.dat` records the size and SHA-256 of the exe, the native libraries and every file under `assets/`. The check runs on a worker thread at startup and reports changed, missing or unlisted files once. | `backend/system/IntegrityCheck.hx`, `menus/IntegrityScreen.hx` |
+| **Log file** | Every run writes `.cne/logs/engine.log`, so a crash can be reported without developer mode. | `backend/system/Logs.hx` |
 | **Quality of life** | Loading screens for song assets and character frames, tile wipe-in transition, crash mascot, the fork's own name/version on the main menu. | `menus/SongLoadingScreen.hx`, `MusicBeatTransition.hx`, ... |
 
 > [!WARNING]
@@ -48,6 +50,8 @@ working branch      main
 | File | Content | Origin |
 | --- | --- | --- |
 | [docs/RE-ENCRYPTION.md](docs/RE-ENCRYPTION.md) | How the encryption works: container formats, script layers, keys and tokens, editor usage, security boundaries | **This fork** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Where the encryption hooks into the engine: new files by group, the official files they touch, startup to playback | **This fork** |
+| [docs/INTEGRITY.md](docs/INTEGRITY.md) | The build manifest: format, signing key, what the check covers and what it cannot cover | **This fork** |
 | [AGENTS.md](AGENTS.md) | Collaboration rules, file-change checklist, build notes | **This fork** |
 | [FEATURES.md](FEATURES.md) | Full feature list of the engine | Upstream |
 | [CHANGELOG.md](CHANGELOG.md) | Upstream v0.4.0 changelog | Upstream |
