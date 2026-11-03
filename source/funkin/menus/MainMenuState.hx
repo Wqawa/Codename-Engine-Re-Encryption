@@ -122,15 +122,17 @@ class MainMenuState extends MusicBeatState
 		var check = funkin.backend.system.IntegrityCheck;
 		var detail = check.manifestProblem;
 		if (detail == null) {
-			var listed = check.changed.length > 0 ? check.changed : check.missing;
+			// whichever list is actually populated; extra alone used to print nothing
+			var listed = check.missing.length > 0 ? check.missing
+				: (check.changed.length > 0 ? check.changed : check.extra);
 			detail = check.sample(listed);
 		}
 
 		openSubState(new funkin.editors.ui.UIWarningSubstate(
 			"Files Do Not Match This Build",
 			check.summary() + "\n\n" + detail
-			+ "\n\nThese files were changed or are missing. The game keeps running, "
-			+ "but anything loaded from them may not be what was shipped.",
+			+ "\n\nThese were changed, are missing, or are not part of this build. The game "
+			+ "keeps running, but anything loaded from them may not be what was shipped.",
 			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.INFO ));
 	}
 

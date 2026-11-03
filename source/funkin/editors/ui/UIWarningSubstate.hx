@@ -155,11 +155,15 @@ class UIWarningSubstate extends MusicBeatSubstate {
 
 	public override function destroy() {
 		super.destroy();
-		for(e in camShaders)
-			e.removeShader(blurShader);
+		if (camShaders != null)
+			for(e in camShaders)
+				e.removeShader(blurShader);
 
-		FlxTween.cancelTweensOf(warnCam);
-		FlxG.cameras.remove(warnCam);
+		// create() can throw before the camera exists - a missing icon is enough
+		if (warnCam != null) {
+			FlxTween.cancelTweensOf(warnCam);
+			FlxG.cameras.remove(warnCam);
+		}
 
 		// the field switched system text input on when it took focus; leaving it on would
 		// feed every later keystroke into a text field nobody can see

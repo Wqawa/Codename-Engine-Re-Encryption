@@ -51,7 +51,10 @@ class IntegrityCheck {
 
 	/** True once the check ran and found something worth telling the player. */
 	public static function hasProblems():Bool {
-		return manifestProblem != null || missing.length > 0 || changed.length > 0;
+		// extra counts: a file that appeared under assets/ without being in the manifest is
+		// the shape an injected script takes, and leaving it out meant it was never shown
+		return manifestProblem != null || missing.length > 0 || changed.length > 0
+			|| extra.length > 0;
 	}
 
 	public static function summary():String {
