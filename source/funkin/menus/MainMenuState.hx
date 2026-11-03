@@ -34,6 +34,10 @@ class MainMenuState extends MusicBeatState
 
 		super.create();
 
+		// the check runs on a worker thread; without waiting, the menu decides "not
+		// finished, nothing to show" and the result only appears on a later visit
+		funkin.backend.system.IntegrityCheck.waitFor();
+
 		DiscordUtil.call("onMenuLoaded", ["Main Menu"]);
 
 		CoolUtil.playMenuSong();

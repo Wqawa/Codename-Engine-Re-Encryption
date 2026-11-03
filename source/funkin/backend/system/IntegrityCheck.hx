@@ -120,6 +120,23 @@ class IntegrityCheck {
 		#end
 	}
 
+	/**
+	 * Blocks until the check finishes, or the timeout passes.
+	 *
+	 * The main menu calls this before deciding whether to show a result. Without it the
+	 * menu appears while the check is still running, concludes there is nothing to
+	 * report, and the player only learns about it after leaving the menu and coming back.
+	 */
+	public static function waitFor(timeoutMs:Int = 2500):Void {
+		#if sys
+		var waited = 0;
+		while (!done && waited < timeoutMs) {
+			Sys.sleep(0.02);
+			waited += 20;
+		}
+		#end
+	}
+
 	static function runVerify():Void {
 		#if sys
 		try {
