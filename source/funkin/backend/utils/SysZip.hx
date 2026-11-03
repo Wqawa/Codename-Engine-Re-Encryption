@@ -7,34 +7,32 @@ import funkin.backend.scripting.crypto.ChaCha20;
 import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.backend.scripting.protect.ProtectedBuffer;
 import funkin.backend.scripting.protect.SecureBytes;
-import haxe.io.Input;
-import haxe.zip.Reader;
 import sys.io.File;
 import sys.io.FileInput;
 
 import haxe.io.Bytes;
 
 /**
- * Class that extends Reader allowing you to load ZIP entries without blowing your RAM up!!
- * ~~Half of the code is taken from haxe libraries btw~~ Reworked by ItsLJcool to actually work for zip files.
+ * Zip reader that indexes an archive without loading all of it, so a mod pack can be
+ * read straight out of memory or out of a CNEZ payload.
  *
- * Two sources: a file on disk (`new SysZip(path)`) and a buffer already in memory
- * (`SysZip.fromBytes(...)`). The second one is what an encrypted pack uses - it is
- * decrypted once into RAM and read from there, so no readable copy is ever written to
- * disk. Everything below goes through `readBytes`, so entry offsets and the central
- * directory are handled the same way for both.
+ * Three sources, all behind the same `readBytes`:
+ *
+ *   file    a plain .zip on disk
+ *   buffer  a readable zip already in memory (password protected packs)
+ *   cipher  a CNEZ payload, decrypted per range as it is read
  */
 class SysZip {
 	var fileInput:FileInput;
 	var filePath:String;
-	/** Set in memory mode; null when the zip is read from a file. */
+	/** Set in buffer mode; null when the zip is read from a file. */
 	var buffer:ProtectedBuffer;
 
-	/** Size of one ChaCha20 block; a range read starts at a multiple of this. */
+	/** ChaCha20 block size; a range read starts on a multiple of it. */
 	static inline var BLOCK:Int = 64;
 
-	// --- low-memory mode: the payload stays in the file and only the ranges being read
-	// --- are decrypted, so a pack never occupies RAM
+	// cipher mode: the payload stays in the file, only the ranges that are read are
+	// decrypted, so the pack never occupies RAM
 	var cipherKey:Bytes;
 	var cipherNonce:Bytes;
 	var cipherOffset:Int = 0;
@@ -51,10 +49,10 @@ class SysZip {
 	public var entries:List<SysZipEntry> = new List();
 
 	/**
-	 * Opens a zip from a specified path.
-	 * @param path Path to the zip file. (With the extension)
+	 * Opens a zip from a path.
+	 * @param path Path to the zip file, extension included.
 	 */
-	public static function openFromFile(path:String) { return new SysZip(path); } // keeping for compatibility.
+	public static function openFromFile(path:String):SysZip return new SysZip(path); // kept for compatibility
 
 	/**
 	 * Reads a zip that is already in memory. `wrapped` keeps the buffer encrypted with a
@@ -68,36 +66,48 @@ class SysZip {
 	}
 
 	/**
-	 * Reads a zip that is still a ChaCha20 ciphertext, decrypting only the ranges that
-	 * are actually read and verifying each chunk the first time a read touches it.
-	 *
-	 * A CNEZ pack arrives here already encrypted under its own key, so no full pass is
-	 * needed before the archive becomes usable: the central directory is decrypted to
-	 * index the entries, and each asset is decrypted when something asks for it
-	 * (`CnezV2` explains what that costs in detection, and `ProtectedBuffer` how a
-	 * range is decoded).
+	 * Reads a zip that is still a ChaCha20 ciphertext: the central directory is decrypted
+	 * to index the entries, and each asset is decrypted when something asks for it.
 	 */
-	public static function fromChunked(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes, chunkSize:Int, chunkTags:Bytes, chunkCount:Int,
-			macKey:Bytes):SysZip {
+	public static function fromChunked(cipher:Bytes, cipherKey:Bytes, cipherNonce:Bytes, chunkSize:Int, chunkTags:Bytes,
+			chunkCount:Int, macKey:Bytes):SysZip {
 		var zip = new SysZip(null);
 		zip.buffer = ProtectedBuffer.fromChunkedCipher(cipher, cipherKey, cipherNonce, chunkSize, chunkTags, chunkCount, macKey);
 		zip.updateEntries();
 		return zip;
 	}
 
-	/**
-	 * Creates a new SysZip from a specified path.
-	 * @param path Path to the zip file. (With the extension)
-	 */
+	/** Creates a SysZip from a path. `null` is only used by the factories above. */
 	public function new(path:String) {
-		// null only happens through fromBytes, which fills the buffer itself
 		if (path == null) return;
 		this.filePath = path;
 		fileInput = File.read(path, true);
-
-		updateEntries(); // automatic but if you feel like you don't want it to be automatic, you can remove this.
+		updateEntries();
 	}
 
+	/**
+	 * Reads a zip straight out of an encrypted file, decrypting only the ranges that are
+	 * actually read. Nothing of the payload is copied into memory; the cost is a seek and
+	 * a decryption per read.
+	 */
+	public static function fromCipherFile(path:String, opened:FileOpenedV2):SysZip {
+		var zip = new SysZip(null);
+		zip.filePath = path;
+		zip.fileInput = File.read(path, true);
+		zip.cipherKey = opened.enc;
+		zip.cipherNonce = opened.nonce;
+		zip.cipherOffset = opened.payloadOffset;
+		zip.cipherLength = opened.payloadLength;
+		zip.chunkSize = opened.chunkSize;
+		zip.chunkCount = opened.count;
+		zip.chunkTags = opened.table;
+		zip.chunkMac = opened.mac;
+		zip.chunkVerified = [for (i in 0...opened.count) false];
+		zip.updateEntries();
+		return zip;
+	}
+
+	/** Total bytes of the archive, in whichever mode this instance uses. */
 	function size():Int {
 		if (buffer != null) return buffer.length;
 		if (cipherKey != null) return cipherLength;
@@ -107,12 +117,11 @@ class SysZip {
 	}
 
 	/**
-	 * Bytes `[pos, pos + len)` of the archive, from the file or from the buffer.
+	 * Bytes `[pos, pos + len)` of the archive.
 	 *
-	 * A released zip (see dispose) has neither a buffer nor a handle. That used to be
-	 * a null dereference on the next read, which hxcpp turns into a dead process
-	 * instead of a failed asset - so anything that still holds the archive after it
-	 * was released now gets no bytes and one warning instead of a crash.
+	 * A released zip has neither a buffer nor a handle. That used to be a null dereference
+	 * on the next read, which hxcpp turns into a dead process - so a late reader now gets
+	 * no bytes and one warning instead.
 	 */
 	function readBytes(pos:Int, len:Int):Bytes {
 		if (len <= 0 || pos < 0) return Bytes.alloc(0);
@@ -127,34 +136,11 @@ class SysZip {
 	}
 
 	/**
-	 * Reads a zip straight out of an encrypted file, decrypting only the ranges that are
-	 * actually read. Nothing of the payload is copied into memory - that is what the
-	 * low-memory option buys; the cost is a seek and a decryption per read.
-	 */
-	public static function fromCipherFile(path:String, opened:FileOpenedV2):SysZip {
-		var zip = new SysZip(null);
-		zip.filePath = path;
-		zip.fileInput = File.read(path, true);
-		zip.cipherKey = opened.enc;
-		zip.cipherNonce = opened.nonce;
-		zip.cipherOffset = opened.payloadOffset;
-		zip.cipherLength = opened.payloadLength;
-		zip.chunkSize = opened.chunkSize;
-		zip.chunkCount = opened.count;
-		zip.chunkTags = opened.table;
-		zip.chunkMac = opened.mac;
-		zip.chunkVerified = [];
-		for (i in 0...opened.count) zip.chunkVerified.push(false);
-		zip.updateEntries();
-		return zip;
-	}
-
-	/**
 	 * Decrypts `[pos, pos + len)` out of the pack file.
 	 *
 	 * Starts on a 64 byte boundary so the keystream lines up, and verifies every chunk
-	 * the range touches by reading that chunk whole - a tag needs all of it. The chunk
-	 * is checked and dropped, not kept: this mode exists so nothing stays in memory.
+	 * the range touches by reading that chunk whole - a tag needs all of it. The chunk is
+	 * checked and dropped, not kept: this mode exists so nothing stays in memory.
 	 */
 	function readCipherRange(pos:Int, len:Int):Bytes {
 		if (integrityFailed) return Bytes.alloc(0);
@@ -194,9 +180,7 @@ class SysZip {
 		return out;
 	}
 
-	/**
-	 * True once dispose() released the archive; reading it is pointless from then on.
-	 */
+	/** True once dispose() released the archive; reading it is pointless from then on. */
 	public var released(default, null):Bool = false;
 	var warnedRelease:Bool = false;
 
@@ -204,16 +188,15 @@ class SysZip {
 	 * Set when the file behind this archive was rewritten (a merge) and the copy in memory
 	 * no longer matches it.
 	 *
-	 * The buffer stays usable for whatever is reading through it right now - the libraries
-	 * of the running load still do - but the pack must not be handed out as "already
-	 * decrypted" again, and it is disposed with the next load.
+	 * The buffer stays usable for whatever reads through it right now, but the pack must
+	 * not be handed out as "already decrypted" again, and it is disposed with the next load.
 	 */
 	public var stale:Bool = false;
 
-	/** Bytes this archive holds, for the cleanup summary (buffer length in memory mode). */
+	/** Bytes this archive holds, for the cleanup summary. */
 	public function dataSize():Int return size();
 
-	function warnReleased() {
+	function warnReleased():Void {
 		if (warnedRelease) return;
 		warnedRelease = true;
 		Logs.warn('A mod pack was read after it had been released ($filePath). '
@@ -229,109 +212,108 @@ class SysZip {
 
 		var data = readBytes(f.seekPos, f.compressedSize);
 		if (data == null) return Bytes.alloc(0);
-
 		if (!f.compressed) return data;
 
 		var c = new haxe.zip.Uncompress(-15);
-		var s = Bytes.alloc(f.fileSize);
-		var r = c.execute(data, 0, s, 0);
+		var out = Bytes.alloc(f.fileSize);
+		var r = c.execute(data, 0, out, 0);
 		c.close();
 
-		if (!r.done || r.read != data.length || r.write != f.fileSize) throw 'Invalid compressed data for ${f.fileName} | ${f.compressedSize} -> ${f.fileSize}';
-		return s;
+		if (!r.done || r.read != data.length || r.write != f.fileSize)
+			throw 'Invalid compressed data for ${f.fileName} | ${f.compressedSize} -> ${f.fileSize}';
+		return out;
 	}
 
 	/**
-	 * Updates the `entries` list with the current contents of the zip file.
-	 * This is done when the zip is read from SysZip the first time, but if you REALLY need to re-update the entries, you can call this again.
+	 * Rebuilds `entries` from the central directory.
 	 *
-	 * Note: Calling this function will hold up the game as it has to read the ENTIRE zip, so if it's large like 1GiB or more, it might take a second or more.
+	 * Called once when the archive is opened; call it again only if the file changed
+	 * underneath. It seeks through the archive instead of reading it whole, but a very
+	 * large pack still takes a moment.
 	 */
-	public function updateEntries() {
-		if (entries.length > 0) {
-			entries.clear();
-			entries = new List();
-		}
-
+	public function updateEntries():Void {
+		entries = new List();
 		var total = size();
 		if (total <= 22) return;
 
-		// --- locate End of Central Directory (EOCD) ---
-		var scanSize:Int = (65535 < total) ? 65535 : total;
-		var buf = readBytes(total - scanSize, scanSize);
-		if (buf == null || buf.length < 22) return;
+		var eocd = findEndOfCentralDirectory(total);
+		if (eocd == null) return;
+		readCentralDirectory(eocd.cdOffset, eocd.cdSize);
+	}
 
-		// scanned backwards instead of assuming the record sits on the last 22 bytes, so
-		// an archive with a comment still resolves
-		var eocd = -1;
+	/** Where the central directory sits and how big it is, or null when the tail makes no sense. */
+	function findEndOfCentralDirectory(total:Int):{cdOffset:Int, cdSize:Int} {
+		var scanSize = 65535 < total ? 65535 : total;
+		var buf = readBytes(total - scanSize, scanSize);
+		if (buf == null || buf.length < 22) return null;
+
+		// scanned backwards so an archive with a comment still resolves
+		var at = -1;
 		var i = buf.length - 22;
 		while (i >= 0) {
 			if (buf.get(i) == 0x50 && buf.get(i + 1) == 0x4B && buf.get(i + 2) == 0x05 && buf.get(i + 3) == 0x06) {
-				eocd = i;
+				at = i;
 				break;
 			}
 			i--;
 		}
-		if (eocd < 0) return;
+		if (at < 0) return null;
 
 		var tail = new haxe.io.BytesInput(buf);
-		tail.position = eocd + 12;
+		tail.position = at + 12;
 		var cdSize = tail.readInt32();
 		var cdOffset = tail.readInt32();
-		if (cdSize <= 0 || cdOffset <= 0 || cdOffset + cdSize > total) return;
+		if (cdSize <= 0 || cdOffset <= 0 || cdOffset + cdSize > total) return null;
+		return {cdOffset: cdOffset, cdSize: cdSize};
+	}
 
-		// --- read central directory ---
+	/** Walks the central directory and turns every file header into a `SysZipEntry`. */
+	function readCentralDirectory(cdOffset:Int, cdSize:Int):Void {
 		var cd = new haxe.io.BytesInput(readBytes(cdOffset, cdSize));
-		while (true) {
-			if (cd.position + 46 > cdSize) break;
-			if (cd.readInt32() != 0x02014b50) break; // central dir file header signature
+		while (cd.position + 46 <= cdSize) {
+			if (cd.readInt32() != 0x02014b50) break; // central dir header signature
 
 			cd.position += 6; // version made by / version needed
-			var compression_method = cd.readUInt16();
+			var method = cd.readUInt16();
 			cd.position += 8; // time/date + CRC32
-			var compressed_size = cd.readInt32();
-			var uncompressed_size = cd.readInt32();
+			var compressedSize = cd.readInt32();
+			var uncompressedSize = cd.readInt32();
 			var nameLen = cd.readUInt16();
 			var extraLen = cd.readUInt16();
 			var commentLen = cd.readUInt16();
-			cd.position += 8; // disk number / internal+external attributes
-			var localHeaderOffset = cd.readInt32();
+			cd.position += 8; // disk number / internal + external attributes
+			var localOffset = cd.readInt32();
 
 			var name = cd.read(nameLen).toString();
-
-			// skip central directory extra/comment
 			cd.position += extraLen + commentLen;
 
-			// --- compute correct seekPos using local header ---
-			var head = readBytes(localHeaderOffset, 30);
+			// folders are zero sized in every archive worth reading, so they are skipped
+			if (name.endsWith("/")) continue;
+
+			// the local header carries its own name/extra lengths; the payload follows them
+			var head = readBytes(localOffset, 30);
 			if (head == null || head.length < 30) continue;
 			var local = new haxe.io.BytesInput(head);
 			local.position = 26;
 			var localNameLen = local.readUInt16();
 			var localExtraLen = local.readUInt16();
 
-			// the folders are labeled as 0 bytes anyways so this will save on storing non-required data.
-			if (name.endsWith("/")) continue;
-
-			var zipEntry:SysZipEntry = {
+			entries.add({
 				fileName: name,
-				fileSize: uncompressed_size,
-				seekPos: (localHeaderOffset + 30 + localNameLen + localExtraLen),
-				compressedSize: compressed_size,
-				compressed: (compression_method == 8),
-			};
-			entries.add(zipEntry);
+				fileSize: uncompressedSize,
+				seekPos: localOffset + 30 + localNameLen + localExtraLen,
+				compressedSize: compressedSize,
+				compressed: method == 8
+			});
 		}
 	}
 
 	/**
 	 * Closes the file handle of a low-memory pack so the file can be replaced on disk.
 	 *
-	 * The entries stay readable, but further reads return nothing: Windows refuses to
-	 * rename over a file that is still open, and a merge has to put the new pack in its
-	 * place. The archive is marked released, so the loader opens it again next load.
-	 *
-	 * Only the low-memory mode is affected - a memory pack never keeps the file open.
+	 * Windows refuses to rename over a file that is still open, and a merge has to put the
+	 * new pack in its place. The archive is marked released, so the loader opens it again
+	 * next load. Only cipher mode is affected - a memory pack never keeps the file open.
 	 */
 	public function closeHandle():Void {
 		if (cipherKey == null) return;
@@ -343,11 +325,10 @@ class SysZip {
 	}
 
 	/**
-	 * calling `dispose` doesn't actually kill the class, you can still access the entries.
-	 * disposing of SysZip will free the compressed file from being used by the engine,
-	 * and wipes an in-memory pack so the decrypted bytes do not outlive it.
+	 * Frees the file handle and wipes an in-memory pack so the decrypted bytes do not
+	 * outlive it. The entries stay readable, but reads return nothing.
 	 */
-	public function dispose() {
+	public function dispose():Void {
 		released = true;
 		if (fileInput != null) {
 			try fileInput.close() catch (e:Dynamic) {}
@@ -357,7 +338,7 @@ class SysZip {
 			buffer.wipe();
 			buffer = null;
 		}
-		// the low-memory mode holds keys instead of data; they go too
+		// cipher mode holds keys instead of data; they go too
 		if (chunkTags != null) {
 			SecureBytes.wipe(chunkTags);
 			chunkTags = null;
