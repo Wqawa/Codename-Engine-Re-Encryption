@@ -2,6 +2,7 @@ package funkin.menus;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
+import flixel.FlxState;
 import flixel.text.FlxText;
 import funkin.backend.MusicBeatState;
 import funkin.backend.system.IntegrityCheck;
@@ -11,10 +12,10 @@ import funkin.editors.ui.UIWarningSubstate.UIWarningKind;
 /**
  * Runs the file check before anything else is shown, with a progress bar.
  *
- * It sits in front of the key prompt on purpose: if the files do not match the build,
- * that is worth knowing before the player is asked for a password. Once the check
- * finishes it shows the result (if any) and hands over to whichever screen would have
- * come next.
+ * It sits in front of the key prompt on purpose: a pack that wants a password should
+ * not be the first thing on screen while the shipped files are in doubt. When the
+ * check finishes, the result (if any) is shown and the screen hands over to whatever
+ * would have come next.
  */
 class IntegrityScreen extends MusicBeatState {
 	var work:Array<String>;
@@ -23,7 +24,6 @@ class IntegrityScreen extends MusicBeatState {
 	var fill:FlxSprite;
 	var info:FlxText;
 
-	var reported:Bool = false;
 	var movingOn:Bool = false;
 
 	public function new(work:Array<String>, locked:Array<String>) {
@@ -56,7 +56,7 @@ class IntegrityScreen extends MusicBeatState {
 		info.color = 0xFF8A8A96;
 		add(info);
 
-		// a no-op when the check already ran or is already going
+		// already running when the window opened; the call is a no-op then
 		IntegrityCheck.startVerify();
 	}
 
@@ -64,19 +64,18 @@ class IntegrityScreen extends MusicBeatState {
 		super.update(elapsed);
 
 		var total = IntegrityCheck.total;
-		var progress = total <= 0 ? 0.0 : IntegrityCheck.checked / total;
-		fill.scale.x = Math.max(0, Math.min(1, progress));
-		info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / ${total}';
+		fill.scale.x = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));
+		info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
 
 		if (movingOn || !IntegrityCheck.done) return;
 
-		if (!reported) {
+		if (!IntegrityCheck.reported) {
 			if (!IntegrityCheck.hasProblems()) {
 				next();
 				return;
 			}
-			reported = true;
-			showResult();
+			IntegrityCheck.markReported();
+			openSubState(resultDialog());
 			return;
 		}
 
@@ -85,22 +84,36 @@ class IntegrityScreen extends MusicBeatState {
 		next();
 	}
 
-	function showResult():Void {
-		var check = IntegrityCheck;
-		var detail = check.manifestProblem;
+	/**
+	 * Shows the result on the main menu.
+	 *
+	 * The startup screen only exists when a pack has to be unlocked, so a plain build
+	 * would otherwise run the check and never tell anyone about it. `reported` keeps
+	 * the dialog to one per run, however often the menu is rebuilt.
+	 */
+	public static function reportOnMenu(state:FlxState):Void {
+		if (!IntegrityCheck.done || IntegrityCheck.reported || !IntegrityCheck.hasProblems()) return;
+		if (state.subState != null) return;
+		IntegrityCheck.markReported();
+		state.openSubState(resultDialog());
+	}
+
+	static function resultDialog():UIWarningSubstate {
+		var detail = IntegrityCheck.manifestProblem;
 		if (detail == null) {
-			var listed = check.missing.length > 0 ? check.missing
-				: (check.changed.length > 0 ? check.changed : check.extra);
-			detail = check.sample(listed);
+			var listed = IntegrityCheck.missing.length > 0
+				? IntegrityCheck.missing
+				: (IntegrityCheck.changed.length > 0 ? IntegrityCheck.changed : IntegrityCheck.extra);
+			detail = IntegrityCheck.sample(listed);
 		}
 
-		openSubState(new UIWarningSubstate(
+		return new UIWarningSubstate(
 			"Files Do Not Match This Build",
-			check.summary() + "\n\n" + detail
+			IntegrityCheck.summary() + "\n\n" + detail
 			+ "\n\nThese were changed, are missing, or are not part of this build. The game "
 			+ "keeps running, but anything loaded from them may not be what was shipped.",
 			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],
-			UIWarningKind.INFO));
+			UIWarningKind.INFO);
 	}
 
 	function next():Void {

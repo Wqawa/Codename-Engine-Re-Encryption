@@ -18,43 +18,55 @@ typedef IntegrityEntry = {
 /**
  * Compares the files next to the executable against a signed manifest.
  *
- * The signing key lives in this binary, so changing a resource without touching the exe
- * gets caught. Change the exe and the check or the signature can be dropped - no local
- * check survives that. The build writes the manifest; the editor can still write one on
- * demand.
+ * The signing key is compiled into the binary, so this catches an edited asset or
+ * library as long as the exe itself was not rebuilt. It cannot survive a replaced exe:
+ * whoever can rebuild it can also drop the check or sign a new manifest.
  *
- * Verification runs on a worker thread after the window opens, and the main menu shows
- * the result once.
+ * The work runs on a worker thread. Exactly one screen shows the result - the startup
+ * screen when a pack has to be unlocked, the main menu otherwise.
  */
 class IntegrityCheck {
 	public static inline var MANIFEST:String = './integrity.dat';
+	public static inline var EXE_NAME:String = 'CodenameEngine.exe';
+
 	static inline var HEADER:String = 'CNEZ-INTEGRITY 1';
 	static inline var SIGN_PREFIX:String = '# hmac ';
 	static inline var NL:String = '\n';
+
 	/** Mixed into the manifest signature; changing it invalidates old manifests. */
 	static inline var MANIFEST_KEY:String = 'cnez::integrity::manifest::v1';
 
 	public static var done(default, null):Bool = false;
 	public static var running(default, null):Bool = false;
-	/** Set when the manifest itself could not be trusted or read. */
+
+	/** Set when the manifest itself could not be read or trusted. */
 	public static var manifestProblem:String = null;
-	/** False when no manifest was shipped at all - nothing was checked, nothing failed. */
+	/** False when no manifest was shipped - nothing was checked, nothing failed. */
 	public static var manifestFound:Bool = false;
-	/** Files listed in the manifest but not on disk. */
+
+	/** Listed in the manifest, missing on disk. */
 	public static var missing:Array<String> = [];
-	/** Files whose bytes no longer match the manifest. */
+	/** Size or digest differs from the manifest. */
 	public static var changed:Array<String> = [];
-	/** Files under assets/ that are not in the manifest. */
+	/** Present under assets/, not in the manifest. */
 	public static var extra:Array<String> = [];
+
+	/** Entries examined so far, for the progress bar. */
 	public static var checked:Int = 0;
+	/** Entries in the manifest. */
 	public static var total:Int = 0;
 
-	/** True once the check ran and found something worth telling the player. */
+	/** True once a screen showed the result, so it is not shown a second time. */
+	public static var reported(default, null):Bool = false;
+
 	public static function hasProblems():Bool {
-		// extra counts: a file that appeared under assets/ without being in the manifest is
-		// the shape an injected script takes, and leaving it out meant it was never shown
-		return manifestProblem != null || missing.length > 0 || changed.length > 0
-			|| extra.length > 0;
+		// `extra` counts: an unlisted file under assets/ is exactly the shape an injected
+		// script takes, and leaving it out meant it was never shown to anyone
+		return manifestProblem != null || missing.length > 0 || changed.length > 0 || extra.length > 0;
+	}
+
+	public static function markReported():Void {
+		reported = true;
 	}
 
 	public static function summary():String {
@@ -64,11 +76,10 @@ class IntegrityCheck {
 		if (missing.length > 0) parts.push('${missing.length} missing');
 		if (changed.length > 0) parts.push('${changed.length} modified');
 		if (extra.length > 0) parts.push('${extra.length} unlisted');
-		if (parts.length == 0) return 'all $checked file(s) match';
-		return parts.join(', ');
+		return parts.length == 0 ? 'all $checked file(s) match' : parts.join(', ');
 	}
 
-	/** The first few names, for a dialog that should stay readable. */
+	/** First `count` names plus "and N more", for a dialog that has to stay readable. */
 	public static function sample(list:Array<String>, count:Int = 5):String {
 		var out:Array<String> = [];
 		for (i in 0...list.length) {
@@ -87,8 +98,8 @@ class IntegrityCheck {
 	 * Writes the manifest for the current build.
 	 *
 	 * Covers the executable, the native libraries next to it and everything under
-	 * `assets/`. Mod packs are deliberately excluded: they belong to the player, and the
-	 * encrypted ones already carry their own chunk tags.
+	 * `assets/`. Mod packs stay out: they belong to the player, and the encrypted ones
+	 * carry their own chunk tags.
 	 */
 	public static function generate():String {
 		#if sys
@@ -98,7 +109,7 @@ class IntegrityCheck {
 		for (e in entries) body.add('${e.size}\t${e.hash}\t${e.path}$NL');
 		var text = body.toString();
 		File.saveContent(MANIFEST, text + SIGN_PREFIX + sign(text) + NL);
-		// no Logs here: this also runs from the build hook, before the log is ready
+		// no Logs here: the build hook runs this before the log file exists
 		return '${entries.length} file(s), signed';
 		#else
 		return 'not supported on this target';
@@ -107,7 +118,7 @@ class IntegrityCheck {
 
 	// ----------------------------------------------------------- verification
 
-	/** Starts the check on a worker thread; safe to call when one is already running. */
+	/** Starts the check on a worker thread. Calling it twice is a no-op. */
 	public static function startVerify():Void {
 		#if sys
 		if (running || done) return;
@@ -120,36 +131,17 @@ class IntegrityCheck {
 		#end
 	}
 
-	/**
-	 * Blocks until the check finishes, or the timeout passes.
-	 *
-	 * The main menu calls this before deciding whether to show a result. Without it the
-	 * menu appears while the check is still running, concludes there is nothing to
-	 * report, and the player only learns about it after leaving the menu and coming back.
-	 */
-	public static function waitFor(timeoutMs:Int = 2500):Void {
-		#if sys
-		var waited = 0;
-		while (!done && waited < timeoutMs) {
-			Sys.sleep(0.02);
-			waited += 20;
-		}
-		#end
-	}
-
 	static function runVerify():Void {
 		#if sys
 		try {
 			if (!FileSystem.exists(MANIFEST)) {
-				// a build that never generated one is not a failure, just unchecked
+				// a build that never generated one is unchecked, not broken
 				manifestFound = false;
-				done = true;
-				running = false;
 				Logs.trace('No integrity manifest next to the executable; skipping the check.', INFO);
-				return;
+			} else {
+				manifestFound = true;
+				verifyAll();
 			}
-			manifestFound = true;
-			verifyAll();
 		} catch (e:Dynamic) {
 			manifestProblem = 'The integrity manifest could not be read: ' + Std.string(e);
 			Logs.error(manifestProblem);
@@ -161,7 +153,7 @@ class IntegrityCheck {
 
 	static function verifyAll():Void {
 		#if sys
-		// CRLF would change the bytes the signature was made over, so normalise first
+		// CRLF would change the bytes the signature was made over
 		var raw = StringTools.replace(File.getContent(MANIFEST), '\r\n', '\n');
 		var lines = raw.split(NL);
 		if (lines.length < 2 || StringTools.trim(lines[0]) != HEADER) {
@@ -169,7 +161,7 @@ class IntegrityCheck {
 			return;
 		}
 
-		// rebuild exactly the text `generate` signed: the header, then every entry line
+		// rebuild the exact text `generate` signed: header, then every entry line
 		var body = new StringBuf();
 		body.add(lines[0] + NL);
 		var signature:String = null;
@@ -192,53 +184,57 @@ class IntegrityCheck {
 			manifestProblem = 'The integrity manifest is not signed.';
 			return;
 		}
-		// a manifest edited by hand - or swapped for one listing other hashes - fails here
+		// a hand-edited manifest, or one swapped for another set of hashes, dies here
 		if (sign(body.toString()) != signature.toLowerCase()) {
 			manifestProblem = 'The integrity manifest was modified (its signature does not match).';
 			Logs.error(manifestProblem);
 			return;
 		}
 
-		// A rebuild changes the exe but leaves assets alone, so only the exe line is
-		// skipped when it no longer matches. Skipping the whole check meant one rebuild
-		// disabled it until somebody regenerated the manifest - which is how a renamed
-		// asset slid through unnoticed.
-		var exeChanged = false;
-		for (e in entries) {
-			if (!StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
-			if (!FileSystem.exists(e.path)) break;
-			exeChanged = Sha256.make(File.getBytes(e.path)).toHex() != e.hash;
-			if (exeChanged) Logs.trace('Integrity: the exe does not match the manifest; checking everything else.', INFO);
-			break;
-		}
+		// A rebuild changes the exe but leaves assets alone. Only the exe line is skipped
+		// then: skipping the whole check meant one rebuild disabled it until somebody
+		// regenerated the manifest, which is how a renamed asset went unnoticed.
+		var skipExe = exeDiffers(entries);
 
 		total = entries.length;
 		var listed = new Map<String, Bool>();
 		for (e in entries) {
 			listed.set(e.path, true);
-			// the exe was already compared above and is expected to differ after a rebuild
-			if (exeChanged && StringTools.endsWith(e.path.toLowerCase(), 'codenameengine.exe')) continue;
+			checked++;
+			if (skipExe && isExePath(e.path)) continue;
 			if (!FileSystem.exists(e.path)) {
 				missing.push(e.path);
 				continue;
 			}
 			var data = File.getBytes(e.path);
-			checked++;
 			if (data.length != e.size || Sha256.make(data).toHex() != e.hash) changed.push(e.path);
 		}
 
-		// files that appeared under assets/ but were never built: an injected script or a
-		// dropped-in replacement shows up here even though nothing listed was touched
-		var onDisk:Array<String> = [];
-		walk('assets', onDisk);
-		for (p in onDisk)
-			if (!listed.exists(p)) extra.push(p);
+		walkAssets(function(path:String) {
+			if (!listed.exists(path)) extra.push(path);
+		});
 
-		if (missing.length > 0 || changed.length > 0)
-			Logs.warn('Integrity check: ' + summary() + ' - see the list in the dialog.');
-		else
-			Logs.trace('Integrity check: ' + summary(), INFO);
+		var line = 'Integrity check: ' + summary();
+		if (hasProblems()) Logs.warn(line + ' - see the list in the dialog.');
+		else Logs.trace(line, INFO);
 		#end
+	}
+
+	/** True when the exe listed in the manifest no longer matches the one on disk. */
+	static function exeDiffers(entries:Array<IntegrityEntry>):Bool {
+		#if sys
+		for (e in entries) {
+			if (!isExePath(e.path) || !FileSystem.exists(e.path)) continue;
+			var differs = Sha256.make(File.getBytes(e.path)).toHex() != e.hash;
+			if (differs) Logs.trace('Integrity: the exe does not match the manifest; checking everything else.', INFO);
+			return differs;
+		}
+		#end
+		return false;
+	}
+
+	static function isExePath(path:String):Bool {
+		return StringTools.endsWith(path.toLowerCase(), EXE_NAME.toLowerCase());
 	}
 
 	// ------------------------------------------------------------------ helpers
@@ -246,29 +242,31 @@ class IntegrityCheck {
 	#if sys
 	static function collect():Array<IntegrityEntry> {
 		var out:Array<IntegrityEntry> = [];
-		var exe = './CodenameEngine.exe';
-		if (FileSystem.exists(exe)) out.push(entryFor(exe, 'CodenameEngine.exe'));
+		var exe = './' + EXE_NAME;
+		if (FileSystem.exists(exe)) out.push(entryFor(exe, EXE_NAME));
 
-		for (f in FileSystem.readDirectory('.')) {
-			var lower = f.toLowerCase();
-			if (lower.endsWith('.ndll') || lower.endsWith('.dll')) {
-				var p = './' + f;
-				if (!FileSystem.isDirectory(p)) out.push(entryFor(p, f));
-			}
+		for (name in FileSystem.readDirectory('.')) {
+			var lower = name.toLowerCase();
+			if (!lower.endsWith('.ndll') && !lower.endsWith('.dll')) continue;
+			var path = './' + name;
+			if (!FileSystem.isDirectory(path)) out.push(entryFor(path, name));
 		}
 
-		var files:Array<String> = [];
-		walk('assets', files);
-		for (p in files) out.push(entryFor(p, p));
+		walkAssets(function(path:String) out.push(entryFor(path, path)));
 		return out;
 	}
 
-	static function walk(dir:String, out:Array<String>):Void {
+	/** Calls `visit` for every file under `assets/`, path normalised to forward slashes. */
+	static function walkAssets(visit:String->Void):Void {
+		walk('assets', visit);
+	}
+
+	static function walk(dir:String, visit:String->Void):Void {
 		if (!FileSystem.exists(dir) || !FileSystem.isDirectory(dir)) return;
-		for (f in FileSystem.readDirectory(dir)) {
-			var p = dir + '/' + f;
-			if (FileSystem.isDirectory(p)) walk(p, out);
-			else out.push(normalize(p));
+		for (name in FileSystem.readDirectory(dir)) {
+			var path = dir + '/' + name;
+			if (FileSystem.isDirectory(path)) walk(path, visit);
+			else visit(normalize(path));
 		}
 	}
 

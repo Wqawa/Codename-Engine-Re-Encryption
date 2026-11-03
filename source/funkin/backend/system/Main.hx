@@ -161,8 +161,9 @@ class Main extends Sprite
 		ShaderResizeFix.init();
 		Paths.init();
 
-		// Runs on a worker thread and reports to the main menu; hashing a large assets
-		// folder must not hold up the window.
+		// Worker thread: hashing a large assets folder must not hold up the window. The
+		// result is shown by IntegrityScreen, or by the main menu when that screen is
+		// skipped (no encrypted pack in this load).
 		IntegrityCheck.startVerify();
 
 		hscript.Interp.importRedirects = funkin.backend.scripting.Script.getDefaultImportRedirects();

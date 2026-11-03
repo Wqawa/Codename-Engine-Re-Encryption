@@ -99,23 +99,13 @@ class MainMenuState extends MusicBeatState
 	var selectedSomethin:Bool = false;
 	var forceCenterX:Bool = true;
 	var devModeCount:Int = 0;
-	/**
-	 * The integrity result is shown once per run.
-	 *
-	 * Static on purpose: this state is rebuilt every time the player comes back to the
-	 * menu, and an instance field meant the same warning greeted them on every return.
-	 */
-
-	/**
-	 * Reports the background integrity check, once it finishes.
-	 *
-	 * The check starts with the window and hashes the shipped files, so it is usually
-	 * done by the time the menu is up - but it is a worker thread, so this polls instead
-	 * of assuming. Nothing is blocked: the player reads the list and continues.
-	 */
 
 	override function update(elapsed:Float)
 	{
+		// The startup screen only exists when a pack needs its key; every other build gets
+		// the file check's result here. Shown once per run (IntegrityCheck.reported).
+		IntegrityScreen.reportOnMenu(this);
+
 		if (FlxG.sound.music.volume < 0.8)
 			FlxG.sound.music.volume += 0.5 * elapsed;
 
