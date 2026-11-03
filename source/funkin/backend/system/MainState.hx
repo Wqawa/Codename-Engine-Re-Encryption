@@ -287,8 +287,9 @@ class MainState extends FlxState {
 		for (zip in work)
 			if (!ModPackCrypto.hasWorkingKey(zip)) locked.push(zip);
 
-		if (locked.length > 0) FlxG.switchState(new funkin.menus.ModPackKeyState(locked));
-		else FlxG.switchState(new funkin.menus.ModPackLoadingState(work));
+		// The file check runs before the key prompt: a pack that wants a password should not
+		// be the first thing on screen while the shipped files themselves are in doubt.
+		FlxG.switchState(new funkin.menus.IntegrityScreen(work, locked));
 		return true;
 	}
 

@@ -34,10 +34,6 @@ class MainMenuState extends MusicBeatState
 
 		super.create();
 
-		// the check runs on a worker thread; without waiting, the menu decides "not
-		// finished, nothing to show" and the result only appears on a later visit
-		funkin.backend.system.IntegrityCheck.waitFor();
-
 		DiscordUtil.call("onMenuLoaded", ["Main Menu"]);
 
 		CoolUtil.playMenuSong();
@@ -109,7 +105,6 @@ class MainMenuState extends MusicBeatState
 	 * Static on purpose: this state is rebuilt every time the player comes back to the
 	 * menu, and an instance field meant the same warning greeted them on every return.
 	 */
-	static var integrityNotified:Bool = false;
 
 	/**
 	 * Reports the background integrity check, once it finishes.
@@ -118,32 +113,9 @@ class MainMenuState extends MusicBeatState
 	 * done by the time the menu is up - but it is a worker thread, so this polls instead
 	 * of assuming. Nothing is blocked: the player reads the list and continues.
 	 */
-	function reportIntegrity():Void {
-		if (integrityNotified || !funkin.backend.system.IntegrityCheck.done) return;
-		if (!funkin.backend.system.IntegrityCheck.hasProblems()) return;
-		integrityNotified = true;
-
-		var check = funkin.backend.system.IntegrityCheck;
-		var detail = check.manifestProblem;
-		if (detail == null) {
-			// whichever list is actually populated; extra alone used to print nothing
-			var listed = check.missing.length > 0 ? check.missing
-				: (check.changed.length > 0 ? check.changed : check.extra);
-			detail = check.sample(listed);
-		}
-
-		openSubState(new funkin.editors.ui.UIWarningSubstate(
-			"Files Do Not Match This Build",
-			check.summary() + "\n\n" + detail
-			+ "\n\nThese were changed, are missing, or are not part of this build. The game "
-			+ "keeps running, but anything loaded from them may not be what was shipped.",
-			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],  funkin.editors.ui.UIWarningSubstate.UIWarningKind.INFO ));
-	}
 
 	override function update(elapsed:Float)
 	{
-		reportIntegrity();
-
 		if (FlxG.sound.music.volume < 0.8)
 			FlxG.sound.music.volume += 0.5 * elapsed;
 
