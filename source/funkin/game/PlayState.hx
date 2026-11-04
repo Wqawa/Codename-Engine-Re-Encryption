@@ -968,7 +968,11 @@ class PlayState extends MusicBeatState
 
 			SaveWarning.showWarning = Charter.undos.unsaved;
 			SaveWarning.selectionClass = CharterSelection;
-			SaveWarning.warningFunc = saveWarn;
+			// The playtest prompt is the engine's save warning (SaveWarning.triggerWarning),
+			// the same one the editors and the close veto use. It used to be a second, older
+			// dialog (PlaytestingWarningSubstate via SaveWarning.warningFunc) in its own
+			// visual style; when the warning was opened for states other than the editors,
+			// charting mode got both dialogs on top of each other.
 			SaveWarning.saveFunc = () -> Charter.saveEverything(false);
 		}
 	}
@@ -1400,47 +1404,10 @@ class PlayState extends MusicBeatState
 	}
 
 	public function saveWarn(closingWindow:Bool = true) {
-		persistentUpdate = false;
-		paused = true;
-
-		var state:FlxState = FlxG.state;
-		if (FlxG.state.subState != null)
-			state = FlxG.state.subState;
-
-		state.openSubState(new PlaytestingWarningSubstate(closingWindow, [
-			{
-				label: closingWindow ? TU.translate("playtesting.exitGame") : TU.translate("playtesting.exitToMenu"),
-				color: 0xFF0000,
-				onClick: function(_) {
-					if (!closingWindow) {
-						if (SaveWarning.selectionClass != null) FlxG.switchState(Type.createInstance(SaveWarning.selectionClass, []));
-					} else {
-						WindowUtils.preventClosing = false; WindowUtils.resetClosing();
-						openfl.system.System.exit(0);
-					}
-				}
-			},
-			{
-				label: closingWindow ? TU.translate("playtesting.saveAndExitGame") : TU.translate("playtesting.saveAndExitToMenu"),
-				color: 0xFFFF00,
-				onClick: function(_) {
-					if (SaveWarning.saveFunc != null) SaveWarning.saveFunc();
-					if (!closingWindow) {
-						if (SaveWarning.selectionClass != null) FlxG.switchState(Type.createInstance(SaveWarning.selectionClass, []));
-					} else {
-						WindowUtils.preventClosing = false; WindowUtils.resetClosing();
-						openfl.system.System.exit(0);
-					}
-				}
-			},
-			{
-				label: TU.translate("playtesting.cancel"),
-				color: 0xFFFFFF,
-				onClick: function (_) {
-					if (closingWindow) WindowUtils.resetClosing();
-				}
-			}
-		]));
+		// Kept for scripts that call it, but the prompt is the engine's save warning now:
+		// the older PlaytestingWarningSubstate drew its own dialog in a different style and
+		// stacked under/over the shared one. Same call the close hook makes.
+		SaveWarning.triggerWarning(closingWindow);
 	}
 
 	dynamic function updateIconPositions() {
