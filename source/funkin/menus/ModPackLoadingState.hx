@@ -25,8 +25,8 @@ import haxe.io.Path;
  * pauses the pass first, asks, and resumes or exits.
  */
 class ModPackLoadingState extends PopupScreen {
-	/** One start in this many shows the little animation (see maybeAddEasterEgg). */
-	static inline var EASTER_EGG_CHANCE:Int = 20;
+	/** One start in this many shows the little animation (see maybeAddEasterEgg): 4 = 25%. */
+	static inline var EASTER_EGG_CHANCE:Int = 4;
 
 	public var packs:Array<String> = [];
 	public var bar:PopupProgress;
