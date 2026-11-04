@@ -116,29 +116,44 @@ final class Logs {
 
 	#if sys
 	static var logFile:String = null;
+	static var logOut:sys.io.FileOutput = null;
 
 	/**
 	 * Mirrors each line to `.cne/logs/engine.log`.
 	 *
 	 * The console needs developer mode; the file does not. Every run starts a new file -
 	 * what matters is the run that just happened, not a growing archive.
+	 *
+	 * The handle stays open. Opening, appending and closing per line cost three syscalls
+	 * for every message, which adds up fast for a mod that logs in a loop. Each write is
+	 * flushed, so a crash still leaves the tail on disk; a failed write drops the handle
+	 * and the next message opens a fresh file.
 	 */
 	static function writeToFile(text:Array<LogText>):Void {
 		try {
 			if (!funkin.options.Options.saveLogs) return;
-			var line = [for (t in text) t.text].join("") + "\n";
-			if (logFile == null) {
+			if (logOut == null) {
 				RuntimeDirs.ensure(RuntimeDirs.LOGS);
 				logFile = RuntimeDirs.LOGS + 'engine.log';
-				sys.io.File.saveContent(logFile, '--- Codename Engine, ${Date.now()} ---\n');
+				// write, not append: every run starts a fresh file, as saveContent did
+				logOut = sys.io.File.write(logFile, false);
+				logOut.writeString('--- Codename Engine, ${Date.now()} ---\n');
 			}
-			var out = sys.io.File.append(logFile, false);
-			out.writeString(line);
-			out.close();
+			logOut.writeString([for (t in text) t.text].join("") + "\n");
+			logOut.flush();
 		} catch (e:Dynamic) {
 			// the log is a convenience; a full disk or a locked file must not stop the game
+			closeLog();
 			logFile = null;
 		}
+	}
+
+	/** Drops the handle; the next message starts a new file. */
+	static function closeLog():Void {
+		var out = logOut;
+		logOut = null;
+		if (out == null) return;
+		try out.close() catch (e:Dynamic) {}
 	}
 	#end
 
@@ -148,8 +163,15 @@ final class Logs {
 			Sys.sleep(0.05);
 		}
 		__showing = true;
+		// a line is several segments, and most of them share the colour of their
+		// neighbour; setting the console attribute again for each of them is a native
+		// call per segment for nothing
+		var currentColor:Null<ConsoleColor> = null;
 		for(t in text) {
-			NativeAPI.setConsoleColors(t.color);
+			if (t.color != currentColor) {
+				NativeAPI.setConsoleColors(t.color);
+				currentColor = t.color;
+			}
 			Sys.print(t.text);
 		}
 		NativeAPI.setConsoleColors();
