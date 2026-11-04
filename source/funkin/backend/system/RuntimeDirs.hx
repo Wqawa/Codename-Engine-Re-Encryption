@@ -188,7 +188,10 @@ class RuntimeDirs {
 
 	public static function hide(path:String):Void {
 		#if windows
-		try funkin.backend.utils.CoolUtil.safeAddAttributes(path, funkin.backend.utils.NativeAPI.FileAttribute.HIDDEN) catch (e:Dynamic) {}
+		// SetFileAttributes fails when the path ends with a separator, and hideTree() builds
+		// them that way ("child/"): the folders then stayed visible with a
+		// "Failed to add attributes ... code of: 0" warning on every mod switch.
+		try funkin.backend.utils.CoolUtil.safeAddAttributes(trimSeparator(path), funkin.backend.utils.NativeAPI.FileAttribute.HIDDEN) catch (e:Dynamic) {}
 		#end
 	}
 
