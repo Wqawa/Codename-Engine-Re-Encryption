@@ -129,5 +129,34 @@ class ImGuiUtil {
 	public static function getWindowSpaceY() {
 		return (ImGuiIO.configFlags & ImGuiConfigFlags.ViewportsEnable) != 0 ? Lib.application.window.y : 0;
 	}
+
+	/**
+	 * Pins the platform window of the ImGui window that was just begun above the game
+	 * window.
+	 *
+	 * With multi viewport on, a tool window that is not completely inside the game window
+	 * gets its own OS window, and a plain one loses to the game window the moment the game
+	 * is clicked: the gizmo drops behind it while it is dragged near an edge, which is
+	 * exactly when it is needed.
+	 *
+	 * Two details decide how this has to be written:
+	 * - ImGui rebuilds a viewport's flags from its window every frame, so the flag has to
+	 *   be put back after each begin(), not once.
+	 * - The SDL backend only reads the flag when it creates the OS window (it passes
+	 *   SDL_WINDOW_ALWAYS_ON_TOP) and ignores later changes, so it has to be set on the
+	 *   frame the window is born - which is the same frame, since the platform window is
+	 *   created at the end of it.
+	 *
+	 * Nothing happens when the window is merged into the main viewport or when multi
+	 * viewport is off.
+	 */
+	public static function pinCurrentWindowOnTop():Void {
+		if ((ImGuiIO.configFlags & ImGuiConfigFlags.ViewportsEnable) == 0) return;
+		var viewport = ImGui.getWindowViewport();
+		if (viewport == null) return;
+		if (viewport.id == ImGui.getMainViewport().id) return;
+		if ((viewport.flags & ImGuiViewportFlags.TopMost) == 0)
+			viewport.flags = viewport.flags | ImGuiViewportFlags.TopMost;
+	}
 	#end
 }

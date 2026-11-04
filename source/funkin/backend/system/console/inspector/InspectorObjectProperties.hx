@@ -56,6 +56,7 @@ class InspectorObjectProperties {
 		ImGui.setNextWindowPos(ImGuiUtil.getWindowSpaceX() + Lib.application.window.width - 300, ImGuiUtil.getWindowSpaceY(), ImGuiCond.FirstUseEver);
 		ImGui.setNextWindowSize(300, Lib.application.window.height, ImGuiCond.FirstUseEver);
 		if (ImGui.begin("Object Properties")) {
+			ImGuiUtil.pinCurrentWindowOnTop();
 			ImGui.text(objectData.name + " - " + objectData.type);
 
 			var basic:FlxBasic = selectedObject is FlxBasic ? cast selectedObject : null;

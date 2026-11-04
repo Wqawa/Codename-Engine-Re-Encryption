@@ -61,6 +61,21 @@ class ConsoleInspector {
 	var inspectorObjectsThatNeedUpdating:Array<InspectorObject> = [];
 	var nextObjectUID:Int = 0;
 
+	/**
+	 * Seconds between two rebuilds of the object tree.
+	 *
+	 * updateObjects() walks every state and every member list to notice objects that were
+	 * added or removed, and the tree is drawn from that. Doing it on every frame is what
+	 * made an open inspector cost a slice of the frame rate: the lists almost never change
+	 * between two frames, and a big state (a running PlayState) has hundreds of members.
+	 * The window itself is still drawn every frame, so it stays responsive; at 10 Hz a
+	 * newly spawned object shows up long before the eye gets there.
+	 */
+	public var refreshInterval:Float = 1 / 10;
+	private var __sinceRefresh:Float = 1;
+	/** True on the frame the tree was rebuilt; the tree walk uses it to refresh groups. */
+	private var treeRefreshed:Bool = false;
+
 	function updateObjects() {
 		var states:Array<FlxState> = [FlxG.state];
 		var stateToCheck:FlxState = FlxG.state;
@@ -162,14 +177,21 @@ class ConsoleInspector {
 	}
 
 	public function displayUI() {
-		
-		updateObjects();
 
-		FlxG.mouse.visible = true; //TODO: rework this, temp force on
+		treeRefreshed = (__sinceRefresh += FlxG.rawElapsed) >= refreshInterval;
+		if (treeRefreshed) __sinceRefresh = 0;
+
+		if (!FlxG.mouse.visible) FlxG.mouse.visible = true; //TODO: rework this, temp force on
 		
 		ImGui.setNextWindowPos(ImGuiUtil.getWindowSpaceX(), ImGuiUtil.getWindowSpaceY(), ImGuiCond.FirstUseEver);
 		ImGui.setNextWindowSize(300, Lib.application.window.height, ImGuiCond.FirstUseEver);
 		if (ImGui.begin("Inspector")) {
+			// keeps the panel above the game window once it is dragged out of it
+			ImGuiUtil.pinCurrentWindowOnTop();
+			// inside the begin on purpose: a collapsed Inspector draws no rows, so there is
+			// nothing to rebuild either - walking the tree for a panel rolled up to its title
+			// bar was pure cost
+			if (treeRefreshed) updateObjects();
 			ImGui.separatorText("Tools/Gizmo");
 			ImGui.indent();
 			if (ImGui.selectable("None (Q)", gizmo.gizmoMode == -1)) gizmo.gizmoMode = -1;
@@ -249,7 +271,9 @@ class ConsoleInspector {
 					selectObject(member.obj);
 				}
 				if (isGroup) {
-					updateObjectMembers(member, true);
+					// same 10 Hz budget as the roots: an open group of notes is the most
+					// expensive list in the tree, and it is rebuilt for nothing on most frames
+					if (treeRefreshed) updateObjectMembers(member, true);
 					if (member.members.length > 0) {
 						generateTreeForMembers(member);
 					}

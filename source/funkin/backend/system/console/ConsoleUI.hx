@@ -106,6 +106,11 @@ class ConsoleUI {
 	//line that was right clicked in the log output, used by the context menu
 	var contextMenuLine:ConsoleLine = null;
 
+	//cached widths of the two right aligned buttons in the input row
+	var buttonWidthsDpi:Float = -1;
+	var settingButtonWidth:Float = 0;
+	var copyButtonWidth:Float = 0;
+
 	function saveSettings() {
 		Options.consoleTimeFilter = timeFilter.value;
 		Options.consoleTypeFilter = typeFilter.value;
@@ -205,6 +210,9 @@ class ConsoleUI {
 		if (active) {
 			loadSettings();
 			forceFocusTextInput = true;
+			// jumped to the newest line once, here, instead of on every frame: scrolling the
+			// output every frame also made it impossible to scroll back up
+			autoScrollNextFrame = true;
 			if (consoleHscript == null) consoleHscript = new ConsoleHscript();
 		} else {
 			ImGui.setKeyboardFocusHere(0);
@@ -282,6 +290,7 @@ class ConsoleUI {
 			ImGui.setNextWindowPos(ImGuiUtil.getWindowSpaceX() + Lib.application.window.width - 240, ImGuiUtil.getWindowSpaceY(), ImGuiCond.FirstUseEver);
 			ImGui.setNextWindowSize(240, 405, ImGuiCond.FirstUseEver);
 			if (ImGui.begin("Console Settings", settingsOpen, 0)) {
+				ImGuiUtil.pinCurrentWindowOnTop();
 				if (ImGui.button("Open Style Editor")) {
 					stylesOpen.value = !stylesOpen.value;
 				}
@@ -309,6 +318,7 @@ class ConsoleUI {
 
 		if (stylesOpen.value) {
 			if (ImGui.begin("Style Editor")) {
+				ImGuiUtil.pinCurrentWindowOnTop();
 				ImGui.textWrapped("THIS WILL NOT SAVE !!! (yet)");
 				ImGui.textWrapped("Expect cool stuff to share with people once you're able to save though");
 				ImGui.separator();
@@ -332,6 +342,7 @@ class ConsoleUI {
 		ImGui.setNextWindowSize(Lib.application.window.width, 250, ImGuiCond.FirstUseEver);
 		ImGui.setNextWindowDockID(0, ImGuiCond.FirstUseEver);
 		if (ImGui.begin("Console", null, ImGuiWindowFlags.NoScrollbar)) {
+			ImGuiUtil.pinCurrentWindowOnTop();
 			displayOutput();
 			ImGui.separator();
 			displayInput();
@@ -523,11 +534,15 @@ class ConsoleUI {
 				searchCommands(consoleInputString.value, consoleInputString.value.length < currentInputString.length || currentInputString.length == 0);
 			}
 		}
-		ImGui.setScrollHereY(1.0);
+		// the two buttons are right aligned from their own width; measuring them every frame
+		// walks the font atlas twice for a number that only changes with the font scale
+		if (buttonWidthsDpi != style.fontScaleDpi) {
+			buttonWidthsDpi = style.fontScaleDpi;
+			settingButtonWidth = ImGui.calcTextSize("Settings").x + style.framePaddingX * 2;
+			copyButtonWidth = ImGui.calcTextSize("Copy Log").x + style.framePaddingX * 2;
+		}
 
 		ImGui.sameLine();
-		var settingButtonWidth = ImGui.calcTextSize("Settings").x + style.framePaddingX * 2;
-		var copyButtonWidth = ImGui.calcTextSize("Copy Log").x + style.framePaddingX * 2;
 		var pos = ImGui.getCursorPos();
 		ImGui.setCursorPos(pos.x + ImGui.getContentRegionAvail().x - settingButtonWidth - copyButtonWidth - style.itemSpacingX, pos.y);
 		if (ImGui.button("Copy Log")) ImGui.setClipboardText(getLogText(0, -1));

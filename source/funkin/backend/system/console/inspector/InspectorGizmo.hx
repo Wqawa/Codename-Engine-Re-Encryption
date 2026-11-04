@@ -4,6 +4,7 @@ import flixel.math.FlxMatrix;
 import flixel.math.FlxPoint;
 import openfl.Lib;
 import funkin.backend.system.console.inspector.ConsoleInspector.InspectorObject;
+import funkin.backend.utils.ImGuiUtil;
 
 #if IMGUI_ENABLED
 import lime.tools.imgui.ImGuiFlags;
@@ -170,6 +171,9 @@ class InspectorGizmo {
 				ImGui.setNextWindowBGAlpha(0);
 			}
 			ImGui.begin("2dGizmo", null, flags);
+			// the window leaves the game window whenever the gizmo is dragged near an edge,
+			// and from there it is one click away from being buried
+			ImGuiUtil.pinCurrentWindowOnTop();
 			if ((ImGuiIO.configFlags & ImGuiConfigFlags.ViewportsEnable) != 0) lastViewportID = ImGui.getWindowViewport().id;
 			
 			if (gizmoMode == 0) {

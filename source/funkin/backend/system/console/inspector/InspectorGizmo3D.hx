@@ -6,6 +6,7 @@ import openfl.Lib;
 import lime.math.Vector2;
 import openfl.geom.Vector3D;
 import funkin.backend.system.console.inspector.ConsoleInspector.InspectorObject;
+import funkin.backend.utils.ImGuiUtil;
 
 #if IMGUI_ENABLED
 import lime.tools.imgui.ImGuiFlags;
@@ -155,6 +156,7 @@ class InspectorGizmo3D {
 				ImGui.setNextWindowBGAlpha(0);
 			}
 			ImGui.begin("3dGizmo", null, flags);
+			ImGuiUtil.pinCurrentWindowOnTop();
 			if ((ImGuiIO.configFlags & ImGuiConfigFlags.ViewportsEnable) != 0) lastViewportID = ImGui.getWindowViewport().id;
 			
 			if (gizmoMode == 0) {

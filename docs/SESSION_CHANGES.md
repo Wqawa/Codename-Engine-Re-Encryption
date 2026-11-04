@@ -127,6 +127,18 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 - 调试 HUD 六个面板不再每帧重建字符串并重排文本（按 1–15 Hz 刷新），内存计数也不再每帧查
   一次系统调用；编辑器控件层去掉每帧的数组分配和重复的鼠标坐标变换；日志文件从"每行开→写→关"
   改成常开句柄 + 每行 flush。
+- 检查器（ImGui）的对象树改成 10 Hz 重建：`updateObjects()` 每帧要遍历每个状态的成员表，
+  运行中的 `PlayState` 有几百个成员，而相邻两帧之间这张表几乎不会变。面板收起时连这一次
+  都省掉（重建挪进了 `begin()` 里面）。控制台输入行的两个按钮宽度不再每帧量一次字体，
+  输出也不再每帧强制滚到底（顺带修好"滚不上去"）。
+
+**调试工具窗口**
+
+- 多视口开着时，工具窗口一旦不完全落在游戏窗口内就变成独立系统窗口，点回游戏就被压在下面
+  （调整手柄拖到窗口边缘时最明显）。检查器、属性面板、2D/3D 手柄、控制台现在都带
+  `ImGuiViewportFlags.TopMost`（`ImGuiUtil.pinCurrentWindowOnTop`）。SDL 后端只在**创建**
+  系统窗口时读这个标志（`SDL_WINDOW_ALWAYS_ON_TOP`），而 ImGui 每帧都会用窗口自身的标志
+  把它重写掉，所以要在 `begin()` 之后每帧补一次。
 
 ---
 
