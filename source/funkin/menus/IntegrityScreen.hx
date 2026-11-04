@@ -130,7 +130,7 @@ class IntegrityScreen extends PopupScreen {
 	 */
 	static function addSection(lines:Array<WarningLine>, title:String, hint:String, list:Array<String>, color:Int):Void {
 		if (list.length == 0) return;
-		lines.push({text: '${title.toUpperCase()}  (${list.length})', color: color, size: 13, gap: 16});
+		lines.push({text: '${title}  (${list.length})', color: color, size: 13, gap: 16});
 		lines.push({text: hint, color: COLOR_HINT, size: 11, gap: 2});
 		for (i in 0...list.length) {
 			if (i >= NAMES_PER_SECTION) {
