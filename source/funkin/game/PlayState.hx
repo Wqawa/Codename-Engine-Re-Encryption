@@ -968,11 +968,7 @@ class PlayState extends MusicBeatState
 
 			SaveWarning.showWarning = Charter.undos.unsaved;
 			SaveWarning.selectionClass = CharterSelection;
-			// The playtest prompt is the engine's save warning (SaveWarning.triggerWarning),
-			// the same one the editors and the close veto use. It used to be a second, older
-			// dialog (PlaytestingWarningSubstate via SaveWarning.warningFunc) in its own
-			// visual style; when the warning was opened for states other than the editors,
-			// charting mode got both dialogs on top of each other.
+			// the same prompt the editors and the close veto use; it has to know where to go
 			SaveWarning.saveFunc = () -> Charter.saveEverything(false);
 		}
 	}
@@ -1404,9 +1400,8 @@ class PlayState extends MusicBeatState
 	}
 
 	public function saveWarn(closingWindow:Bool = true) {
-		// Kept for scripts that call it, but the prompt is the engine's save warning now:
-		// the older PlaytestingWarningSubstate drew its own dialog in a different style and
-		// stacked under/over the shared one. Same call the close hook makes.
+		// Kept for scripts that call it; the prompt itself belongs to SaveWarning, so there
+		// is one dialog and one place that decides what its buttons do.
 		SaveWarning.triggerWarning(closingWindow);
 	}
 

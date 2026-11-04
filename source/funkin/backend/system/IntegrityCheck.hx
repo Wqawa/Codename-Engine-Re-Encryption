@@ -79,19 +79,6 @@ class IntegrityCheck {
 		return parts.length == 0 ? 'all $checked file(s) match' : parts.join(', ');
 	}
 
-	/** First `count` names plus "and N more", for a dialog that has to stay readable. */
-	public static function sample(list:Array<String>, count:Int = 5):String {
-		var out:Array<String> = [];
-		for (i in 0...list.length) {
-			if (i >= count) {
-				out.push('... and ${list.length - count} more');
-				break;
-			}
-			out.push(list[i]);
-		}
-		return out.join('\n');
-	}
-
 	// ------------------------------------------------------------- generation
 
 	/**

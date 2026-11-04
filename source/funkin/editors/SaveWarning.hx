@@ -34,10 +34,7 @@ class SaveWarning {
 		}
 	}
 
-	public static var warningFunc:Bool->Void = null;
 	public static function triggerWarning(?closingWindow:Bool = false) {
-		if (warningFunc != null) warningFunc(closingWindow);
-
 		// Not limited to UIState: the window can be closed from any state, and callers
 		// other than the editors (a pending mod merge, for one) rely on this prompt too.
 		if (FlxG.state == null) return;
@@ -150,6 +147,5 @@ class SaveWarning {
 		SaveWarning.showWarning = false;
 		SaveWarning.selectionClass = null;
 		SaveWarning.saveFunc = null;
-		SaveWarning.warningFunc = null;
 	}
 }
