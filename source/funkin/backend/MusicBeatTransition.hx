@@ -39,10 +39,22 @@ class MusicBeatTransition extends MusicBeatSubstate {
 	/** Length of the whole wave. A literal tileStagger would take many seconds on a full grid,
 		so it is compressed to fit this; set it to 0 to use tileStagger as-is. */
 	public static var tileTotal:Float = 2 / 3;
+	/** Angle a tile ends at. A square looks the same at 90 as at 0, so the screen still covers. */
+	public static var tileEndAngle:Float = 90;
+	/**
+	 * The angles a wave may start from; one is drawn per transition.
+	 *
+	 * The pick is per wave, not per tile: a grid where every square spins a different way
+	 * reads as noise and hides what the wipe is doing. Spinning the whole grid the same
+	 * way still makes two wipes look different, which is what this is for.
+	 */
+	public static var tileStartAngles:Array<Float> = [0, 180];
 
 	var tiles:Array<FlxSprite> = [];
 	var tileDelays:Array<Float> = [];
 	var tileWaveTime:Float = 0;
+	/** Picked once per wave, in startTileTransition(). */
+	var tileStartAngle:Float = 0;
 
 	public function new(?newState:FlxState) {
 		super();
@@ -164,6 +176,9 @@ class MusicBeatTransition extends MusicBeatSubstate {
 			: tileStagger;
 		tileWaveTime = (count - 1) * stagger + tileDuration;
 
+		// one spin for the whole grid; the pick is per wave, never per tile
+		tileStartAngle = tileStartAngles.length == 0 ? 0 : tileStartAngles[FlxG.random.int(0, tileStartAngles.length - 1)];
+
 		// one shared solid-black graphic for every tile
 		final graphic = FlxGraphic.fromBitmapData(new BitmapData(size, size, true, 0xFF000000), false, 'cneTransitionTile$size', true);
 
@@ -199,7 +214,9 @@ class MusicBeatTransition extends MusicBeatSubstate {
 			final scaleFactor = transOut ? eased : 1 - eased;
 			final tile = tiles[i];
 			tile.scale.set(scaleFactor, scaleFactor);
-			tile.angle = 45 * (1 - scaleFactor);
+			// a tile spins while it grows: tileStartAngle -> tileEndAngle on the way in,
+			// the same curve played backwards on the way out
+			tile.angle = tileStartAngle + (tileEndAngle - tileStartAngle) * scaleFactor;
 			tile.visible = scaleFactor > 0.002;
 		}
 	}
