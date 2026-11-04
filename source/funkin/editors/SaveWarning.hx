@@ -70,7 +70,7 @@ class SaveWarning {
 					: TU.translate("saveWarning.exitToMenu", null, "Exit To Menu"),
 				color: 0x969533,
 				onClick: function(_) {
-					if (closingWindow) exitGame();
+					if (closingWindow) exitGame(false);
 					else leaveWithoutSaving();
 				}
 			},
@@ -81,7 +81,7 @@ class SaveWarning {
 				color: 0x969533,
 				onClick: function(_) {
 					if (saveFunc != null) saveFunc();
-					if (closingWindow) exitGame();
+					if (closingWindow) exitGame(true);
 					else leaveWithoutSaving();
 				}
 			}
@@ -96,16 +96,37 @@ class SaveWarning {
 	 * Closes the game, through the mod cleanup screen when a decrypted pack is still
 	 * held.
 	 *
-	 * Merging the staged edits used to exit straight away, which skipped the wipe
-	 * screen entirely - the merge prompt was swallowing the cleanup instead of handing
-	 * over to it. The exit hook would still have wiped the buffers, but without the
-	 * pass the player is told about.
+	 * `saved` says the player answered "save". An editor's save writes into the staging
+	 * folder of a packed mod, and inside an editor the merge into the pack is left to the
+	 * next close - but this close is the one that ends the process, so there is no next
+	 * one: the files stayed in `.cne/mods/<mod>/` and the pack was never touched, while
+	 * the player had just been told their work was saved. Playtesting a chart and
+	 * closing the window from the pause menu was the usual way to hit it.
+	 *
+	 * The merge goes through ModPackMergeState, the same screen a mod switch uses: a
+	 * rewrite re-encrypts the whole archive and takes seconds on a big mod, which is too
+	 * long to freeze the window for. Its callback comes back here with nothing left to
+	 * merge, and the wipe screen (if one is due) runs after the pack is in one piece
+	 * rather than while it is being rewritten.
 	 */
-	static function exitGame():Void {
-		// clear the flag first: it holds preventClosing up, and the cleanup screen has to
-		// be able to take this close over
+	static function exitGame(saved:Bool = false):Void {
+		// Asked while the close veto is still up: pendingMod() compares the staged files
+		// against the pack to drop the ones that never changed, and the window must not be
+		// able to go away halfway through that.
+		var staged = saved ? funkin.backend.assets.ZipEditCache.pendingMod() : null;
+
+		// The prompt is answered, so it stops holding preventClosing - the merge and cleanup
+		// screens own the close from here. Keeping it on would also leave the dialog armed:
+		// the next close request would pop the save warning again, on top of whatever screen
+		// is running by then.
 		showWarning = false;
 		WindowUtils.resetClosing();
+
+		if (staged != null) {
+			// ...and the merge screen hands the close back with nothing left to merge
+			FlxG.switchState(new funkin.menus.ModPackMergeState(staged, function() exitGame(false)));
+			return;
+		}
 
 		if (funkin.backend.assets.ModPackCrypto.needsCleanup() && FlxG.state != null) {
 			FlxG.switchState(new funkin.menus.ModPackCleanupState());
