@@ -735,6 +735,14 @@ class ModPackCrypto {
 	public static var outgoingEncryptedPack:String = null;
 	/** The mod a finished cleanup pass should switch to, when it was not closing. */
 	static var queuedSwitch:String = null;
+	/**
+	 * Whether a switch is queued, kept apart from its value.
+	 *
+	 * `null` is a real target - the mod list ends with a null entry for "no mod" - so the
+	 * old check `queuedSwitch != null` could not tell a queued switch to nothing from no
+	 * switch at all, and completing the first one did nothing and left the screen waiting.
+	 */
+	static var switchQueued:Bool = false;
 	static var runningQueuedSwitch:Bool = false;
 	/** Switch mode keeps the copied keys; closing the game removes them. */
 	public static var cleanupKeepsKeys:Bool = false;
@@ -770,13 +778,14 @@ class ModPackCrypto {
 			runningQueuedSwitch = false;
 			return false;
 		}
-		if (cleaningUp || queuedSwitch != null) return false;
+		if (cleaningUp || switchQueued) return false;
 		if (!sessionDecrypted) return false;
 		if (target != null && target == ModsFolder.currentModFolder) return false;
 		if (!isEncryptedMod(ModsFolder.currentModFolder)) return false;
 		if (flixel.FlxG.state == null) return false;
 
 		queuedSwitch = target;
+		switchQueued = true;
 		// a switch wipes what the pack left on disk and in memory, but keeps the copied
 		// key: switching back should not ask for the password again. Closing does remove it.
 		cleanupKeepsKeys = true;
@@ -785,13 +794,20 @@ class ModPackCrypto {
 		return true;
 	}
 
-	/** Runs the switch that was waiting for the wipe. Called by the cleanup screen. */
-	public static function completeSwitchCleanup():Void {
+	/**
+	 * Runs the switch that was waiting for the wipe. Called by the cleanup screen.
+	 *
+	 * Returns false when nothing was queued, which is the one case where the screen has
+	 * to leave by itself: waiting for a continuation that is not coming is a freeze.
+	 */
+	public static function completeSwitchCleanup():Bool {
+		if (!switchQueued) return false;
+		switchQueued = false;
 		var target = queuedSwitch;
 		queuedSwitch = null;
-		if (target == null) return;
 		runningQueuedSwitch = true;
 		ModsFolder.switchMod(target);
+		return true;
 	}
 
 	static var cleanupStep:Int = 0;

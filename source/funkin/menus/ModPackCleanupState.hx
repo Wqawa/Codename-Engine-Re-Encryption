@@ -2,6 +2,7 @@ package funkin.menus;
 
 import flixel.FlxG;
 import funkin.backend.assets.ModPackCrypto;
+import funkin.backend.system.MainState;
 import funkin.editors.ui.UIButton;
 import funkin.editors.ui.UIText;
 
@@ -131,9 +132,15 @@ class ModPackCleanupState extends PopupScreen {
 		// never switch away from a half finished wipe, even if the button is hit early
 		if (continuing && !ModPackCrypto.cleanupDone) return;
 		quitting = true;
+
 		if (continuing) {
-			// Main/ModsFolder take it from here; the exit hook still covers the leftovers
-			ModPackCrypto.completeSwitchCleanup();
+			// runs the switch that waited for this wipe. "No mod" is one of the possible
+			// targets, so the queue cannot be judged by its value; if the request is gone
+			// the screen has to leave by itself, because its button would never do anything
+			if (!ModPackCrypto.completeSwitchCleanup()) {
+				Logs.warn('The cleanup screen had no switch left to run, going back to the menu.');
+				FlxG.switchState(new MainState());
+			}
 			return;
 		}
 		// the exit hook wipes the same things again; both passes are idempotent
