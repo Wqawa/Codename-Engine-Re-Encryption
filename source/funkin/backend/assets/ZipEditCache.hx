@@ -91,62 +91,11 @@ class ZipEditCache {
 		var mod = ModsFolder.currentModFolder;
 		if (mod == null || !isPackedMod(mod)) return null;
 		if (!hasChanges(mod)) return null;
-		// a merge that kept the staged copies (see keepStaged) leaves files that are
-		// already in the pack; pruneUnchanged cannot tell, because the pack's decrypted
-		// copy is stale by then and reopening it just to compare costs a full decrypt
-		if (unchangedSinceMerge(mod)) return null;
 		// files that are byte for byte what the pack already holds are not edits: they are
 		// what the editor's old unconditional autosave left behind
 		if (pruneUnchanged(mod)) return null;
 		Logs.trace('zip edits: "$mod" still has staged files: ' + listFiles(mod).join(" | "), VERBOSE);
 		return mod;
-	}
-
-	// ------------------------------------------------------------ merge memory
-
-	/** Fingerprint of the staged files as they were right after a merge that kept them. */
-	static var mergedPrints:Map<String, String> = [];
-
-	/** Records that the staging folder and the pack now hold the same files. Main thread. */
-	public static function markMerged(mod:String):Void {
-		if (mod == null) return;
-		var print = fingerprint(mod);
-		if (print == "") mergedPrints.remove(mod);
-		else mergedPrints.set(mod, print);
-	}
-
-	/**
-	 * True when the staging folder still holds exactly what was merged into the pack.
-	 *
-	 * Cheap on purpose: it reads the staged files' size and modification time, where
-	 * proving the same thing from the pack would mean decrypting the whole archive again.
-	 * A file saved after the merge changes both, so new work still asks for a merge.
-	 */
-	static function unchangedSinceMerge(mod:String):Bool {
-		var print = mergedPrints.get(mod);
-		return print != null && print == fingerprint(mod);
-	}
-
-	/** Size and modification time of every staged file, in a stable order. */
-	static function fingerprint(mod:String):String {
-		#if sys
-		var buf = new StringBuf();
-		for (file in listFiles(mod)) {
-			var info = null;
-			try info = FileSystem.stat(folder(mod, false) + file) catch (e:Dynamic) {}
-			// an unreadable file must not look unchanged
-			if (info == null) return "";
-			buf.add(file);
-			buf.add(':');
-			buf.add(info.size);
-			buf.add(':');
-			buf.add(info.mtime.getTime());
-			buf.add('|');
-		}
-		return buf.toString();
-		#else
-		return "";
-		#end
 	}
 
 	/**
@@ -271,7 +220,7 @@ class ZipEditCache {
 	/** 0..1 progress of the merge pass, for the screen that reports it. */
 	public static var mergeProgress:Float = 0;
 
-	public static function startMergeAsync(mod:String, keepStaged:Bool = false):Void {
+	public static function startMergeAsync(mod:String):Void {
 		if (merging) return;
 		merging = true;
 		mergeDone = false;
@@ -279,15 +228,15 @@ class ZipEditCache {
 		mergeProgress = 0;
 		mergeMessage = "Reading the staged files";
 		#if target.threaded
-		sys.thread.Thread.create(function() runMerge(mod, keepStaged));
+		sys.thread.Thread.create(function() runMerge(mod));
 		#else
-		runMerge(mod, keepStaged);
+		runMerge(mod);
 		#end
 	}
 
-	static function runMerge(mod:String, keepStaged:Bool = false):Void {
+	static function runMerge(mod:String):Void {
 		try {
-			mergeMessage = merge(mod, keepStaged);
+			mergeMessage = merge(mod);
 		} catch (e:Dynamic) {
 			mergeFailed = true;
 			mergeMessage = 'could not merge the staged files: $e';
@@ -388,13 +337,8 @@ class ZipEditCache {
 	 * staged files replace or extend them) and only then put in place of the original,
 	 * so a failure halfway cannot leave a half written mod behind. Returns a one line
 	 * summary for the caller to show; throws when the merge could not happen.
-	 *
-	 * `keepStaged` leaves the copies in the staging folder after a successful merge. The
-	 * game keeps reading the current mod through that folder, so a merge that does not
-	 * end the session (save and return to the editor) has to leave it in place - see
-	 * markMerged() for how the next close knows the files are already in the pack.
 	 */
-	public static function merge(mod:String, keepStaged:Bool = false):String {
+	public static function merge(mod:String):String {
 		#if sys
 		var pack = packPath(mod);
 		if (pack == null) throw 'not a packed mod: $mod';
@@ -429,13 +373,10 @@ class ZipEditCache {
 		}
 		dropTempFiles(plain, plainIsCopy, merged);
 
-		// only drop what really made it into the pack - and only when the session is done
-		// with these files: a merge that keeps running (save and return to the editor)
-		// leaves the libraries reading through this folder
-		if (!keepStaged)
-			for (file in files) {
-				try FileSystem.deleteFile(folder(mod, false) + file) catch (e:Dynamic) {}
-			}
+		// only drop what really made it into the pack
+		for (file in files) {
+			try FileSystem.deleteFile(folder(mod, false) + file) catch (e:Dynamic) {}
+		}
 		return 'merged ${files.length} file(s) into ${Path.withoutDirectory(pack)}';
 		#else
 		return 'not supported on this target';
@@ -596,6 +537,47 @@ class ZipEditCache {
 		// open file; let go of the handle first (a memory pack never holds one)
 		ModPackCrypto.releaseFileHandle(pack);
 
+		// A plain .zip is read through the library's own handle, and Windows refuses to
+		// rename over an open file there too - so merging an unencrypted pack failed on
+		// every attempt and the edits never reached the archive. The libraries let go here
+		// and take the new file back below (and on failure, the file that is left).
+		var readers = diskReaders(pack);
+		for (lib in readers) lib.releaseForReplace();
+
+		try {
+			swapPackFile(pack, merged);
+		} catch (e:Dynamic) {
+			for (lib in readers) lib.reopenAfterReplace();
+			throw e;
+		}
+		for (lib in readers) lib.reopenAfterReplace();
+	}
+
+	/**
+	 * The loaded libraries that read this pack straight from its file.
+	 *
+	 * Only a plain .zip is read that way. An encrypted or password protected pack is
+	 * handed to the libraries as a memory copy, and the handle of that copy belongs to
+	 * ModPackCrypto (releaseFileHandle above).
+	 */
+	static function diskReaders(pack:String):Array<ZipFolderLibrary> {
+		var out:Array<ZipFolderLibrary> = [];
+		var tree = Paths.assetsTree;
+		if (tree == null || tree.libraries == null) return out;
+		var wanted = pack.toLowerCase();
+		for (candidate in tree.libraries) {
+			if (candidate == null) continue;
+			var lib = AssetsLibraryList.getCleanLibrary(candidate);
+			if (!(lib is ZipFolderLibrary)) continue;
+			var zipLib = cast(lib, ZipFolderLibrary);
+			if (zipLib.basePath == null || !zipLib.readsFromDisk()) continue;
+			if (zipLib.basePath.toLowerCase() == wanted) out.push(zipLib);
+		}
+		return out;
+	}
+
+	/** The swap itself, with every handle out of the way. */
+	static function swapPackFile(pack:String, merged:String):Void {
 		var out = merged;
 		if (ModPackCrypto.isEncryptedPackFile(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);

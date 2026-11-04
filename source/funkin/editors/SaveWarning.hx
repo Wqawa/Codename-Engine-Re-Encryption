@@ -93,7 +93,7 @@ class SaveWarning {
 				onClick: function(_) {
 					if (saveFunc != null) saveFunc();
 					if (closingWindow) exitGame(true);
-					else saveAndLeaveToMenu();
+					else leaveWithoutSaving();
 				}
 			}
 		], funkin.editors.ui.UIWarningSubstate.UIWarningKind.WARNING));
@@ -101,38 +101,6 @@ class SaveWarning {
 
 	static function leaveWithoutSaving():Void {
 		if (selectionClass != null) FlxG.switchState(Type.createInstance(SaveWarning.selectionClass, []));
-	}
-
-	/**
-	 * "Save & Exit To Menu": the save is done, this is where a packed mod catches up.
-	 *
-	 * The editor's save writes into `.cne/mods/<mod>/`; inside an editor the merge used to
-	 * be left to the next close, which is fine for the editor but not for this button -
-	 * the player is told the work was saved and the pack still holds the old file. Same
-	 * merge screen the close path uses, handed to the menu instead of the exit.
-	 *
-	 * The staged copies are kept this time (keepStaged): the session continues, and the
-	 * running asset libraries read the mod through that folder - deleting it right after
-	 * the merge would show the editor the pack as it was before the save. ZipEditCache
-	 * remembers the merge, so the next close does not offer to do it again.
-	 */
-	static function saveAndLeaveToMenu():Void {
-		var staged = funkin.backend.assets.ZipEditCache.pendingMod();
-		if (staged == null) {
-			leaveWithoutSaving();
-			return;
-		}
-		// answered, so the prompt lets go of the window before the next screen takes it
-		showWarning = false;
-		WindowUtils.resetClosing();
-
-		// Held here, not read back in the callback: switching to the merge screen destroys
-		// the state that installed the prompt (PlayState.destroy), and its SaveWarning.reset()
-		// clears selectionClass - the callback would find nothing to switch to.
-		var target = selectionClass;
-		FlxG.switchState(new funkin.menus.ModPackMergeState(staged, function() {
-			if (target != null) FlxG.switchState(Type.createInstance(target, []));
-		}, true));
 	}
 
 	/**

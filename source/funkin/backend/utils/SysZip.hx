@@ -49,6 +49,15 @@ class SysZip {
 	public var entries:List<SysZipEntry> = new List();
 
 	/**
+	 * True when the archive is read straight from a plain .zip file.
+	 *
+	 * A memory pack has no file behind it, and an encrypted one is either kept in memory
+	 * or read through a handle its owner closes (ModPackCrypto), so only this mode can
+	 * close and re-open its handle around a merge.
+	 */
+	public var fileBacked(default, null):Bool = false;
+
+	/**
 	 * Opens a zip from a path.
 	 * @param path Path to the zip file, extension included.
 	 */
@@ -81,6 +90,7 @@ class SysZip {
 	public function new(path:String) {
 		if (path == null) return;
 		this.filePath = path;
+		this.fileBacked = true;
 		fileInput = File.read(path, true);
 		updateEntries();
 	}
@@ -305,6 +315,37 @@ class SysZip {
 				compressedSize: compressedSize,
 				compressed: method == 8
 			});
+		}
+	}
+
+	/**
+	 * Closes the handle of a plain .zip so the file can be replaced on disk.
+	 *
+	 * Windows refuses to rename over an open file, and a merge has to put the new pack
+	 * where the old one was. Only this mode is affected: a memory pack has no handle, and
+	 * an encrypted one is closed by ModPackCrypto. Take the file back with reopenFromDisk.
+	 */
+	public function releaseHandleForReplace():Void {
+		if (!fileBacked || fileInput == null) return;
+		try fileInput.close() catch (e:Dynamic) {}
+		fileInput = null;
+	}
+
+	/**
+	 * Re-opens the file after it was replaced, and reads the index again.
+	 *
+	 * The entries hold offsets into the archive, and a merge moves them, so the old index
+	 * must not be reused. Reads have to come from the same thread that calls this.
+	 */
+	public function reopenFromDisk():Void {
+		if (!fileBacked || filePath == null) return;
+		if (fileInput != null) try fileInput.close() catch (e:Dynamic) {}
+		try {
+			fileInput = File.read(filePath, true);
+			updateEntries();
+		} catch (e:Dynamic) {
+			fileInput = null;
+			Logs.error('Could not reopen "$filePath" after the merge: ' + e);
 		}
 	}
 

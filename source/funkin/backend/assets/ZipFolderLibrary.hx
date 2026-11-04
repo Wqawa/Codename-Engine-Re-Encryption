@@ -57,6 +57,47 @@ class ZipFolderLibrary extends AssetLibrary implements IModsAssetLibrary {
 		// if (PRELOAD_VIDEOS) precacheVideos(); // we do this in `MainState` now to handle for `Flags.VIDEO_EXT` :)
 	}
 
+	/**
+	 * True when this library reads a plain .zip through its own file handle.
+	 *
+	 * False for the packs that arrive as a memory copy (encrypted, password protected):
+	 * there is no handle here to close, and ModPackCrypto owns the one that exists.
+	 */
+	public function readsFromDisk():Bool return zip != null && zip.fileBacked;
+
+	/**
+	 * Lets go of the archive so the pack file can be replaced on disk.
+	 *
+	 * Windows refuses to rename over an open file, and a merge puts a rewritten pack in
+	 * place of the old one; without this an unencrypted .zip could never be merged.
+	 */
+	public function releaseForReplace():Void if (zip != null) zip.releaseHandleForReplace();
+
+	/**
+	 * Takes the replaced pack back: new handle, new index, new name maps.
+	 *
+	 * The maps are built separately and swapped in one assignment each, so a read that is
+	 * in flight on another thread sees either the old set or the new one, never a half
+	 * filled map.
+	 */
+	public function reopenAfterReplace():Void {
+		if (zip == null || !zip.fileBacked) return;
+		zip.reopenFromDisk();
+
+		var byName:Map<String, SysZipEntry> = [];
+		var byLower:Map<String, SysZipEntry> = [];
+		var byLowerName:Map<String, String> = [];
+		for (entry in zip.entries) {
+			if (entry.fileName.endsWith("/")) continue;
+			var name = entry.fileName.toLowerCase();
+			byLower[name] = byName[name] = byName[entry.fileName] = entry;
+			byLowerName.set(name, entry.fileName);
+		}
+		assets = byName;
+		lowerCaseAssets = byLower;
+		nameMap = byLowerName;
+	}
+
 	public function precacheVideos() {
 		_videoExtensions = Flags.VIDEO_EXTS;
 		

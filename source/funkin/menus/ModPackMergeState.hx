@@ -21,8 +21,6 @@ class ModPackMergeState extends PopupScreen {
 
 	public var mod:String;
 	public var onDone:Void->Void;
-	/** Keep the staged copies after the merge; see ZipEditCache.merge(). */
-	public var keepStaged:Bool = false;
 
 	public var statusText:UIText;
 	public var hintText:UIText;
@@ -32,11 +30,10 @@ class ModPackMergeState extends PopupScreen {
 	public var finishedAt:Float = -1;
 	var appliedMerge:Bool = false;
 
-	public function new(mod:String, onDone:Void->Void, ?keepStaged:Bool = false) {
+	public function new(mod:String, onDone:Void->Void) {
 		super();
 		this.mod = mod;
 		this.onDone = onDone;
-		this.keepStaged = keepStaged;
 	}
 
 	override function create() {
@@ -52,7 +49,7 @@ class ModPackMergeState extends PopupScreen {
 		hintText = addText("Working", 13, PopupScreen.COLOR_TEXT, 0);
 		endPanel();
 
-		ZipEditCache.startMergeAsync(mod, keepStaged);
+		ZipEditCache.startMergeAsync(mod);
 	}
 
 	override function update(elapsed:Float) {
@@ -82,12 +79,7 @@ class ModPackMergeState extends PopupScreen {
 			appliedMerge = true;
 			// the merge replaced the archive, so the copy decrypted from the old bytes must
 			// not be handed to the loader any more. A failed merge left the file alone.
-			if (!ZipEditCache.mergeFailed) {
-				ZipEditCache.forgetDecryptedCopy(mod);
-				// the staged copies stayed for this session, so remember they are in the
-				// pack now; the next close must not offer the same merge again
-				if (keepStaged) ZipEditCache.markMerged(mod);
-			}
+			if (!ZipEditCache.mergeFailed) ZipEditCache.forgetDecryptedCopy(mod);
 		}
 		if (finishedAt < 0) finishedAt = waited;
 
