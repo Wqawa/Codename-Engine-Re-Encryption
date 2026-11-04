@@ -41,12 +41,13 @@
 `UIWarningSubstate` 的两个 bool（isError / 有没有输入框）换成：
 
 ```haxe
-new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = false)
+new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = false, ?lines = null)
 ```
 
 `kind` 是 `ERROR` / `WARNING` / `INFO`，枚举值就是图标文件名（`error.png`、`warning.png`、
 `info.png`），类型和贴图不会对不上。`wantsInput` 加一行 `UITextBox`，用 `inputValue()` 读，
-对话框本身不解释内容。`keepOpen` 让按钮在验证失败时把窗口留住。
+对话框本身不解释内容。`keepOpen` 让按钮在验证失败时把窗口留住。`lines` 是后面加的
+（见第七节）：给它一组带颜色的行，正文就按行画，`message` 忽略。
 
 ---
 
