@@ -68,7 +68,7 @@ class Flags {
 	// Kept apart from VERSION on purpose: VERSION feeds the script define CODENAME_VER and the
 	// updater's tag comparison, while this is only the fork's own display version.
 	public static var FORK_NAME:String = 'CNE Re-Encryption';
-	public static var FORK_VERSION:String = '0.0.1';
+	public static var FORK_VERSION:String = '0.0.2';
 	@:lazy public static var FORK_VERSION_MESSAGE:String = '$FORK_NAME v$FORK_VERSION';
 
 	public static var REPO_NAME:String = "CodenameEngine";
