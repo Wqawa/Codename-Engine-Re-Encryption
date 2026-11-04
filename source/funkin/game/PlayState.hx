@@ -1139,7 +1139,17 @@ class PlayState extends MusicBeatState
 		gameAndCharsCall("onStartSong");
 	}
 
+	/** Set once destroy() starts, so a repeat call cannot touch half torn down fields. */
+	private var __destroyed:Bool = false;
+
 	public override function destroy() {
+		// The crash handler switches states again after a failed switch, which destroys
+		// this state a second time. By then `scripts` is null and `instance` is gone, so
+		// the repeat threw at a different line on every attempt and never finished, and
+		// every following state switch crashed in the same place.
+		if (__destroyed) return;
+		__destroyed = true;
+
 		var notNull = stage != null;
 		if (notNull) PlayState.instance.gameAndCharsCall("onStageDestroy", [stage]);
 		scripts.call("destroy");
