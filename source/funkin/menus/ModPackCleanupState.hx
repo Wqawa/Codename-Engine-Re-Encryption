@@ -1,10 +1,8 @@
 package funkin.menus;
 
 import flixel.FlxG;
-import flixel.FlxSprite;
 import funkin.backend.assets.ModPackCrypto;
 import funkin.editors.ui.UIButton;
-import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
 
 /**
@@ -23,18 +21,19 @@ import funkin.editors.ui.UIText;
  * Every removed item is listed as its own line, so the screen says what happened rather
  * than "done".
  */
-class ModPackCleanupState extends UIState {
-	static inline var MARGIN:Int = 40;
+class ModPackCleanupState extends PopupScreen {
 	/** Seconds the screen stays up after the wipe finished when the game is closing. */
 	public static inline var AUTO_CLOSE_DELAY:Float = 3;
 	/** Same, for the switch case: long enough to read the list, short enough to not nag. */
 	public static inline var AUTO_CONTINUE_DELAY:Float = 1.5;
 
+	/** Room kept for the list of removed items: six short lines, the most a pass produces. */
+	static inline var SUMMARY_ROOM:Int = 112;
+
 	/** True when this pass is part of a mod switch instead of a window close. */
 	public var continuing:Bool = false;
 
-	public var bar:FlxSprite;
-	public var percentText:UIText;
+	public var bar:PopupProgress;
 	public var stageText:UIText;
 	public var summaryText:UIText;
 	public var hintText:UIText;
@@ -55,36 +54,32 @@ class ModPackCleanupState extends UIState {
 		// UI would turn "the game cannot close" into "the game crashes when closing".
 		// When it does fail the exit hook still wipes the same things on the way out.
 		try {
-			FlxG.camera.bgColor = 0xFF101017;
-			final w = FlxG.width - MARGIN * 2;
+			beginPanel(continuing ? "Cleaning up before the switch" : "Cleaning up before closing", 720);
+			addText("The decrypted mod pack, the keys copied out of it and everything lifted onto disk only exist "
+				+ "while the game runs. They are wiped now, so nothing readable is left behind.", 13, PopupScreen.COLOR_TEXT, 16);
 
-			add(new UIText(MARGIN, 56, w, continuing ? "Cleaning up before the switch" : "Cleaning up before closing",
-				34, 0xFFFFE066, false));
-			add(new UIText(MARGIN, 108, w,
-				"The decrypted mod pack, the keys copied out of it and everything lifted onto disk\n"
-				+ "only exist while the game runs. They are wiped now, so nothing readable is left behind.",
-				14, 0xFFB0B0BE, false));
-
-			add(new FlxSprite(MARGIN, 168).makeGraphic(w, 26, 0xFF2A2A34));
-			bar = new FlxSprite(MARGIN + 4, 172).makeGraphic(w - 8, 18, 0xFF61C4FF);
-			// scale around the left edge, otherwise the bar grows from the middle outwards
-			bar.origin.set(0, 0);
-			bar.scale.x = 0.001;
-			add(bar);
-
-			add(percentText = new UIText(MARGIN, 202, w, "0%", 15, 0xFF9BE28C, false));
-			add(stageText = new UIText(MARGIN, 232, w, ModPackCrypto.cleanupLabel, 13, 0xFF7A7A88, false));
+			bar = addProgress(14);
+			// the label is only filled once beginCleanup() runs, below
+			stageText = addText(ModPackCrypto.cleanupLabel.length > 0 ? ModPackCrypto.cleanupLabel : "Releasing the pack handles",
+				13, PopupScreen.COLOR_INFO, 14);
 
 			// what was actually removed, one line per item; filled in as the steps run
-			add(summaryText = new UIText(MARGIN, 262, w, "", 14, 0xFFFFFFFF, false));
+			final summaryY = row(SUMMARY_ROOM, 14);
+			summaryText = new UIText(contentX, summaryY, contentW, "", 13, PopupScreen.COLOR_TEXT);
+			summaryText.wordWrap = true;
+			place(summaryText);
 
-			add(hintText = new UIText(MARGIN, 392, w, continuing
+			hintText = addText(continuing
 				? "The switch continues on its own when this is done."
-				: "The window closes on its own when this is done.", 14, 0xFFB0B0BE, false));
-			add(closeButton = new UIButton(MARGIN, 424, continuing ? "Continue now" : "Close now", function() finish(), 200, 36));
+				: "The window closes on its own when this is done.", 13, PopupScreen.COLOR_TEXT, 0);
+
+			setButtons([{label: continuing ? "Continue now" : "Close now", onClick: function() finish(), width: 200}]);
+			endPanel();
+
 			// the button is reachable from the first frame, but switching away in the middle of
 			// the wipe is what leaves a half released pack behind
-			closeButton.shouldPress = false;
+			closeButton = buttons.length > 0 ? buttons[0] : null;
+			if (closeButton != null) closeButton.shouldPress = false;
 
 			ModPackCrypto.beginCleanup();
 		} catch (e:Dynamic) {
@@ -102,8 +97,10 @@ class ModPackCleanupState extends UIState {
 		var p = ModPackCrypto.cleanupProgress;
 		if (p < 0) p = 0;
 		if (p > 1) p = 1;
-		if (bar != null) bar.scale.x = Math.max(0.001, p);
-		if (percentText != null) percentText.text = Std.int(p * 100) + "%";
+		if (bar != null) {
+			bar.value = p;
+			if (progressLabel != null) progressLabel.text = Std.int(p * 100) + "%";
+		}
 		if (stageText != null && ModPackCrypto.cleanupLabel.length > 0) stageText.text = ModPackCrypto.cleanupLabel;
 		// the list grows while the steps run, so it is refreshed instead of set once
 		if (summaryText != null) summaryText.text = ModPackCrypto.cleanupSummary;
@@ -111,7 +108,6 @@ class ModPackCleanupState extends UIState {
 		if (!finished && ModPackCrypto.cleanupDone) {
 			finished = true;
 			countdown = continuing ? AUTO_CONTINUE_DELAY : AUTO_CLOSE_DELAY;
-			if (summaryText != null) summaryText.text = ModPackCrypto.cleanupSummary;
 			if (closeButton != null) closeButton.shouldPress = true;
 		}
 		if (!finished) return;

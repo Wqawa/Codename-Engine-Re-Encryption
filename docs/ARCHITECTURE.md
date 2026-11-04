@@ -2,7 +2,7 @@
 
 这份文档回答一个问题：**加密功能和官方引擎到底在哪几处接上的。**
 
-实现是外挂式的：40 个新增文件承担全部逻辑，官方文件只做定点注入。但注入点散在 52 个文件里，
+实现是外挂式的：42 个新增文件承担全部逻辑，官方文件只做定点注入。但注入点散在 52 个文件里，
 时间一长就看不出边界了。这里按模块列一遍，改功能前先查这张表。
 
 > 表里写**文件和函数名**，不写行号。行号每次改动都会漂，写死只会得到一份过期的表；
@@ -10,7 +10,7 @@
 
 ---
 
-## 1. 新增文件：40 个，按职责分六组
+## 1. 新增文件：42 个，按职责分六组
 
 | 组 | 文件 | 职责 |
 | --- | --- | --- |
@@ -27,6 +27,7 @@
 | | `utils/native/MemoryProtect.hx` | 上面这条的原生侧实现 |
 | **D. 运行时目录** | `system/RuntimeDirs.hx` | 统一 `.cne/`：`keys/`、`mods/`、`temp/`、`logs/`，退出时按类别清扫 |
 | **E. 菜单/界面** | `menus/{ModPackKeyState,ModPackLoadingState,ModPackCleanupState,ModPackMergeState,SongLoadingScreen,IntegrityScreen}.hx` | 密码输入、解密进度、退出清理、合并暂存改动、加载屏、启动校验 |
+| | `menus/{PopupScreen,PopupProgress}.hx` | 上面六个屏共用的外壳：原版 `normal-popup` 弹窗（30px 标题栏、25px 内边距、160×30 按钮行）+ 按 `UISlider` 画的只读进度条 |
 | | `editors/EncryptionEditor.hx` | 加密工具本体（Mod Pack / Scripts / Help 三页） |
 | **F. 完整性校验** | `system/IntegrityCheck.hx` | 清单生成与校验：签名、逐条 SHA256、差异分类 |
 | **G. 自检** | `assets/ModPackSelfTest.hx`、`scripting/bytecode/ScriptContainerSelfTest.hx` | 内存里往返验证容器，编辑器 Tools 菜单可跑 |

@@ -10,6 +10,7 @@ import funkin.backend.scripting.crypto.ScriptCrypto;
 import funkin.editors.ui.*;
 import funkin.editors.ui.UITopMenu.UITopMenuButton;
 import funkin.menus.MainMenuState;
+import funkin.menus.PopupProgress;
 import haxe.io.Path;
 import lime.ui.FileDialog;
 import lime.ui.FileDialogFilter;
@@ -76,12 +77,10 @@ class EncryptionEditor extends UIState {
 	static inline var JOB_DECRYPT:Int = 2;
 	static inline var JOB_SCRIPT_ENCRYPT:Int = 3;
 	static inline var JOB_SCRIPT_DECRYPT:Int = 4;
-	public var jobBarBg:FlxSprite;
-	public var jobBar:FlxSprite;
+	public var jobBar:PopupProgress;
 	public var jobText:UIText;
 	// the Scripts tab has its own row, so a job never shows on the wrong page
-	public var jobBarBg2:FlxSprite;
-	public var jobBar2:FlxSprite;
+	public var jobBar2:PopupProgress;
 	public var jobText2:UIText;
 	public var jobActive:Bool = false;
 	public var jobKind:Int = JOB_NONE;
@@ -139,7 +138,9 @@ class EncryptionEditor extends UIState {
 		FlxG.camera.fade(0xFF000000, 0.5, true, null, true);
 		FlxG.mouse.useSystemCursor = FlxG.mouse.visible = true;
 
-		add(bg = new FlxSprite().makeSolid(FlxG.width, FlxG.height, 0xFF2B2B33));
+		// plain grey backdrop, the colour the engine's own editor screen uses; the
+		// purple context-bg panels below are what the rest of the editors look like
+		add(bg = new FlxSprite().makeSolid(FlxG.width, FlxG.height, 0xFF444444));
 		bg.updateHitbox();
 		bg.scrollFactor.set();
 
@@ -175,7 +176,7 @@ class EncryptionEditor extends UIState {
 		buildScriptTab();
 		buildHelpTab();
 
-		add(statusText = new UIText(10, FlxG.height - 30, FlxG.width - 20, "", 14, 0xFFFFE066, false));
+		add(statusText = new UIText(10, FlxG.height - 30, FlxG.width - 20, "", 14, 0xFFFFFFFF, false));
 
 		showTab(TAB_MODPACK);
 		status("Keys: " + ScriptCrypto.keyFileSummary() + ".");
@@ -237,15 +238,15 @@ class EncryptionEditor extends UIState {
 		var panelH = FlxG.height - CONTENT_Y - 46;
 		if (panelH < 540) panelH = 540;
 
-		track(g, new FlxSprite(10, CONTENT_Y).makeSolid(Std.int(FlxG.width - 20), Std.int(panelH), 0xFF1B1B21));
+		track(g, new UISliceSprite(10, CONTENT_Y, Std.int(FlxG.width - 20), Std.int(panelH), 'editors/ui/context-bg'));
 
 		// key tokens exist for encrypted mod packs only, so they sit on top of the
 		// pack exporter and nowhere else
-		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Key Token Tool - for encrypted mod packs", 17, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Key Token Tool - for encrypted mod packs", 17, 0xFFFFFFFF, false));
 		track(g, new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
 			"A token (CNEK1-...) is the key rewritten as different text: hand it to players instead of the key.\n"
 			+ "They paste it into the prompt that opens an encrypted mod pack.",
-			12, 0xFFB0B0BE, false));
+			12, 0xFFFFFFFF, false));
 
 		track(g, new UIText(30, CONTENT_Y + 112, 60, "Key:", 14, 0xFFFFFFFF, false));
 		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, ScriptCrypto.getPassword(), 460));
@@ -260,14 +261,14 @@ class EncryptionEditor extends UIState {
 		track(g, new UIButton(800, CONTENT_Y + 156, "Copy Token", onCopyToken, 150, 32));
 
 		// -- the pack exporter itself
-		track(g, new UIText(30, CONTENT_Y + 206, FlxG.width - 60, "Encrypt a zip mod pack", 18, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 206, FlxG.width - 60, "Encrypt a zip mod pack", 18, 0xFFFFFFFF, false));
 
 		track(g, packModeStrong = new UIRadioButton(30, CONTENT_Y + 238, "Enhanced: CNE container (CNEZ, needs the key)", true, "packModeStrong", 540));
 		track(g, packModeStandard = new UIRadioButton(575, CONTENT_Y + 238, "Standard: password zip (AES-256)", false, "packModeStandard", 520));
 		packModeStrong.onChecked = function(_) selectPackMode(0);
 		packModeStandard.onChecked = function(_) selectPackMode(1);
 
-		track(g, packModeText = new UIText(30, CONTENT_Y + 272, FlxG.width - 70, packModeDescription(0), 13, 0xFFC8C8D2, false));
+		track(g, packModeText = new UIText(30, CONTENT_Y + 272, FlxG.width - 70, packModeDescription(0), 13, 0xFFFFFFFF, false));
 		packModeText.wordWrap = true;
 
 		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
@@ -276,14 +277,11 @@ class EncryptionEditor extends UIState {
 		// pack job progress, laid out like the loading screen the game shows when it
 		// decrypts a pack at start up. The row is invisible until a job needs it and
 		// updateJob() fades it in and out, so it never sits there as dead UI.
-		track(g, jobText = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFF9BE28C, false));
-		track(g, jobBarBg = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
-		track(g, jobBar = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
-		// scaling around the left edge keeps the bar growing to the right
-		jobBar.origin.set(0, 0);
-		jobBar.scale.x = 0.001;
-		jobText.alpha = jobBarBg.alpha = jobBar.alpha = 0;
-		jobBarBg.visible = jobBar.visible = false;
+		track(g, jobText = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFFFFFFFF, false));
+		track(g, jobBar = new PopupProgress(30, CONTENT_Y + 496, Std.int(FlxG.width - 60), 14));
+		jobText.alpha = jobBar.alpha = 0;
+		jobBar.visible = false;
+		jobText.visible = false;
 	}
 
 	// ------------------------------------------------------------- scripts tab
@@ -293,25 +291,25 @@ class EncryptionEditor extends UIState {
 		var panelH = FlxG.height - CONTENT_Y - 46;
 		if (panelH < 540) panelH = 540;
 
-		track(g, new FlxSprite(10, CONTENT_Y).makeSolid(Std.int(FlxG.width - 20), Std.int(panelH), 0xFF1B1B21));
+		track(g, new UISliceSprite(10, CONTENT_Y, Std.int(FlxG.width - 20), Std.int(panelH), 'editors/ui/context-bg'));
 
-		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Protect a script (.hx -> .hxb)", 18, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Protect a script (.hx -> .hxb)", 18, 0xFFFFFFFF, false));
 		var desc = new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
 			"Pick one protection mode first - it is required, exactly one of the two. The engine reads .hxb\n"
 			+ "transparently, so a protected script is a drop in replacement for the .hx it came from - same name,\n"
 			+ "different extension. Key mode also keeps a copy of the source, so Decrypt can turn the file back\n"
 			+ "into .hx. VM mode only stores bytecode, so the game runs it but Decrypt has nothing to write out.",
-			12, 0xFFB0B0BE, false);
+			12, 0xFFFFFFFF, false);
 		desc.wordWrap = true;
 		track(g, desc);
 
-		track(g, new UIText(30, CONTENT_Y + 108, FlxG.width - 60, "Protection mode - pick one (required):", 14, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 108, FlxG.width - 60, "Protection mode - pick one (required):", 14, 0xFFFFFFFF, false));
 		track(g, scModeKey = new UIRadioButton(30, CONTENT_Y + 136,
 			"Key encryption - ChaCha20 + HMAC tag, needs the key (source can be restored)", true, "scriptMode", 620));
 		track(g, scModeVM = new UIRadioButton(30, CONTENT_Y + 168,
 			"VM bytecode - compiled, with a per file opcode permutation (bytecode only)", false, "scriptMode", 620));
 
-		track(g, new UIText(30, CONTENT_Y + 204, FlxG.width - 60, "Extra layers - optional, they stack on the mode above:", 14, 0xFFFFE066, false));
+		track(g, new UIText(30, CONTENT_Y + 204, FlxG.width - 60, "Extra layers - optional, they stack on the mode above:", 14, 0xFFFFFFFF, false));
 		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 230, "Byte offset - the whole payload rotated by N bits", false, 540));
 		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 262, "Split - cut into pieces, shuffled, padding in between", false, 540));
 
@@ -330,7 +328,7 @@ class EncryptionEditor extends UIState {
 		track(g, new UIButton(30, CONTENT_Y + 386, "Choose .hx scripts and Encrypt...", encryptScripts, 420, 40));
 		track(g, new UIButton(460, CONTENT_Y + 386, "Choose .hxb and Decrypt...", decryptScripts, 440, 40));
 
-		track(g, scSummary = new UIText(30, CONTENT_Y + 438, FlxG.width - 60, "", 13, 0xFFC8C8D2, false));
+		track(g, scSummary = new UIText(30, CONTENT_Y + 438, FlxG.width - 60, "", 13, 0xFFFFFFFF, false));
 		scSummary.wordWrap = true;
 
 		// clicking the radio that is already selected would uncheck it, so both
@@ -342,13 +340,11 @@ class EncryptionEditor extends UIState {
 
 		// progress row for script jobs, mirrored from the Mod Pack tab but owned by
 		// this page so a job never shows itself on the wrong tab
-		track(g, jobText2 = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFF9BE28C, false));
-		track(g, jobBarBg2 = new FlxSprite(30, CONTENT_Y + 496).makeGraphic(Std.int(FlxG.width - 60), 18, 0xFF2A2A34));
-		track(g, jobBar2 = new FlxSprite(33, CONTENT_Y + 498).makeGraphic(Std.int(FlxG.width - 66), 14, 0xFF61C4FF));
-		jobBar2.origin.set(0, 0);
-		jobBar2.scale.x = 0.001;
-		jobText2.alpha = jobBarBg2.alpha = jobBar2.alpha = 0;
-		jobBarBg2.visible = jobBar2.visible = false;
+		track(g, jobText2 = new UIText(30, CONTENT_Y + 476, FlxG.width - 60, "", 13, 0xFFFFFFFF, false));
+		track(g, jobBar2 = new PopupProgress(30, CONTENT_Y + 496, Std.int(FlxG.width - 60), 14));
+		jobText2.alpha = jobBar2.alpha = 0;
+		jobBar2.visible = false;
+		jobText2.visible = false;
 
 		refreshScriptSummary();
 	}
@@ -507,7 +503,7 @@ class EncryptionEditor extends UIState {
 		jobHold = 0;
 		jobFadeTarget = 1;
 		eachJobText(function(t) {
-			t.color = 0xFF9BE28C;
+			t.color = 0xFFFFFFFF;
 			t.text = "0%  -  reading " + jobName + "...";
 		});
 		status((isEncryptKind(kind) ? "Protecting " : "Unprotecting ") + jobName + " ...");
@@ -643,10 +639,10 @@ class EncryptionEditor extends UIState {
 		helpViewH = FlxG.height - helpViewY - 44;
 		if (helpViewH < 80) helpViewH = 80;
 
-		track(g, new FlxSprite(10, CONTENT_Y).makeSolid(Std.int(FlxG.width - 20), Std.int(helpViewH + 40), 0xFF1B1B21));
-		track(g, new UIText(20, CONTENT_Y + 7, FlxG.width - 40, "Help & About", 14, 0xFFFFE066, false));
+		track(g, new UISliceSprite(10, CONTENT_Y, Std.int(FlxG.width - 20), Std.int(helpViewH + 40), 'editors/ui/context-bg'));
+		track(g, new UIText(20, CONTENT_Y + 7, FlxG.width - 40, "Help & About", 14, 0xFFFFFFFF, false));
 
-		track(g, helpText = new UIText(helpViewX, helpViewY, helpViewW, HELP_BODY, 13, 0xFFE0E0E8, false));
+		track(g, helpText = new UIText(helpViewX, helpViewY, helpViewW, HELP_BODY, 13, 0xFFFFFFFF, false));
 		helpText.wordWrap = true;
 		helpScroll = 0;
 		// the height of a wrapped text is only final once the font has been laid out,
@@ -1059,7 +1055,7 @@ class EncryptionEditor extends UIState {
 		jobHold = 0;
 		jobFadeTarget = 1;
 		eachJobText(function(t) {
-			t.color = 0xFF9BE28C;
+			t.color = 0xFFFFFFFF;
 			t.text = "0%  -  reading " + jobName + "...";
 		});
 		status((isEncryptKind(kind) ? "Encrypting " : "Decrypting ") + jobName + " ...");
@@ -1118,7 +1114,7 @@ class EncryptionEditor extends UIState {
 		var verb = isEncryptKind(jobKind) ? "encrypting" : "decrypting";
 
 		if (jobActive) {
-			eachJobBar(function(b) b.scale.x = Math.max(0.001, p));
+			eachJobBar(function(b) b.value = p);
 			eachJobText(function(t) t.text = percent + "  -  " + verb + " " + jobName + " ...");
 		}
 
@@ -1127,12 +1123,12 @@ class EncryptionEditor extends UIState {
 			jobHold = 2.5; // keep the result readable, then let the row fade away
 			if (jobError != null) {
 				eachJobText(function(t) {
-					t.color = 0xFFFF6B6B;
+					t.color = 0xFFFF0000;
 					t.text = "Failed: " + jobError;
 				});
 				status("Could not " + verb + " " + jobName + ": " + jobError);
 			} else {
-				eachJobBar(function(b) b.scale.x = 1);
+				eachJobBar(function(b) b.value = 1);
 				var size = 0.0;
 				try size = sys.FileSystem.stat(jobOut).size catch (e:Dynamic) {}
 				var amount = readableSize(size);
@@ -1154,10 +1150,6 @@ class EncryptionEditor extends UIState {
 			t.alpha = jobFade;
 			t.visible = shown;
 		});
-		eachJobBarBg(function(b) {
-			b.alpha = jobFade;
-			b.visible = shown;
-		});
 		eachJobBar(function(b) {
 			b.alpha = jobFade;
 			b.visible = shown;
@@ -1173,14 +1165,9 @@ class EncryptionEditor extends UIState {
 		if (jobText2 != null) callback(jobText2);
 	}
 
-	function eachJobBar(callback:FlxSprite->Void) {
+	function eachJobBar(callback:PopupProgress->Void) {
 		if (jobBar != null) callback(jobBar);
 		if (jobBar2 != null) callback(jobBar2);
-	}
-
-	function eachJobBarBg(callback:FlxSprite->Void) {
-		if (jobBarBg != null) callback(jobBarBg);
-		if (jobBarBg2 != null) callback(jobBarBg2);
 	}
 
 	/** Re-reads script_key.txt so an edited key file is used without a restart. */

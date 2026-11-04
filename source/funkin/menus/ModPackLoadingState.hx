@@ -4,7 +4,6 @@ import flixel.FlxG;
 import flixel.FlxSprite;
 import funkin.backend.assets.ModPackCrypto;
 import funkin.backend.system.MainState;
-import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
 import haxe.io.Path;
 
@@ -25,24 +24,17 @@ import haxe.io.Path;
  * Closing the window while this runs is handled by ModPackCrypto.installCloseVeto: it
  * pauses the pass first, asks, and resumes or exits.
  */
-class ModPackLoadingState extends UIState {
-	static inline var MARGIN:Int = 40;
+class ModPackLoadingState extends PopupScreen {
 	/** One start in this many shows the little animation (see maybeAddEasterEgg). */
 	static inline var EASTER_EGG_CHANCE:Int = 20;
 
-	static inline var BAR_BACK:Int = 0xFF2A2A34;
-	static inline var BAR_MAIN:Int = 0xFF61C4FF;
-	static inline var RULE:Int = 0xFF2A2A34;
-
 	public var packs:Array<String> = [];
-	public var bar:FlxSprite;
-	public var percentText:UIText;
-	public var packText:UIText;
-	public var hintText:UIText;
+	public var bar:PopupProgress;
+	public var statusText:UIText;
 	public var etaText:UIText;
+	public var hintText:UIText;
 	public var finished:Bool = false;
 	public var startedAt:Float = 0;
-	public var barWidth:Int = 0;
 
 	// the estimate leans on the raw ratio and smooths it: only part of the pass is linear
 	// (the cipher reads at a steady rate, the key derivation is a one-off cost)
@@ -56,7 +48,6 @@ class ModPackLoadingState extends UIState {
 
 	override function create() {
 		super.create();
-		FlxG.camera.bgColor = 0xFF101017;
 
 		var names = "";
 		for (p in packs) {
@@ -65,36 +56,27 @@ class ModPackLoadingState extends UIState {
 		}
 		if (packs.length > 4) names = packs.length + " mod packs";
 
-		final w = FlxG.width - MARGIN * 2;
+		beginPanel("Unlocking mod pack", 720);
+		addText("The pack is decrypted into memory so the engine can read it. Nothing is written to disk, "
+			+ "so this pass runs on every start for as long as the pack stays loaded.", 13, PopupScreen.COLOR_TEXT, 16);
+		addText("Pack: " + names, 15, PopupScreen.COLOR_TEXT, 20);
 
-		// header: title, what this screen does, which pack it is about
-		add(new UIText(MARGIN, 48, w, "Unlocking mod pack", 40, 0xFFFFE066, false));
-		add(new UIText(MARGIN, 110, w,
-			"Decrypting the pack into memory so the engine can read it. Nothing is written to disk,\n"
-			+ "so this pass runs on every start and for as long as the pack stays loaded.",
-			14, 0xFFB0B0BE, false));
-		add(packText = new UIText(MARGIN, 158, w, "Pack: " + names, 16, 0xFFFFFFFF, false));
+		bar = addProgress(14);
 
-		// the pass, thick
-		barWidth = w;
-		add(new FlxSprite(MARGIN, 190).makeGraphic(w, 38, BAR_BACK));
-		bar = new FlxSprite(MARGIN + 4, 194).makeGraphic(w - 8, 30, BAR_MAIN);
-		// scale around the left edge, otherwise the bar grows from the middle outwards
-		bar.origin.set(0, 0);
-		bar.scale.x = 0.001;
-		add(bar);
+		// one line kept for the pack currently being read, so the panel does not jump
+		statusText = new UIText(contentX, row(18), contentW, "", 13, PopupScreen.COLOR_INFO);
+		place(statusText);
 
-		// estimate on the left, the percentage on the right
-		add(etaText = new UIText(MARGIN, 236, Std.int(w * 0.7), "", 13, 0xFF7A7A88, false));
-		add(percentText = new UIText(MARGIN, 236, w, "0%", 15, 0xFF9BE28C, false));
-		percentText.alignment = RIGHT;
+		etaText = addText("Estimating the time left...", 13, PopupScreen.COLOR_TEXT, 12);
+		hintText = addText("Working...", 13, PopupScreen.COLOR_TEXT, 12);
 
-		maybeAddEasterEgg();
+		var egg = maybeAddEasterEgg();
+		if (egg != null) {
+			egg.setPosition(contentX + (contentW - egg.width) / 2, row(egg.height, 0));
+			place(egg);
+		}
 
-		// footer: the animated hint sits bottom right, the rule closes the screen off
-		add(hintText = new UIText(MARGIN, FlxG.height - 74, w, "Working...", 13, 0xFF7A7A88, false));
-		hintText.alignment = RIGHT;
-		add(new FlxSprite(MARGIN, FlxG.height - 40).makeGraphic(w, 2, RULE));
+		endPanel();
 
 		startedAt = 0;
 		elapsedTotal = 0;
@@ -107,8 +89,9 @@ class ModPackLoadingState extends UIState {
 		var p = ModPackCrypto.progress;
 		if (p < 0) p = 0;
 		if (p > 1) p = 1;
-		bar.scale.x = Math.max(0.001, p);
-		percentText.text = Std.int(p * 100) + "%" + (ModPackCrypto.progressLabel.length > 0 ? "  -  " + ModPackCrypto.progressLabel : "");
+		bar.value = p;
+		progressLabel.text = Std.int(p * 100) + "%";
+		statusText.text = ModPackCrypto.progressLabel;
 
 		elapsedTotal += elapsed;
 		var eta = EtaFrom(elapsedTotal, p, etaSmooth);
@@ -159,30 +142,29 @@ class ModPackLoadingState extends UIState {
 	}
 
 	/**
-	 * One start in EASTER_EGG_CHANCE shows the little desk animation in the empty lower
-	 * half. Wrapped in try/catch on purpose: a missing or broken sheet must not cost the
-	 * player their load.
+	 * One start in EASTER_EGG_CHANCE returns the little desk animation. Wrapped in
+	 * try/catch on purpose: a missing or broken sheet must not cost the player their load.
 	 */
-	function maybeAddEasterEgg() {
-		if (FlxG.random.int(1, EASTER_EGG_CHANCE) != 1) return;
+	function maybeAddEasterEgg():FlxSprite {
+		if (FlxG.random.int(1, EASTER_EGG_CHANCE) != 1) return null;
 
 		var frames:flixel.graphics.frames.FlxAtlasFrames = null;
 		try {
 			frames = Paths.getSparrowAtlas('menus/packDeskMeme');
 		} catch (e:Dynamic) {
 			Logs.warn('The loading screen animation is missing: ' + e);
-			return;
+			return null;
 		}
-		if (frames == null || frames.frames == null || frames.frames.length == 0) return;
+		if (frames == null || frames.frames == null || frames.frames.length == 0) return null;
 
 		final size = 170;
-		var spr = new FlxSprite(MARGIN, 380);
+		var spr = new FlxSprite(0, 0);
 		spr.frames = frames;
 		spr.animation.addByPrefix('idle', 'frame', 30, true);
 		spr.animation.play('idle');
 		spr.antialiasing = false;
 		spr.setGraphicSize(size, size);
 		spr.updateHitbox();
-		add(spr);
+		return spr;
 	}
 }

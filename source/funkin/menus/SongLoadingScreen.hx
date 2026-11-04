@@ -2,14 +2,12 @@ package funkin.menus;
 
 import animate.FlxAnimateFrames;
 import flixel.FlxG;
-import flixel.FlxSprite;
 import flixel.graphics.FlxGraphic;
 import flixel.graphics.frames.FlxFramesCollection;
 import flixel.sound.FlxSoundData;
 import funkin.backend.MusicBeatState;
 import funkin.backend.assets.Paths;
 import funkin.backend.chart.ChartData;
-import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
 import funkin.game.Character;
 import funkin.game.PlayState;
@@ -37,7 +35,7 @@ typedef LoadStep = {
  * Turn it off with `SongLoadingScreen.enabled = false`; every entry point then goes
  * straight to `PlayState` like the vanilla engine did.
  */
-class SongLoadingScreen extends UIState {
+class SongLoadingScreen extends PopupScreen {
 	/**
 	 * Set to false to skip this screen entirely.
 	 */
@@ -127,11 +125,8 @@ class SongLoadingScreen extends UIState {
 	}
 
 	// ---- ui ----
-	var bar:FlxSprite;
-	var percentText:UIText;
+	var bar:PopupProgress;
 	var stepText:UIText;
-	var songText:UIText;
-	var barWidth:Int = 0;
 
 	// ---- work ----
 	var queue:Array<LoadStep> = [];
@@ -151,23 +146,13 @@ class SongLoadingScreen extends UIState {
 		// one, so let go of them here rather than growing the cache forever
 		releaseHeld();
 
-		FlxG.camera.bgColor = 0xFF101017;
-
 		var songName = PlayState.SONG != null && PlayState.SONG.meta != null ? PlayState.SONG.meta.name : "song";
 
-		add(new UIText(40, 60, FlxG.width - 80, "Loading", 26, 0xFFFFE066, false));
-		add(songText = new UIText(40, 100, FlxG.width - 80, songName, 15, 0xFFB0B0BE, false));
-
-		barWidth = FlxG.width - 80;
-		add(new FlxSprite(40, 210).makeGraphic(barWidth, 22, 0xFF2A2A34));
-		bar = new FlxSprite(43, 213).makeGraphic(Std.int(barWidth - 6), 16, 0xFF61C4FF);
-		// scale around the left edge, otherwise the bar grows from the middle outwards
-		bar.origin.set(0, 0);
-		bar.scale.x = 0.001;
-		add(bar);
-
-		add(percentText = new UIText(40, 244, FlxG.width - 80, "0%", 15, 0xFF9BE28C, false));
-		add(stepText = new UIText(40, 274, FlxG.width - 80, "Preparing...", 13, 0xFF7A7A88, false));
+		beginPanel("Loading song", 720);
+		addText(songName, 15, PopupScreen.COLOR_TEXT, 16);
+		bar = addProgress(14);
+		stepText = addText("Preparing...", 13, PopupScreen.COLOR_TEXT, 0);
+		endPanel();
 
 		#if sys final queueStart = Sys.time(); #end
 		buildQueue();
@@ -207,8 +192,8 @@ class SongLoadingScreen extends UIState {
 
 	function updateBar() {
 		final p = totalSteps == 0 ? 1.0 : (doneSteps / totalSteps);
-		bar.scale.x = Math.max(0.001, p);
-		percentText.text = Std.int(p * 100) + "%";
+		bar.value = p;
+		if (progressLabel != null) progressLabel.text = Std.int(p * 100) + "%";
 	}
 
 	function finish() {

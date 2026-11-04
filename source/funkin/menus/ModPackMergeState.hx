@@ -1,9 +1,6 @@
 package funkin.menus;
 
-import flixel.FlxG;
-import flixel.FlxSprite;
 import funkin.backend.assets.ZipEditCache;
-import funkin.editors.ui.UIState;
 import funkin.editors.ui.UIText;
 
 /**
@@ -17,8 +14,7 @@ import funkin.editors.ui.UIText;
  * A failed merge still continues: the staged files are left on disk on purpose, so the
  * player keeps their work.
  */
-class ModPackMergeState extends UIState {
-	static inline var MARGIN:Int = 40;
+class ModPackMergeState extends PopupScreen {
 	/** How long a finished merge stays up before the next screen, in seconds. */
 	static inline var MIN_VISIBLE:Float = 0.4;
 	static inline var ERROR_VISIBLE:Float = 3;
@@ -28,8 +24,7 @@ class ModPackMergeState extends UIState {
 
 	public var statusText:UIText;
 	public var hintText:UIText;
-	public var barBg:FlxSprite;
-	public var bar:FlxSprite;
+	public var bar:PopupProgress;
 	public var done:Bool = false;
 	public var waited:Float = 0;
 	public var finishedAt:Float = -1;
@@ -43,26 +38,16 @@ class ModPackMergeState extends UIState {
 
 	override function create() {
 		super.create();
-		FlxG.camera.bgColor = 0xFF101017;
 
-		final w = FlxG.width - MARGIN * 2;
-		add(new UIText(MARGIN, 176, w, "Merging staged files", 34, 0xFFFFE066, false));
-		add(new UIText(MARGIN, 226, w,
-			'The files saved for "$mod" are written into its pack now.\n'
-			+ "The whole archive is rewritten, so this takes a moment on a big mod.",
-			14, 0xFFB0B0BE, false));
+		beginPanel("Merging staged files", 720);
+		addText('The files saved for "$mod" are written into its pack now. The whole archive is rewritten, '
+			+ "so this takes a moment on a big mod.", 13, PopupScreen.COLOR_TEXT, 16);
 
-		add(statusText = new UIText(MARGIN, 300, w, ZipEditCache.mergeMessage, 15, 0xFF9BE28C, false));
-		add(hintText = new UIText(MARGIN, 336, w, "", 13, 0xFF7A7A88, false));
-
-		// a merge is seconds of work with nothing else moving; the bar is the only sign
-		add(barBg = new FlxSprite(MARGIN, 380).makeGraphic(w, 18, 0xFF2A2A34));
-		add(bar = new FlxSprite(MARGIN + 2, 382).makeGraphic(w - 4, 14, 0xFF61C4FF));
-		// scaling around the left edge keeps the bar growing to the right
-		bar.origin.set(0, 0);
-		bar.scale.x = 0.001;
-
-		add(new FlxSprite(MARGIN, FlxG.height - 40).makeGraphic(w, 2, 0xFF2A2A34));
+		bar = addProgress(14);
+		// the real message is only set once startMergeAsync runs, below
+		statusText = addText("Reading the staged files", 13, PopupScreen.COLOR_INFO, 10);
+		hintText = addText("Working", 13, PopupScreen.COLOR_TEXT, 0);
+		endPanel();
 
 		ZipEditCache.startMergeAsync(mod);
 	}
@@ -73,7 +58,7 @@ class ModPackMergeState extends UIState {
 
 		if (statusText != null) {
 			statusText.text = ZipEditCache.mergeMessage;
-			statusText.color = ZipEditCache.mergeFailed ? 0xFFFF5A5A : 0xFF9BE28C;
+			statusText.color = ZipEditCache.mergeFailed ? PopupScreen.COLOR_ERROR : PopupScreen.COLOR_INFO;
 		}
 		if (hintText != null) {
 			var dots = ".".repeat(Std.int(waited * 2) % 4);
@@ -81,7 +66,10 @@ class ModPackMergeState extends UIState {
 				? "The staged files were left on disk, so nothing was lost."
 				: "Working" + dots;
 		}
-		if (bar != null) bar.scale.x = Math.max(0.001, Math.min(1, ZipEditCache.mergeProgress));
+		if (bar != null) {
+			bar.value = Math.min(1, ZipEditCache.mergeProgress);
+			if (progressLabel != null) progressLabel.text = Std.int(bar.value * 100) + "%";
+		}
 
 		if (!ZipEditCache.mergeDone) {
 			finishedAt = -1;

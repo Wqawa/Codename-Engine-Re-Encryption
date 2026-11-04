@@ -1,11 +1,9 @@
 package funkin.menus;
 
 import flixel.FlxG;
-import flixel.FlxSprite;
 import flixel.FlxState;
-import flixel.text.FlxText;
-import funkin.backend.MusicBeatState;
 import funkin.backend.system.IntegrityCheck;
+import funkin.editors.ui.UIText;
 import funkin.editors.ui.UIWarningSubstate;
 import funkin.editors.ui.UIWarningSubstate.UIWarningKind;
 
@@ -17,12 +15,12 @@ import funkin.editors.ui.UIWarningSubstate.UIWarningKind;
  * check finishes, the result (if any) is shown and the screen hands over to whatever
  * would have come next.
  */
-class IntegrityScreen extends MusicBeatState {
+class IntegrityScreen extends PopupScreen {
 	var work:Array<String>;
 	var locked:Array<String>;
 
-	var fill:FlxSprite;
-	var info:FlxText;
+	var bar:PopupProgress;
+	var info:UIText;
 
 	var movingOn:Bool = false;
 
@@ -35,26 +33,12 @@ class IntegrityScreen extends MusicBeatState {
 	override function create() {
 		super.create();
 
-		add(new FlxSprite(0, 0).makeGraphic(FlxG.width, FlxG.height, 0xFF101014));
-
-		var title = new FlxText(0, FlxG.height * 0.5 - 58, FlxG.width, "Checking game files", 22);
-		title.alignment = 'center';
-		add(title);
-
-		var barW = 420;
-		var barX = (FlxG.width - barW) * 0.5;
-		var barY = FlxG.height * 0.5 + 4;
-
-		add(new FlxSprite(barX, barY).makeGraphic(barW, 6, 0xFF2A2A33));
-
-		fill = new FlxSprite(barX, barY).makeGraphic(barW, 6, 0xFF4D9EFF);
-		fill.scale.x = 0;
-		add(fill);
-
-		info = new FlxText(0, barY + 20, FlxG.width, "", 13);
-		info.alignment = 'center';
-		info.color = 0xFF8A8A96;
-		add(info);
+		beginPanel("Checking game files", 640);
+		addText("Every shipped file is compared against the manifest before anything else starts. "
+			+ "The game keeps running either way.", 13, PopupScreen.COLOR_TEXT, 16);
+		bar = addProgress(14);
+		info = addText("0 / 0", 13, PopupScreen.COLOR_TEXT, 0);
+		endPanel();
 
 		// already running when the window opened; the call is a no-op then
 		IntegrityCheck.startVerify();
@@ -63,8 +47,10 @@ class IntegrityScreen extends MusicBeatState {
 	override function update(elapsed:Float) {
 		super.update(elapsed);
 
-		var total = IntegrityCheck.total;
-		fill.scale.x = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));
+		final total = IntegrityCheck.total;
+		final fraction = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));
+		bar.value = fraction;
+		if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
 		info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
 
 		if (movingOn || !IntegrityCheck.done) return;
