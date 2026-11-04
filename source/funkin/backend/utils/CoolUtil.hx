@@ -144,8 +144,19 @@ final class CoolUtil
 			if(content is Bytes) sys.io.File.saveBytes(path, content);
 			else sys.io.File.saveContent(path, content);
 		} catch(e) {
-			var errMsg:String = 'Error while trying to save the file: ${Std.string(e).replace('\n', ' ')}';
+			// the box disappears with the click, so it names the file and the reason, and a
+			// copy goes next to the log: "could not save" without the path is unactionable
+			var reason:String = Std.string(e).replace('\n', ' ');
+			var errMsg:String = 'Error while trying to save the file:\n$path\n$reason';
 			Logs.error(errMsg);
+			#if sys
+			try {
+				funkin.backend.system.RuntimeDirs.ensure(funkin.backend.system.RuntimeDirs.LOGS);
+				var out = sys.io.File.append(funkin.backend.system.RuntimeDirs.LOGS + 'save-errors.log', false);
+				out.writeString('${Date.now()}  $path\n    $reason\n');
+				out.close();
+			} catch (e2:Dynamic) {}
+			#end
 			if(showErrorBox) funkin.backend.utils.NativeAPI.showMessageBox("Codename Engine Warning", errMsg, MSG_WARNING);
 		}
 		#end

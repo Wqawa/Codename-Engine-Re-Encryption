@@ -280,12 +280,19 @@ class Chart {
 		#if sys
 		var songPath = saveSettings.songFolder == null ? 'songs/${chart.meta.name}' : saveSettings.songFolder, variantSuffix = variant != null && variant != "" ? '-$variant' : "", difficultySuffix = difficulty != null && difficulty != "" ? '-$difficulty' : "";
 		var metaPath = 'meta$variantSuffix.json', altMetaPath = 'meta${variantSuffix}${difficultySuffix}.json', prettyPrint = saveSettings.prettyPrint == true ? Flags.JSON_PRETTY_PRINT : null, temp:String;
+		// A packed mod has exactly one writable place, its staging folder (.cne/mods/<mod>/).
+		// Asking the asset tree there only ever answers with the archive (not writable) or
+		// with the staging file itself, and the paths it produced carried a doubled
+		// separator. Skip the guessing and go straight to the one place that can be written.
+		if (saveSettings.songFolder == null && funkin.backend.assets.ZipEditCache.isPackedMod(funkin.backend.assets.ModsFolder.currentModFolder)) {
+			metaPath = (songPath = '${Paths.getAssetsRoot()}$songPath') + '/$metaPath';
+		}
 		// A path resolved inside a compressed library (a .zip mod, or an encrypted one
 		// decrypted into memory) looks like "./mods/x.zip/songs/song/meta.json"
 		// but is virtual: it exists as an asset yet cannot be written to. Only trust a
 		// resolved path when its folder really exists on disk, otherwise fall back to
 		// saving next to the pack (mods/<mod name>/...), like the editors do.
-		if ((temp = Paths.assetsTree.getPath('assets/$songPath/$altMetaPath')) != null && isWritablePath(temp)) { //check for difficulty specific
+		else if ((temp = Paths.assetsTree.getPath('assets/$songPath/$altMetaPath')) != null && isWritablePath(temp)) { //check for difficulty specific
 			songPath = temp.substr(0, temp.length - altMetaPath.length - 1);
 			metaPath = temp;
 		}
