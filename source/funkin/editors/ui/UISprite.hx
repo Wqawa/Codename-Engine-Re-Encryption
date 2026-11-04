@@ -76,7 +76,13 @@ class UISprite extends FlxSprite {
 
 	public function drawSuper() {
 		super.draw();
-		__lastDrawCameras = cameras.copy();
+		// Reuse the buffer instead of `cameras.copy()`: a widget is drawn once per camera
+		// per frame, so an editor screen with a few hundred widgets used to allocate a few
+		// hundred small arrays per frame for one hit test.
+		var drawn:Array<FlxCamera> = cameras;
+		final count = drawn == null ? 0 : drawn.length;
+		__lastDrawCameras.resize(count);
+		for (i in 0...count) __lastDrawCameras[i] = drawn[i];
 	}
 
 	public function drawMembers() {

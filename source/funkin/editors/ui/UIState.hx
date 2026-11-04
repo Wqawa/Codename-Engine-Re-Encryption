@@ -35,7 +35,14 @@ class UIState extends MusicBeatState {
 	private var __rect:FlxRect;
 	private var __mousePos:FlxPoint;
 
-	static var __point:FlxPoint = new FlxPoint();
+	// Mouse position per camera, computed once per frame. isOverlapping() runs for every
+	// hoverable widget every frame and used to redo the same camera transform each time;
+	// an editor screen with a few hundred widgets meant a few hundred matrix transforms
+	// per frame to answer one question.
+	private var __mouseCam:FlxCamera = null;
+	private var __mouseCamPos:FlxPoint = new FlxPoint();
+	private var __mouseFrame:Int = -1;
+	private var __frameId:Int = 0;
 
 	public override function create() {
 		__rect = new FlxRect();
@@ -80,9 +87,19 @@ class UIState extends MusicBeatState {
 		updateRectButtonHandler(spr, spr.__rect, buttonHandler);
 	}
 
+	/** Mouse position in a camera's screen space, computed once per camera per frame. */
+	public function mousePosition(camera:FlxCamera):FlxPoint {
+		if (camera != __mouseCam || __mouseFrame != __frameId) {
+			__mouseCam = camera;
+			__mouseFrame = __frameId;
+			FlxG.mouse.getScreenPosition(camera, __mouseCamPos);
+		}
+		return __mouseCamPos;
+	}
+
 	public function isOverlapping(spr:UISprite, rect:FlxRect) {
 		for(camera in spr.__lastDrawCameras) {
-			var pos = FlxG.mouse.getScreenPosition(camera, __point);
+			var pos = mousePosition(camera);
 			__rect.copyFrom(rect);
 
 			__rect.x = __rect.x - camera.scroll.x * spr.scrollFactor.x;
@@ -104,6 +121,7 @@ class UIState extends MusicBeatState {
 	}
 
 	public override function tryUpdate(elapsed:Float) {
+		__frameId++;
 		FlxG.mouse.getScreenPosition(FlxG.camera, __mousePos);
 
 		super.tryUpdate(elapsed);
