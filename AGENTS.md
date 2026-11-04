@@ -14,14 +14,17 @@
 | --- | --- | --- |
 | `README.md` | 仓库门面：本 fork 是什么、新增了什么、构建方法、上游 Usage Info / Credits | 本 fork 维护（英文） |
 | `docs/RE-ENCRYPTION.md` | 加密功能说明书：容器格式、脚本四层、密钥与 token、编辑器用法、能力边界 | 本 fork 维护（中文，源码注释为英文） |
-| `docs/ARCHITECTURE.md` | 架构接缝图：42 个新增文件的分组、17 个官方文件接缝点（文件 + 调用函数）、启动到播放的调用链、数据在磁盘/内存的位置 | 本 fork 维护（中文）；改接缝点必须同步这张表 |
+| `docs/ARCHITECTURE.md` | 架构接缝图：42 个新增文件的分组、20 个官方文件接缝点（文件 + 调用函数）、启动到播放的调用链、数据在磁盘/内存的位置 | 本 fork 维护（中文）；改接缝点必须同步这张表 |
 | `docs/INTEGRITY.md` | 完整性校验：清单格式与签名、启动校验流程、差异分类、**防得住什么/防不住什么** | 本 fork 维护（中文）；每次构建后要重新生成清单 |
+| `docs/SESSION_CHANGES.md` | 本轮改动记录：按功能分组记"改了什么、为什么"，以及明确没做的项 | 本 fork 维护（中文） |
+| `docs/CODE_MAP.md` / `CODE_MAP.html` | 代码地图：包结构与各层职责、fork 新增文件落在哪 | 本 fork 维护（中文） |
 | `AGENTS.md` | 本文件：协作规则、交付清单、构建备忘、文档地图 | 本 fork 维护 |
 | `FEATURES.md` / `CHANGELOG.md` / `PATCHNOTES.md` | 上游 1.1.0 原文 | **上游，不改正文** |
 | `building/README.md` | 上游编译指南 | **上游，不改正文** |
 | `building/generate-docs-windows.bat` / `libs.xml` | 上游文档生成脚本与库清单（`cne build/test/release/setup/run/optimize` 的库表在 `libs.xml`） | **上游，不改** |
 | `building/cne-windows.bat` / `setup-windows.bat` | 上游 CLI 包装（各两行，`haxe -cp commandline --run Main ...`） | **本 fork 已删除**：职责由 `building/Build.bat` 接管（首参是 `setup/help/test/build/run/release/test-release/optimize` 时转交引擎命令行；缺库时自动跑 `setup`）。恢复：`git checkout baseline/upstream-1.1.0 -- building/cne-windows.bat building/setup-windows.bat` |
 | `building/*-unix.sh` | 上游 unix 辅助脚本 | **本 fork 已删除**（职责由下面的 `build-linux.sh` / `build-macos.sh` 接管；恢复见下） |
+| `source/funkin/menus/PlaytestingWarningSubstate.hx` | 上游的旧版未保存提示（Alphabet 标题 + 红黄文字选项） | **本 fork 已删除**：试玩退出也走 `SaveWarning` 的同一个对话框，它成了没人画的死代码。恢复：`git checkout baseline/upstream-1.1.0 -- source/funkin/menus/PlaytestingWarningSubstate.hx` |
 | `building/lazy-build.md` + `building/{Build.bat,lazy-build.ps1}` | 一键编译包：双击即装工具链、按 `libs.xml`/`project.xml` 查库并调引擎 `setup` 命令补齐（只有真补过库才问一句是否编译）、检查库/ndll/MSVC、编译、报错翻译；另接管上游 `cne-windows.bat` 的子命令转交 | 本 fork 新增（中文说明，脚本注释为英文） |
 | `building/build-{linux,macos}.sh` | 同一套六步流程的 Unix 版：找/下载工具链、按 `libs.xml` 补库、查 lime 原生库、查 g++/clang（macOS 查 Xcode）、编译、验收；`--bootstrap-tools` / `--arch` / `--yes` 供 CI 使用 | 本 fork 新增（脚本注释为英文） |
 | `building/.gitignore` | 排除 `building/toolchain/`（下载的工具链）与 `building/logs/` | 本 fork 新增 |
@@ -84,3 +87,18 @@ haxelib run lime build windows -nocolor   # 构建前先关掉运行中的 Coden
 - 引擎仓库：回退单个提交用 `git revert <sha>`；整树回到纯 1.1.0 用 `git reset --hard baseline/upstream-1.1.0`（tag 可用，指向 `112aa91`）。
 - 远端只保留 `main`（2026-10 清理）。原先记录的 17 个远端分支（`archive/*`、`al-mobile`、`old`、`strum-divorce` 等）用本地 tag `backup/remote/<原分支名>` 存 SHA，但**这批 tag 已丢失**（2026-11-01 仓库就地重建时未保留，远端也没有推送过），现在没有 SHA 就无法定位恢复，不要再去找这批 tag。
 - 迁移来源仓库 `D:/FNF/FNF code/_mig`（`558aa9a` = upstream v1.0.1，`7cd0863` = 用户改动树）、用户 1.0.1 参考树 `D:/FNF/FNF code/old`：**本机已不存在**，此处只作历史记录。
+
+## 6. 发版
+
+- 版本号只有一处：`source/funkin/backend/system/Flags.hx` 的 `FORK_VERSION`（主界面左下角
+  `CNE Re-Encryption vX.Y.Z`）。引擎自己的 `VERSION`（`project.xml` 的 1.1.0）**不要动**——
+  它喂给脚本 define `CODENAME_VER` 和更新器的 tag 比较。
+- tag 用轻量的 `re_vX.Y.Z`，指在发版那次提交上（参照 `re_v0.0.1` / `re_v0.0.2`）。
+- 包名 `CNE-Re-Encryption-vX.Y.Z-Windows.zip`，内容取 `export/release/windows/bin`：
+  `CodenameEngine.exe`、`lime.ndll`、`libvlc*.dll`、`assets/`、`plugins/`、`manifest/`、
+  `mods/readme.txt`。**不带** `mods/` 里的测试包、`.cne/`、`*.dmp`、`imgui.ini`；
+  文件平铺在压缩包根，和 0.0.1 一致。
+- 打包前在**发布目录里**跑一次 `CodenameEngine.exe --generate-integrity`，让 `integrity.dat`
+  描述的就是这一份文件，否则首启报"exe 与清单不符"（`exeDiffers` 只跳过 exe 那一行，不会静默）。
+- 发布说明分四块：新增 / 修复（按主题分组）/ 性能 / 已知限制，末尾给
+  `compare/<上一版 tag>...<本版 tag>` 链接。

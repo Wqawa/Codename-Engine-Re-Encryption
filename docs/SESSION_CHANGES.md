@@ -83,10 +83,57 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 
 ---
 
-## 七、没做的
+## 七、11-04 的界面、保存与自检
+
+**界面统一**（`menus/PopupScreen`、`menus/PopupProgress`）
+
+- 启动校验、密码输入、解密进度、清理、合并、进歌加载六个屏原来各画各的：近黑背景、黄色标题、
+  灰正文、手搓蓝条。现在共用同一套外壳：原版 `normal-popup` 九宫格 + 30px 标题栏 + 25px 内边距 +
+  `UIWarningSubstate` 那一排 160×30 按钮；进度条照 `UISlider` 画（浅灰描边 + `#140013` 槽 +
+  紫色填充），只读并把自己的 alpha/visible 传给填充。
+- 行高按 `UIText.height` 实测累加，面板建完再按内容居中，不再依赖 1280×720 坐标。
+- `EncryptionEditor` 三页的实心面板换 `context-bg` 九宫格，黄标题/灰正文改白，两条任务进度条换
+  `PopupProgress`，`jobBarBg` 那对重复精灵删掉。
+
+**未保存提示**
+
+- 试玩里的提示原来走 `PlayState.saveWarn` → 旧的 `PlaytestingWarningSubstate`（另一套外观），
+  而 `triggerWarning` 在非 `UIState` 下还会再开一个通用对话框，两个叠在一起；连点两次 X 既会
+  继续叠加，也会被 `WindowUtils` 的"第二次放行"规则绕过直接退出。现在只有一个对话框：
+  试玩转调同一个 `triggerWarning`，提示开着时窗口关不掉，也不会出现第二个。
+- 提示叠在暂停菜单上而不是顶掉它。`FlxState.openSubState` 会**销毁**已有的 substate，
+  之前从暂停菜单关窗口会把暂停菜单销毁，点取消就等于取消暂停。
+
+**保存进包**
+
+- "保存并退出"只写暂存目录，压缩包永远不更新。关窗口的保存路径补上了合并
+  （`ModPackMergeState`，异步带进度），顺序是"先合并 → 再清理解密 → 最后退出"。
+- 未加密 `.zip` 的合并**从来没成功过**：资源库开着文件句柄，Windows 不允许 rename
+  被打开的文件（实测 `Permission denied`）。现在合并前让库松手
+  （`SysZip.releaseHandleForReplace` / `ZipFolderLibrary.releaseForReplace`），换完再重读新包。
+- 打包 mod 的谱面保存不再经资源树推算，直接写 `Paths.getAssetsRoot()`（唯一可写位置）。
+- 保存失败原来只弹一句没有路径的原生框；现在写明路径，并记到 `.cne/logs/save-errors.log`。
+
+**自检结果**
+
+- 结果弹窗按类型分段：缺失红、已修改琥珀、未列出蓝；段头带数量，段内先给 4 个文件名，
+  其余折成 `... and N more`，说明文字用灰。完整列表写日志（每类上限 40 条）。
+- 实现是 `UIWarningSubstate` 新增的 `lines` 参数（每行自带颜色/字号/间距），面板按实测行高
+  撑开；普通单段消息仍走原来的 `message`，其他对话框不受影响。
+
+**性能**
+
+- 调试 HUD 六个面板不再每帧重建字符串并重排文本（按 1–15 Hz 刷新），内存计数也不再每帧查
+  一次系统调用；编辑器控件层去掉每帧的数组分配和重复的鼠标坐标变换；日志文件从"每行开→写→关"
+  改成常开句柄 + 每行 flush。
+
+---
+
+## 八、没做的
 
 | 项 | 状态 |
 | --- | --- |
 | `UIWarningSubstate.wantsInput` | 接口在，目前没有调用方 |
 | 加密包内部条目被增删 | 检测不到。清单按文件校验，`mods/x.zip` 整体算一个文件 |
 | `assets/` 之外的文件 | 不校验。`saves/`、`options/` 是玩家数据，`mods/` 是玩家内容 |
+| "保存并退出到菜单"当场合并 | 不做。运行中的 mod 正被资源库读着（文件句柄或内存里的解密副本），当场重写会让之后读到的资源和包对不上；合并只在关闭游戏或切换 mod 时做，暂存目录在那之前就是可读的 |

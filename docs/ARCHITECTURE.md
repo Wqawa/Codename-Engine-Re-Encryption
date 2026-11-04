@@ -2,15 +2,16 @@
 
 这份文档回答一个问题：**加密功能和官方引擎到底在哪几处接上的。**
 
-实现是外挂式的：42 个新增文件承担全部逻辑，官方文件只做定点注入。但注入点散在 52 个文件里，
+实现是外挂式的：42 个新增文件承担全部逻辑，官方文件只做定点注入。但改动散在几十个官方文件里，
 时间一长就看不出边界了。这里按模块列一遍，改功能前先查这张表。
 
 > 表里写**文件和函数名**，不写行号。行号每次改动都会漂，写死只会得到一份过期的表；
-> 找调用点用 `grep -n "ModPackCrypto\." <文件>`。
+> 找调用点用 `grep -n "ModPackCrypto\." <文件>`。文件数同理，要现成的数字就跑
+> `git diff --name-only baseline/upstream-1.1.0..HEAD -- source`。
 
 ---
 
-## 1. 新增文件：42 个，按职责分六组
+## 1. 新增文件：42 个，按职责分七组
 
 | 组 | 文件 | 职责 |
 | --- | --- | --- |
@@ -34,7 +35,7 @@
 
 ---
 
-## 2. 官方文件的接缝点：17 个
+## 2. 官方文件的接缝点：20 个
 
 只列**直接调用新功能 API** 的位置。
 
@@ -57,6 +58,8 @@
 | | `ScriptCrypto.PROTECTED_SUFFIX` | 找资源时连带查 `.hxb` 版本 |
 | `assets/ModsFolderLibrary.hx` | `PROTECTED_SUFFIX` | 库列表里识别受保护脚本 |
 | `assets/ZipFolderLibrary.hx` | `SysZip` / `SysZipEntry` | 官方原本用 `haxe.zip.Reader`，这里换成可随机访问的 `SysZip` |
+| | `releaseForReplace()` / `reopenAfterReplace()` | 合并要 rename 换包，Windows 不允许 rename 被打开的文件；由 `ZipEditCache.replaceWith` 先松手、换完重读新包 |
+| `backend/chart/Chart.hx` | `ZipEditCache.isPackedMod` / `Paths.getAssetsRoot()` | 打包 mod 只有一个可写位置（暂存目录），保存不再经资源树推算 |
 | `backend/scripting/HScript.hx` | `for (suffix in ["", PROTECTED_SUFFIX])` | 加载 `.hx` 时先找 `.hxb`，找到就走解密 |
 | `system/modules/CrashHandler.hx` | `disableMods` | 崩溃后重启时先禁用 mod，避免同一个包反复搞崩 |
 | `menus/ModSwitchMenu.hx` | `disableMods` / `isEncryptedMod` | 列表里标出哪些 mod 是加密的 |
@@ -69,6 +72,7 @@
 | `editors/character/CharacterEditor.hx` | `RuntimeDirs.TEMP` | 撤销/重做数据并入统一目录 |
 | `editors/character/CharacterSpriteScreen.hx` | `RuntimeDirs.TEMP` | 同上 |
 | `system/Logs.hx` | `RuntimeDirs.LOGS` | 日志文件写进 `.cne/logs/` |
+| `backend/utils/CoolUtil.hx` | `RuntimeDirs.LOGS` | 保存失败的那条记录（路径 + 异常）写进 `.cne/logs/save-errors.log` |
 
 **两类注入，性质不同：**
 
@@ -130,10 +134,10 @@ Main.hx                 退出时 needsCleanup() → ModPackCleanupState 逐帧�
 
 ---
 
-## 5. 另外 35 个官方文件也被改过
+## 5. 另外 41 个官方文件也被改过
 
-相对 `baseline/upstream-1.1.0`，一共 52 个官方文件有改动（+1400 / −330 行左右）。
-上面 §2 覆盖了 17 个直接引用加密 API 的，**剩下 35 个没有逐一核实**，已知至少混着三类：
+相对 `baseline/upstream-1.1.0`，一共 61 个官方文件有改动（+13000 / −500 行上下，含删除）。
+上面 §2 覆盖了 20 个直接引用加密 API 的，**剩下 41 个没有逐一核实**，已知至少混着三类：
 
 - **周边功能**：例如 `shaders/FunkinShader.hx` 让编辑器改了 shader 后缓存失效，服务的是
   "在加密包里编辑资源"（`ZipEditCache`），和 §2 是同一套体系但没直接调加密 API。
@@ -149,7 +153,7 @@ git diff --stat baseline/upstream-1.1.0 HEAD -- source/
 git diff baseline/upstream-1.1.0 HEAD -- <单个文件>
 ```
 
-把 17 个之外的逐个过一遍，确认是"周边功能"还是"迁移差异"，再决定是留、是改回上游、还是单独记录。
+把 20 个之外的逐个过一遍，确认是"周边功能"还是"迁移差异"，再决定是留、是改回上游、还是单独记录。
 
 ---
 
