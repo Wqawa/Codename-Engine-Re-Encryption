@@ -13,6 +13,19 @@ class FramerateCategory extends Sprite {
 
 	private var _text:String = "";
 
+	/**
+	 * Seconds between two readout rebuilds.
+	 *
+	 * A TextField re-shapes its glyphs and re-uploads its texture whenever the string it
+	 * holds changes, and these panels were rebuilding at the full frame rate: the memory
+	 * counter changes on almost every frame, so the debug overlay alone cost a handful of
+	 * text layout passes per frame. A readout at 10-15 Hz reads the same and costs a
+	 * fraction of that.
+	 */
+	public var refreshInterval:Float = 1 / 15;
+
+	private var __sinceRefresh:Float = 1;
+
 	public function new(title:String, text:String = "") {
 		super();
 
@@ -37,6 +50,20 @@ class FramerateCategory extends Sprite {
 		this.text.multiline = true;
 
 		this.text.y = this.title.y + this.title.height + 2;
+	}
+
+	/** True when this frame should rebuild the readout, and starts the next interval. */
+	public inline function shouldRefresh():Bool {
+		if ((__sinceRefresh += FlxG.rawElapsed) < refreshInterval) return false;
+		__sinceRefresh = 0;
+		return true;
+	}
+
+	/** Writes the readout, but only when the string really changed. */
+	public function setText(value:String):Void {
+		if (value == _text) return;
+		_text = value;
+		text.text = value;
 	}
 
 	public function reload() {

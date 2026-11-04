@@ -11,16 +11,17 @@ class ConductorInfo extends FramerateCategory {
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05 || !visible) return;
 
-		var buf = new StringBuf();
-		StringMacro.addLine(buf, 'Current Song Position: ${Math.floor(Conductor.songPosition * 1000) / 1000}');
-		StringMacro.addLine(buf, '\n - ${Conductor.curBeat} beats');
-		StringMacro.addLine(buf, '\n - ${Conductor.curStep} steps');
-		StringMacro.addLine(buf, '\n - ${Conductor.curMeasure} measures');
-		StringMacro.addLine(buf, '\nCurrent BPM: ${Conductor.bpm}');
-		StringMacro.addLine(buf, '\nTime Signature: ${Conductor.beatsPerMeasure}/${Conductor.denominator}');
-		_text = buf.toString();
+		if (shouldRefresh()) {
+			var buf = new StringBuf();
+			StringMacro.addLine(buf, 'Current Song Position: ${Math.floor(Conductor.songPosition * 1000) / 1000}');
+			StringMacro.addLine(buf, '\n - ${Conductor.curBeat} beats');
+			StringMacro.addLine(buf, '\n - ${Conductor.curStep} steps');
+			StringMacro.addLine(buf, '\n - ${Conductor.curMeasure} measures');
+			StringMacro.addLine(buf, '\nCurrent BPM: ${Conductor.bpm}');
+			StringMacro.addLine(buf, '\nTime Signature: ${Conductor.beatsPerMeasure}/${Conductor.denominator}');
+			setText(buf.toString());
+		}
 
-		this.text.text = _text;
 		super.__enterFrame(t);
 	}
 }

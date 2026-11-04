@@ -7,12 +7,15 @@ class FlixelInfo extends FramerateCategory {
 	public function new() {
 		super("Flixel Info");
 		visible = Options.fpsCounterFlixel;
+		// counting the bitmap cache walks the whole thing, and the counts move at most a
+		// few times per second - 10 Hz keeps it readable without paying for it every frame
+		refreshInterval = 1 / 10;
 	}
 
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05 || !visible) return;
 
-		@:privateAccess {
+		if (shouldRefresh()) @:privateAccess {
 			var c:Int = Lambda.count(FlxG.bitmap._cache);
 			var buf = new StringBuf();
 
@@ -35,10 +38,9 @@ class FlixelInfo extends FramerateCategory {
 			//StringMacro.addLine(buf, '\nPoint Count: ', points._count, ' | +', points.made, ' | -', points.gotten, ' | ', points.balance, ' | >', points.putted);
 			//StringMacro.addLine(buf, '\nPoint Count: ', points._count);
 			#end
-			_text = buf.toString();
+			setText(buf.toString());
 		}
 
-		this.text.text = _text;
 		super.__enterFrame(t);
 	}
 }

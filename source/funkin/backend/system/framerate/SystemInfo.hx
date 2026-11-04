@@ -195,18 +195,21 @@ class SystemInfo extends FramerateCategory {
 	public function new() {
 		super("System Info");
 		visible = Options.fpsCounterSystem;
+		// everything in here is fixed at startup except the GC switch: 4 Hz is plenty
+		refreshInterval = 1 / 4;
 	}
 
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05 || !visible) return;
 
-		var buf = new StringBuf();
-		buf.add(__formattedSysText);
-		if (__formattedSysText != '') buf.add('\n');
-		StringMacro.addLine(buf, 'Garbage Collector: ${MemoryUtil.disableCount > 0 ? "OFF" : "ON"} (${MemoryUtil.disableCount})');
-		_text = buf.toString();
+		if (shouldRefresh()) {
+			var buf = new StringBuf();
+			buf.add(__formattedSysText);
+			if (__formattedSysText != '') buf.add('\n');
+			StringMacro.addLine(buf, 'Garbage Collector: ${MemoryUtil.disableCount > 0 ? "OFF" : "ON"} (${MemoryUtil.disableCount})');
+			setText(buf.toString());
+		}
 
-		this.text.text = _text;
 		super.__enterFrame(t);
 	}
 }

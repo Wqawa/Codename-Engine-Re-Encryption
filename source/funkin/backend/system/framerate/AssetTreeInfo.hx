@@ -9,20 +9,17 @@ import funkin.backend.assets.ScriptedAssetLibrary;
 import funkin.backend.system.macros.StringMacro;
 
 class AssetTreeInfo extends FramerateCategory {
-	private var lastUpdateTime:Float = 1;
-
 	public function new() {
 		super("Asset Libraries Tree Info");
 		visible = Options.fpsCounterAssets;
+		// the tree only changes when a mod is loaded or released
+		refreshInterval = 1;
 	}
 
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05 || !visible) return;
 
-		if ((lastUpdateTime += FlxG.rawElapsed) < 1)
-			return;
-
-		lastUpdateTime = 0;
+		if (!shouldRefresh()) return;
 
 		var text = "Not initialized yet\n";
 		if (Paths.assetsTree != null){
@@ -54,7 +51,7 @@ class AssetTreeInfo extends FramerateCategory {
 				text = text.substr(0, text.length-1);
 		}
 
-		this.text.text = text;
+		setText(text);
 		super.__enterFrame(t);
 	}
 }

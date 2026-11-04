@@ -39,8 +39,20 @@ class MemoryCounter extends Sprite {
 
 	private var usingLegacy:Bool = false;
 
+	/**
+	 * Seconds between two reads. Asking the process for its memory is a syscall and the
+	 * TextField re-lays itself out whenever the number changes, which was happening on
+	 * nearly every frame; 10 Hz reads the same on screen for a fraction of the cost.
+	 */
+	private final refreshInterval:Float = 1 / 10;
+	private var __sinceRefresh:Float = 1;
+
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05) return;
+
+		if ((__sinceRefresh += FlxG.rawElapsed) < refreshInterval) return;
+		__sinceRefresh = 0;
+
 		super.__enterFrame(t);
 
 		#if (cpp && (windows || mac || linux))

@@ -14,13 +14,14 @@ class StatsInfo extends FramerateCategory {
 	public override function __enterFrame(t:Float) {
 		if (alpha <= 0.05 || !visible) return;
 
-		var buf = new StringBuf();
-		StringMacro.addLine(buf, 'totalDC: ${Context3DStats.totalDrawCalls()}');
-		StringMacro.addLine(buf, '\nstageDC: ${Context3DStats.contextDrawCalls(DrawCallContext.STAGE)}');
-		StringMacro.addLine(buf, '\nstage3DDC: ${Context3DStats.contextDrawCalls(DrawCallContext.STAGE3D)}');
-		_text = buf.toString();
+		if (shouldRefresh()) {
+			var buf = new StringBuf();
+			StringMacro.addLine(buf, 'totalDC: ${Context3DStats.totalDrawCalls()}');
+			StringMacro.addLine(buf, '\nstageDC: ${Context3DStats.contextDrawCalls(DrawCallContext.STAGE)}');
+			StringMacro.addLine(buf, '\nstage3DDC: ${Context3DStats.contextDrawCalls(DrawCallContext.STAGE3D)}');
+			setText(buf.toString());
+		}
 
-		this.text.text = _text;
 		super.__enterFrame(t);
 	}
 }
