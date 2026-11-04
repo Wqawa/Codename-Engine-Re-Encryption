@@ -797,9 +797,16 @@ class ModPackCrypto {
 	static var cleanupStep:Int = 0;
 	static var removedCount:Int = 0;
 
-	/** True while closing the window would leave decrypted data or keys behind. */
+	/**
+	 * True while closing the window would leave decrypted data or keys behind.
+	 *
+	 * Asked every time a close is vetoed, so it has to answer about the state right now.
+	 * `cleanupDone` must not take part: it only says that a pass finished, and a pack
+	 * decrypted *after* that pass (switching back to the encrypted mod) has to be wiped
+	 * again. Letting it short-circuit this made the second close exit without a pass,
+	 * while switching away still worked because that path never looked at the flag.
+	 */
 	public static function needsCleanup():Bool {
-		if (cleanupDone) return false;
 		if (sessionDecrypted) return true;
 		return loadedZips.keys().hasNext();
 	}
