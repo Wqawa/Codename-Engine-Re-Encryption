@@ -47,7 +47,16 @@ class SaveWarning {
 		var message = TU.translate("saveWarning.warningDesc", null,
 			"Your changes will be lost if you don't save them. (Can't be recovered)\n\n\nWould you like to Cancel?");
 
-		FlxG.state.openSubState(new UIWarningSubstate(title, message, [
+		// Stack the prompt on whatever is already open instead of replacing it.
+		// openSubState() on the state destroys the substate that is already there, so
+		// asking this while the pause menu was up threw the pause menu away: Cancel then
+		// closed the prompt with nothing underneath, and the song simply carried on
+		// unpaused. Same walk as UIState.openContextMenu() does for context menus.
+		var host = FlxG.state;
+		while (host.subState != null)
+			host = host.subState;
+
+		host.openSubState(new UIWarningSubstate(title, message, [
 			{
 				label: TU.translate("saveWarning.cancel", null, "Cancel"),
 				color: 0x969533,
