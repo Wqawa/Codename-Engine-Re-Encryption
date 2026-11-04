@@ -67,7 +67,14 @@ CNEZ-INTEGRITY 1
 校验结果同时写日志：
 
 - 全部通过：`Integrity check: all N file(s) match`
-- 有差异：`Integrity check: X missing, Y modified, Z unlisted - see the list in the dialog.`
+- 有差异：`Integrity check: X missing, Y modified, Z unlisted - see the dialog for the first few of each kind.`
+  随后按类型各写一行完整列表（每类最多 40 个，多余的收成 `... and N more`）：
+  `Integrity: missing (1): assets/data/characters/xx.json | ...`
+
+弹窗是按类型分段的，不再是混在一起的一段话：每段一个颜色（缺失红、已修改琥珀、未列出蓝），
+段头带数量，下面先给 4 个文件名，其余折成 `... and N more`；说明文字用灰色。弹窗里放不下整份清单，
+完整列表看日志。分段的实现是 `UIWarningSubstate` 的 `lines` 参数（每行自带颜色/字号/间距），
+普通单段消息仍走原来的 `message`。
 
 ---
 

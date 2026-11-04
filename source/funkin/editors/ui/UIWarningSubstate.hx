@@ -24,6 +24,17 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	var buttons:Array<WarningButton>;
 	var kind:UIWarningKind = ERROR;
 
+	/**
+	 * Body built from coloured lines instead of one paragraph.
+	 *
+	 * A single UIText has a single colour, so a message that mixes kinds of findings
+	 * (missing / changed / unlisted) could only ever be one flat block of text. When this
+	 * is set, `message` is ignored and every line is drawn on its own.
+	 */
+	var lines:Array<WarningLine>;
+	/** Built in create() from `lines`, measured before the panel is sized. */
+	var rows:Array<{spr:UIText, gap:Float}> = [];
+
 	// Optional text field, built from the engine's own UITextBox. Null without one.
 	var wantsInput:Bool = false;
 	var inputBox:UITextBox;
@@ -73,8 +84,28 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		sprIcon.scale.set(1.4, 1.4);
 		sprIcon.updateHitbox();
 
-		messageSpr = new UIText(0, 0, spr.bWidth - 100 - (26 * 2), message);
-		spr.bHeight = Std.int(bHeight + Math.abs(Math.min(sprIcon.height - messageSpr.height, 0)));
+		// The body is measured here because the panel has to be tall enough for it, and
+		// that has to be known before it is centred.
+		var bodyWidth = spr.bWidth - 100 - (26 * 2);
+		var bodyHeight:Float = 0;
+		if (lines == null) {
+			messageSpr = new UIText(0, 0, bodyWidth, message);
+			spr.bHeight = Std.int(bHeight + Math.abs(Math.min(sprIcon.height - messageSpr.height, 0)));
+		} else {
+			for (line in lines) {
+				if (line == null || line.text == null) continue;
+				var gap = line.gap == null ? 6 : line.gap;
+				var row = new UIText(0, 0, bodyWidth, line.text, line.size == null ? 12 : line.size,
+					line.color == null ? 0xFFFFFFFF : line.color);
+				// file paths get long; wrapping beats cutting them off mid-name
+				row.wordWrap = true;
+				rows.push({spr: row, gap: gap});
+				bodyHeight += row.height + gap;
+			}
+			// icon top inset (28 + 26) + the rows + the button row and its margin
+			var needed = 54 + bodyHeight + 52 + 16;
+			if (needed > spr.bHeight) spr.bHeight = Std.int(needed);
+		}
 
 		spr.x = (FlxG.width - spr.bWidth) / 2;
 		spr.y = (FlxG.height - spr.bHeight) / 2;
@@ -94,9 +125,21 @@ class UIWarningSubstate extends MusicBeatSubstate {
 		sprIcon.antialiasing = true;
 		add(sprIcon);
 
-		messageSpr.x = sprIcon.x + 70 + 16 + 20;
-		messageSpr.y = sprIcon.y;
-		add(messageSpr);
+		var bodyX = sprIcon.x + 70 + 16 + 20;
+		if (messageSpr != null) {
+			messageSpr.x = bodyX;
+			messageSpr.y = sprIcon.y;
+			add(messageSpr);
+		} else {
+			var y = sprIcon.y;
+			for (row in rows) {
+				y += row.gap;
+				row.spr.x = bodyX;
+				row.spr.y = y;
+				y += row.spr.height;
+				add(row.spr);
+			}
+		}
 
 		if (wantsInput) {
 			var boxY = spr.y + spr.bHeight - (36 + 16) - 56;
@@ -178,13 +221,14 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	 *                   caller decides what it means.
 	 */
 	public function new(title:String, message:String, buttons:Array<WarningButton>, ?kind:UIWarningKind = ERROR,
-			?wantsInput:Bool = false) {
+			?wantsInput:Bool = false, ?lines:Array<WarningLine> = null) {
 		super();
 		this.title = title;
 		this.message = message;
 		this.buttons = buttons;
 		this.kind = kind;
 		this.wantsInput = wantsInput;
+		this.lines = lines;
 	}
 }
 
@@ -202,4 +246,21 @@ typedef WarningButton = {
 	var label:String;
 	var ?color:Int;
 	var onClick:UIWarningSubstate->Void;
+}
+
+/**
+ * One line of a dialog body that needs more than one colour.
+ *
+ * Give the dialog a list of these instead of a single message when the text reports
+ * several different kinds of thing (see the file check): each line carries its own
+ * colour, size and the space above it, so sections can be told apart at a glance.
+ */
+typedef WarningLine = {
+	var text:String;
+	/** Defaults to white, the colour a plain message is drawn in. */
+	var ?color:Int;
+	/** Defaults to 12. */
+	var ?size:Int;
+	/** Space above this line, in pixels. Defaults to 6. */
+	var ?gap:Float;
 }

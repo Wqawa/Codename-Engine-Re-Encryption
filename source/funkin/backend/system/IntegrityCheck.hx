@@ -215,9 +215,24 @@ class IntegrityCheck {
 		});
 
 		var line = 'Integrity check: ' + summary();
-		if (hasProblems()) Logs.warn(line + ' - see the list in the dialog.');
+		if (hasProblems()) {
+			// the dialog has room for a few names per kind; the log keeps the whole list
+			Logs.warn(line + ' - see the dialog for the first few of each kind.');
+			logList('missing', missing);
+			logList('modified', changed);
+			logList('unlisted', extra);
+		}
 		else Logs.trace(line, INFO);
 		#end
+	}
+
+	/** Writes a whole category to the log, capped so one bad build cannot flood it. */
+	static function logList(kind:String, list:Array<String>):Void {
+		if (list == null || list.length == 0) return;
+		var cap = 40;
+		var shown = list.length > cap ? list.slice(0, cap) : list;
+		var tail = list.length > cap ? ' ... and ${list.length - cap} more' : '';
+		Logs.warn('Integrity: $kind (${list.length}): ' + shown.join(' | ') + tail);
 	}
 
 	/** True when the exe listed in the manifest no longer matches the one on disk. */
