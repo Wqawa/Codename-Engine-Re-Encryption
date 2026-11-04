@@ -261,6 +261,26 @@ class MusicBeatState extends FlxState implements IBeatCancellableReceiver
 		__beatReceiversDirty = true;
 	}
 
+	/**
+	 * Keeps values that are not `FlxBasic` out of the member list.
+	 *
+	 * Scripts call `add()` through the dynamic dispatcher, which does not check the
+	 * parameter type. 2hotBFmix's `ui_holdsplashes.hx` ends its setup with
+	 * `add(holdGroup)` - an array of sprites it had already added one by one - and flixel
+	 * happily stored the array as a member; the next draw read `.exists` off it and the
+	 * whole PlayState died with a null object reference that the crash handler could not
+	 * recover from (its state switch hit the same member while destroying).
+	 *
+	 * Dropping it loses nothing: anything worth showing is in the array, not the array.
+	 */
+	override public function add(basic:FlxBasic):FlxBasic {
+		if (basic != null && !Std.isOfType(basic, FlxBasic)) {
+			Logs.warn('add() ignored a ${Type.getClassName(Type.getClass(basic))}: only FlxBasic values can join a state.');
+			return null;
+		}
+		return super.add(basic);
+	}
+
 	override function onMemberRemove(member:FlxBasic):Void {
 		super.onMemberRemove(member);
 		__beatReceiversDirty = true;
