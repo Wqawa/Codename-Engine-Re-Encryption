@@ -85,32 +85,34 @@ class IntegrityScreen extends PopupScreen {
 	 * frozen screen; the counter is the thing that actually ticks while it grinds.
 	 */
 	function buildCounter():Void {
-		var x = panel.x + panel.width + COUNTER_GAP;
-		// centred against the panel, so the two read as one row while they bob
-		var y = Math.round(panel.y + ((panel.height - COUNTER_H) / 2));
+		// bWidth/bHeight are the panel's real size: resize() only sets those, width/height
+		// still report the size of the 9-slice frame
+		final panelW = panel.bWidth;
+		var x = panel.x + panelW + COUNTER_GAP;
+		// centred against the panel, so the two read as one row
+		var y = Math.round(panel.y + ((panel.bHeight - COUNTER_H) / 2));
 		if (x + COUNTER_W > FlxG.width - 12) {
 			// no room on the right: mirror it to the left
 			x = panel.x - COUNTER_GAP - COUNTER_W;
 			if (x < 12) {
 				// neither side fits: sit under the panel, right aligned, rather than on top of it
-				x = Math.min(panel.x + panel.width - COUNTER_W, FlxG.width - COUNTER_W - 12);
-				y = Math.round(panel.y + panel.height + COUNTER_GAP);
+				x = Math.min(panel.x + panelW - COUNTER_W, FlxG.width - COUNTER_W - 12);
+				y = Math.round(panel.y + panel.bHeight + COUNTER_GAP);
 			}
 		}
 
 		final pad = PopupScreen.PAD;
 		final textW = COUNTER_W - pad * 2;
 
-		counterPanel = place(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
-		counterPanel.resize(COUNTER_W, COUNTER_H);
+		counterPanel = placeSide(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
 
-		counterTitle = place(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
+		counterTitle = placeSide(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
 		counterTitle.y = y + ((PopupScreen.TITLE_H - counterTitle.height) / 2);
 
-		counterNumber = place(new UIText(x + pad, y + PopupScreen.TITLE_H + 12, textW, "0", 30, COLOR_HINT));
+		counterNumber = placeSide(new UIText(x + pad, y + PopupScreen.TITLE_H + 12, textW, "0", 30, COLOR_HINT));
 		counterNumber.alignment = FlxTextAlign.CENTER;
 
-		counterHint = place(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
+		counterHint = placeSide(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
 		counterHint.alignment = FlxTextAlign.CENTER;
 		counterHint.y = counterNumber.y + counterNumber.height + 2;
 	}
@@ -122,6 +124,9 @@ class IntegrityScreen extends PopupScreen {
 		// hides the hitch of a check that reads every shipped file.
 		bobTime += elapsed;
 		setContentOffset(Math.sin(bobTime * 1.5) * 5);
+		// out of phase on purpose: two windows bobbing in lockstep read as one block being
+		// dragged around, not as two panes
+		setSideOffset(Math.sin(bobTime * 1.5 + 2.1) * 5);
 
 		final total = IntegrityCheck.total;
 		final fraction = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));

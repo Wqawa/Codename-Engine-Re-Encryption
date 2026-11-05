@@ -72,6 +72,9 @@ class PopupScreen extends UIState {
 	var buttonDefs:Array<PopupButton> = null;
 	/** Current vertical shift of the content; see setContentOffset(). */
 	var contentOffset:Float = 0;
+	/** Sprites that follow the secondary bob instead; see placeSide(). */
+	var sideMoved:Array<FlxSprite> = [];
+	var sideOffset:Float = 0;
 
 	override function create() {
 		super.create();
@@ -172,6 +175,28 @@ class PopupScreen extends UIState {
 		contentOffset = offset;
 		for (sprite in moved) sprite.y += delta;
 		for (button in buttons) button.y += delta;
+	}
+
+	/**
+	 * Places a sprite that bobs on its own phase instead of the panel's.
+	 *
+	 * For a window sitting beside the panel: two panes breathing in the same rhythm read as
+	 * one block being dragged around, and the point of the bob is that the screen looks
+	 * alive, not that it slides. Call it after endPanel(), like any sprite that already
+	 * knows its final position.
+	 */
+	public function placeSide<T:FlxSprite>(sprite:T):T {
+		add(sprite);
+		sideMoved.push(sprite);
+		return sprite;
+	}
+
+	/** Slides the sprites from placeSide(); same units as setContentOffset(). */
+	public function setSideOffset(offset:Float):Void {
+		final delta = offset - sideOffset;
+		if (delta == 0) return;
+		sideOffset = offset;
+		for (sprite in sideMoved) sprite.y += delta;
 	}
 
 	/** Sizes and centres the panel around what was added, then builds the footer row. */
