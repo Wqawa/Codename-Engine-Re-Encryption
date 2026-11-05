@@ -58,7 +58,6 @@ class ConsoleInspector {
 	#end
 
 	var currentStateObjects:Array<InspectorObject> = [];
-	var inspectorObjectsThatNeedUpdating:Array<InspectorObject> = [];
 	var nextObjectUID:Int = 0;
 
 	/**

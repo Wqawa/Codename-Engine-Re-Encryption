@@ -38,16 +38,20 @@
 
 ## 四、警告对话框
 
-`UIWarningSubstate` 的两个 bool（isError / 有没有输入框）换成：
+`UIWarningSubstate` 原来那两个 bool（`isError` / 有没有输入框）换成了一个枚举加一个开关：
 
 ```haxe
 new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = false, ?lines = null)
 ```
 
 `kind` 是 `ERROR` / `WARNING` / `INFO`，枚举值就是图标文件名（`error.png`、`warning.png`、
-`info.png`），类型和贴图不会对不上。`wantsInput` 加一行 `UITextBox`，用 `inputValue()` 读，
-对话框本身不解释内容。`keepOpen` 让按钮在验证失败时把窗口留住。`lines` 是后面加的
-（见第七节）：给它一组带颜色的行，正文就按行画，`message` 忽略。
+`info.png`），类型和贴图不会对不上；面板皮肤也跟着选（`ERROR` 用 `normal-popup`，其余
+`grayscale-popup`）。`wantsInput` 加一行 `UITextBox`，用 `inputValue()` 读，对话框本身不解释
+内容。`keepOpen` 让按钮在验证失败时把窗口留住。`lines` 是后加的（见第七节）：给它一组带颜色的行，
+正文就按行画，`message` 忽略。
+
+第 4 参在运行期仍收 1.1.0 的 bool（`true` → `ERROR`、`false` → `WARNING`），`isError` 也作为属性
+保留了读写，为的是让按旧签名写的 mod 继续能用（见第八节）。
 
 ---
 
@@ -127,18 +131,37 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 - 调试 HUD 六个面板不再每帧重建字符串并重排文本（按 1–15 Hz 刷新），内存计数也不再每帧查
   一次系统调用；编辑器控件层去掉每帧的数组分配和重复的鼠标坐标变换；日志文件从"每行开→写→关"
   改成常开句柄 + 每行 flush。
-- 检查器（ImGui）的对象树改成 10 Hz 重建：`updateObjects()` 每帧要遍历每个状态的成员表，
-  运行中的 `PlayState` 有几百个成员，而相邻两帧之间这张表几乎不会变。面板收起时连这一次
-  都省掉（重建挪进了 `begin()` 里面）。控制台输入行的两个按钮宽度不再每帧量一次字体，
-  输出也不再每帧强制滚到底（顺带修好"滚不上去"）。
 
-**调试工具窗口**
+---
 
-- 多视口开着时，工具窗口一旦不完全落在游戏窗口内就变成独立系统窗口，点回游戏就被压在下面
-  （调整手柄拖到窗口边缘时最明显）。检查器、属性面板、2D/3D 手柄、控制台现在都带
-  `ImGuiViewportFlags.TopMost`（`ImGuiUtil.pinCurrentWindowOnTop`）。SDL 后端只在**创建**
-  系统窗口时读这个标志（`SDL_WINDOW_ALWAYS_ON_TOP`），而 ImGui 每帧都会用窗口自身的标志
-  把它重写掉，所以要在 `begin()` 之后每帧补一次。
+## 八、11-05 的调试界面、自检界面与 API 兼容
+
+**调试界面（ImGui 控制台 / 检查器）**
+
+- 工具窗口掉到游戏窗口后面：多视口开着时，不完全落在游戏视口内的 ImGui 窗口会变成独立系统窗口，
+  点回游戏就被压下去（调整手柄拖到边缘最明显）。`ImGuiUtil.pinCurrentWindowOnTop()` 给检查器、
+  属性面板、2D/3D 手柄、控制台各窗口补 `ImGuiViewportFlags.TopMost`。两个前提决定了它必须每帧
+  在 `begin()` 之后调用：ImGui 每帧会用窗口自身的标志重写 viewport flags；SDL 后端只在**创建**
+  系统窗口时读这个标志（`SDL_WINDOW_ALWAYS_ON_TOP`），之后再改无效。
+- 检查器掉帧：对象树原来每帧遍历所有状态的成员表（运行中的 `PlayState` 有几百个成员），改成
+  10 Hz，并且只在 `ImGui.begin()` 里面重建——收起到标题栏时不做任何事；展开的组走同一预算。
+- 控制台：`Settings` / `Copy Log` 的宽度不再每帧量字体；每帧的 `setScrollHereY` 去掉（它同时
+  是"滚不上去"的原因），改成打开时滚到底一次。
+- 检查器在状态切换时崩（`FlxObject.getScreenPosition` 空相机）：切歌/关游戏会把相机全拆掉，而
+  选中的对象还留着。现在 `FlxG.state` 一变就清空选中并当帧重建，`camera == null` 直接不画。
+
+**自检界面（`IntegrityScreen`）**
+
+- 检查时整块面板轻微上下浮动（`PopupScreen.setContentOffset`，±5px、`sin(t * 1.5)`，和崩溃屏
+  同一个参数），旁边的小窗显示已查到的问题总数，用另一组相位（`placeSide` / `setSideOffset`，
+  差 2.1 rad），两个窗口不会像一块板一起滑。
+- 副窗口位置踩了个坑：`UISliceSprite.resize()` 只写 `bWidth` / `bHeight`，`width` / `height` 还是
+  九宫格贴图帧的尺寸，拿它算 x 会让窗口落在主面板里面。布局一律用 `bWidth` / `bHeight`。
+- 进度条每帧更新，文字类标签（百分比 / `N / M` / 计数）10 Hz——每改一次文本都要重排字形，
+  那是这个界面"卡"的主要来源。
+- 结果弹窗按严重度分段：Missing（warning，琥珀）/ Added（info，蓝）/ Modified（error，红）；
+  弹窗本身取最严重的那类，面板染色和图标跟着变，清单读不出来按 error。`unlisted` 在 summary、
+  日志行、弹窗里统一改叫 `added`。
 
 **与上游 1.1.0 的公开 API 差异（脚本会碰到的）**
 
@@ -155,7 +178,7 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 
 ---
 
-## 八、没做的
+## 九、没做的
 
 | 项 | 状态 |
 | --- | --- |

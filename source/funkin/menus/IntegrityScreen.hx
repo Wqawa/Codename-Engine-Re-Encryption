@@ -44,11 +44,8 @@ class IntegrityScreen extends PopupScreen {
 	var bar:PopupProgress;
 	var info:UIText;
 
-	/** Side window with the running number of findings. */
-	var counterPanel:UISliceSprite;
-	var counterTitle:UIText;
+	/** The number in the side window; everything else there is laid out once and never read. */
 	var counterNumber:UIText;
-	var counterHint:UIText;
 	var shownProblems:Int = -1;
 
 	var movingOn:Bool = false;
@@ -104,17 +101,17 @@ class IntegrityScreen extends PopupScreen {
 		final pad = PopupScreen.PAD;
 		final textW = COUNTER_W - pad * 2;
 
-		counterPanel = placeSide(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
+		placeSide(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
 
-		counterTitle = placeSide(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
-		counterTitle.y = y + ((PopupScreen.TITLE_H - counterTitle.height) / 2);
+		final title = placeSide(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
+		title.y = y + ((PopupScreen.TITLE_H - title.height) / 2);
 
 		counterNumber = placeSide(new UIText(x + pad, y + PopupScreen.TITLE_H + 12, textW, "0", 30, COLOR_HINT));
 		counterNumber.alignment = FlxTextAlign.CENTER;
 
-		counterHint = placeSide(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
-		counterHint.alignment = FlxTextAlign.CENTER;
-		counterHint.y = counterNumber.y + counterNumber.height + 2;
+		final hint = placeSide(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
+		hint.alignment = FlxTextAlign.CENTER;
+		hint.y = counterNumber.y + counterNumber.height + 2;
 	}
 
 	override function update(elapsed:Float) {

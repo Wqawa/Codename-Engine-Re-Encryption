@@ -105,11 +105,13 @@ graph LR
 
 ```
 backend/assets/        CnezV2, ModPackCrypto, ModPackSelfTest, ZipAes, ZipPassword,
-                       SysZip, ProtectedBuffer
+                       SysZip, OverlayZipFolderLibrary, ZipEditCache, ProtectedBuffer
 backend/scripting/     crypto/ScriptCrypto, bytecode/ScriptContainer
 backend/system/        IntegrityCheck, RuntimeDirs
 editors/               EncryptionEditor
-menus/                 PopupScreen (+ PopupProgress): 新界面共用的原版弹窗外壳
+menus/                 ModPackKeyState, ModPackLoadingState, ModPackCleanupState,
+                       ModPackMergeState, IntegrityScreen, SongLoadingScreen,
+                       PopupScreen (+ PopupProgress): 新界面共用的原版弹窗外壳
 ```
 
 架构接缝（改了官方文件的哪几处）见 [ARCHITECTURE.md](ARCHITECTURE.md)。
