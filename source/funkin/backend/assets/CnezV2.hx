@@ -16,7 +16,7 @@ import haxe.io.BytesBuffer;
  *
  * Layout, little endian:
  *   0..3    magic "CNEZ"
- *   4       format version (2)
+ *   4       format version (3 written, 2 and 3 read)
  *   5..7    reserved
  *   8..23   salt (16)
  *   24..35  nonce (12)
@@ -27,8 +27,9 @@ import haxe.io.BytesBuffer;
  *   ...     root tag: HMAC-SHA256 over bytes 0 .. end of table
  *   ...     ChaCha20 ciphertext of the raw .zip
  *
- * The version byte stays at 2 although only one layout ever shipped: the number is
- * already inside every packed file.
+ * The layout never changed; the version byte says which key derivation the header's
+ * salt was fed to. Version 2 used a 2048-round SHA-256 loop, version 3 uses
+ * PBKDF2-HMAC-SHA256 - same header, same chunk table, one different number in it.
  */
 
 /** What `open` returns: keys and table, with the payload still encrypted in memory. */
@@ -59,6 +60,8 @@ typedef FileOpenedV2 = {
 
 /** The fields between the magic and the chunk table. */
 typedef HeaderV2 = {
+	/** 2 = iterated SHA-256, 3 = PBKDF2-HMAC-SHA256. It is part of the root tag. */
+	var version:Int;
 	var salt:Bytes;
 	var nonce:Bytes;
 	var length:Int;
@@ -68,7 +71,10 @@ typedef HeaderV2 = {
 
 class CnezV2 {
 	public static var MAGIC:Array<Int> = [0x43, 0x4E, 0x45, 0x5A]; // "CNEZ"
-	public static inline var VERSION:Int = 2;
+	/** Version written for new packs; 3 moved the KDF to PBKDF2. */
+	public static inline var VERSION:Int = 3;
+	/** Oldest version still readable. Version 2 packs keep opening forever. */
+	public static inline var VERSION_MIN:Int = 2;
 
 	public static inline var HEADER_SIZE:Int = 48;
 	public static inline var TAG_SIZE:Int = 32;
@@ -92,11 +98,15 @@ class CnezV2 {
 		return magicProblem(data) == null;
 	}
 
-	public static function pack(zipBytes:Bytes, pass:String, ?onProgress:Float->Void):Bytes {
+	public static function pack(zipBytes:Bytes, pass:String, ?onProgress:Float->Void, ?allowBuiltInKey:Bool = false):Bytes {
 		pass = ScriptCrypto.resolveKeyValue(pass);
+		// sealing with the key that ships in the executable protects nothing; only a
+		// re-seal of an existing pack (which already used it) is allowed to pass
+		if (!allowBuiltInKey && ScriptCrypto.isBuiltInKey(pass))
+			throw "CnezV2: refusing to seal a pack with the built-in fallback key, set a real one";
 		var salt = ScriptCrypto.randomBytes(SALT_SIZE);
 		var nonce = ScriptCrypto.randomBytes(NONCE_SIZE);
-		var keys = ScriptCrypto.deriveKeys(pass, salt);
+		var keys = ScriptCrypto.deriveKeys(pass, salt, 2);
 
 		// the cipher pass is the slow half, so it is the one that reports progress
 		var cipher = onProgress == null
@@ -112,7 +122,7 @@ class CnezV2 {
 		}
 
 		var tableBytes = table.getBytes();
-		var head = buildHeader(salt, nonce, cipher.length, chunkSize, count);
+		var head = buildHeader(VERSION, salt, nonce, cipher.length, chunkSize, count);
 		var root = ScriptCrypto.hmacTag(keys.mac, concat(head, tableBytes));
 
 		var out = new BytesBuffer();
@@ -140,7 +150,7 @@ class CnezV2 {
 		if (rootAt + TAG_SIZE + header.length != data.length)
 			throw "CnezV2: corrupted container (bad length)";
 
-		var keys = ScriptCrypto.deriveKeys(key, header.salt);
+		var keys = ScriptCrypto.deriveKeys(key, header.salt, kdfFor(header.version));
 		var head = data.sub(0, HEADER_SIZE + tableSize);
 		if (!same(ScriptCrypto.hmacTag(keys.mac, head), data.sub(rootAt, TAG_SIZE)))
 			throw "CnezV2: integrity check failed (wrong key or corrupted header)";
@@ -195,8 +205,8 @@ class CnezV2 {
 		if (payloadOffset + header.length > sys.FileSystem.stat(path).size)
 			throw "CnezV2.openFile: corrupted container (bad length)";
 
-		var keys = ScriptCrypto.deriveKeys(key, header.salt);
-		var headerBytes = buildHeader(header.salt, header.nonce, header.length, header.chunkSize, header.count);
+		var keys = ScriptCrypto.deriveKeys(key, header.salt, kdfFor(header.version));
+		var headerBytes = buildHeader(header.version, header.salt, header.nonce, header.length, header.chunkSize, header.count);
 		if (!same(ScriptCrypto.hmacTag(keys.mac, concat(headerBytes, table)), root))
 			throw "CnezV2.openFile: integrity check failed (wrong key or corrupted header)";
 
@@ -266,8 +276,8 @@ class CnezV2 {
 			handle.close();
 			if (table == null || table.length < tableSize || root == null || root.length < TAG_SIZE) return false;
 
-			var keys = ScriptCrypto.deriveKeys(pass, header.salt);
-			var headerBytes = buildHeader(header.salt, header.nonce, header.length, header.chunkSize, header.count);
+			var keys = ScriptCrypto.deriveKeys(pass, header.salt, kdfFor(header.version));
+			var headerBytes = buildHeader(header.version, header.salt, header.nonce, header.length, header.chunkSize, header.count);
 			return same(ScriptCrypto.hmacTag(keys.mac, concat(headerBytes, table)), root);
 		} catch (e:Dynamic) {}
 		#end
@@ -286,7 +296,8 @@ class CnezV2 {
 		if (head == null || head.length < HEADER_SIZE) return "truncated container";
 		for (i in 0...4)
 			if (head.get(i) != MAGIC[i]) return "not a CNEZ container";
-		if (head.get(4) != VERSION) return "unsupported container version " + head.get(4);
+		var version = head.get(4);
+		if (version < VERSION_MIN || version > VERSION) return "unsupported container version " + version;
 		return null;
 	}
 
@@ -307,6 +318,7 @@ class CnezV2 {
 		if (count > Std.int(length / MIN_CHUNK_SIZE) + 1) return null;
 
 		return {
+			version: head.get(4),
 			salt: head.sub(8, SALT_SIZE),
 			nonce: head.sub(24, NONCE_SIZE),
 			length: length,
@@ -315,10 +327,10 @@ class CnezV2 {
 		};
 	}
 
-	static function buildHeader(salt:Bytes, nonce:Bytes, length:Int, chunkSize:Int, count:Int):Bytes {
+	static function buildHeader(version:Int, salt:Bytes, nonce:Bytes, length:Int, chunkSize:Int, count:Int):Bytes {
 		var b = new BytesBuffer();
 		for (v in MAGIC) b.addByte(v);
-		b.addByte(VERSION);
+		b.addByte(version);
 		b.addByte(0);
 		b.addByte(0);
 		b.addByte(0);
@@ -342,6 +354,10 @@ class CnezV2 {
 		if (length <= 0) return 0;
 		return Std.int((length + chunkSize - 1) / chunkSize);
 	}
+
+	/** KDF selector for a container version, see ScriptCrypto.deriveKeys. */
+	static inline function kdfFor(version:Int):Int
+		return version >= 3 ? 2 : 1;
 
 	static function requireKey(?pass:String, error:String):String {
 		if (pass == null) pass = ScriptCrypto.getPassword();

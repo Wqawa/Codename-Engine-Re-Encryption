@@ -249,7 +249,7 @@ class EncryptionEditor extends UIState {
 			12, 0xFFFFFFFF, false));
 
 		track(g, new UIText(30, CONTENT_Y + 112, 60, "Key:", 14, 0xFFFFFFFF, false));
-		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, ScriptCrypto.getPassword(), 460));
+		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, defaultKeyField(), 460));
 		track(g, clearFieldButton(tokenKeyBox, 560, CONTENT_Y + 108));
 		track(g, new UIButton(610, CONTENT_Y + 108, "Make Token", onMakeToken, 180, 32));
 		track(g, new UIButton(800, CONTENT_Y + 108, "Copy Key", onCopyKey, 150, 32));
@@ -509,6 +509,14 @@ class EncryptionEditor extends UIState {
 		status((isEncryptKind(kind) ? "Protecting " : "Unprotecting ") + jobName + " ...");
 
 		var key = packKey(paths[0]);
+		if (kind == JOB_SCRIPT_ENCRYPT && opts.useKey) {
+			var seal = sealProblem(key);
+			if (seal != null) {
+				jobActive = false;
+				status(seal);
+				return;
+			}
+		}
 		var work = function() {
 			try {
 				var total = paths.length;
@@ -946,11 +954,20 @@ class EncryptionEditor extends UIState {
 				if (firstProblem == null) firstProblem = problem;
 				continue;
 			}
+			var key = packKey(path);
+			if (encrypt) {
+				var seal = sealProblem(key);
+				if (seal != null) {
+					skipped++;
+					if (firstProblem == null) firstProblem = seal;
+					continue;
+				}
+			}
 			packQueue.push({
 				kind: encrypt ? JOB_ENCRYPT : JOB_DECRYPT,
 				src: path,
 				out: siblingPath(path, "zip", encrypt ? (standard ? "_password" : "_encrypted") : "_decrypted"),
-				key: packKey(path),
+				key: key,
 				standard: standard && encrypt
 			});
 			queued++;
@@ -977,6 +994,11 @@ class EncryptionEditor extends UIState {
 		var standard = currentPackMode == 1;
 
 		var problem = encryptProblem(path);
+		if (problem != null) {
+			status(problem);
+			return;
+		}
+		problem = sealProblem(key);
 		if (problem != null) {
 			status(problem);
 			return;
@@ -1174,8 +1196,29 @@ class EncryptionEditor extends UIState {
 	function reloadKeyFile() {
 		ScriptCrypto.reloadKeys();
 		var summary = ScriptCrypto.keyFileSummary();
-		tokenKeyBox.label.text = ScriptCrypto.getPassword();
-		status("Reloaded the key file: " + summary + ". The Key field now shows the default key.");
+		tokenKeyBox.label.text = defaultKeyField();
+		status("Reloaded the key file: " + summary + ".");
+	}
+
+	/** What the Key field starts with: a real key, never the fallback that ships in the exe. */
+	function defaultKeyField():String {
+		var key = ScriptCrypto.getPassword();
+		return ScriptCrypto.isBuiltInKey(key) ? "" : key;
+	}
+
+	/**
+	 * Why this key cannot seal a pack, or null when it can.
+	 *
+	 * The built-in fallback is compiled into the executable, so a pack "protected" with it
+	 * opens for anyone holding the engine. Reading one is still allowed; writing a new one
+	 * is not.
+	 */
+	function sealProblem(key:String):String {
+		if (key == null || key.length == 0)
+			return "Type a key first - the Key field is empty and a pack without one is not protected.";
+		if (ScriptCrypto.isBuiltInKey(key))
+			return "That is the built-in fallback key, which ships inside the executable - anyone with the engine can open the pack. Type a real key.";
+		return null;
 	}
 
 	// ------------------------------------------------------------------- helpers

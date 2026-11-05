@@ -585,13 +585,15 @@ class ZipEditCache {
 			out = merged + '.cnez';
 			// re-encrypting the rewritten archive is the slow half of the merge, and it is
 			// the only step that can report its own progress
+			// allowBuiltInKey: this is the pack's own key, not a new seal - a pack made
+			// with the old fallback key must still be mergeable
 			File.saveBytes(out, ModPackCrypto.pack(File.getBytes(merged), key,
-				function(p:Float) mergeProgress = 0.55 + p * 0.4));
+				function(p:Float) mergeProgress = 0.55 + p * 0.4, true));
 		} else if (ZipPassword.isProtected(pack)) {
 			var key = ModPackCrypto.resolveKey(pack);
 			if (key == null) throw 'the pack is locked: no password opens ${Path.withoutDirectory(pack)}';
 			out = merged + '.aes';
-			ZipAes.encryptZip(merged, out, key);
+			ZipAes.encryptZip(merged, out, key, null, true);
 		}
 
 		// The pack is moved aside instead of deleted, so a failed rename cannot leave the

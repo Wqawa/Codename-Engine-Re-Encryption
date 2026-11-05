@@ -5,6 +5,7 @@ import funkin.backend.assets.ZipPassword.ZipEntry;
 import funkin.backend.scripting.crypto.Aes;
 import funkin.backend.scripting.crypto.HmacSha1;
 import funkin.backend.scripting.crypto.Pbkdf2;
+import funkin.backend.scripting.crypto.ScriptCrypto;
 #if sys
 import haxe.io.Bytes;
 import haxe.io.BytesBuffer;
@@ -107,9 +108,12 @@ class ZipAes {
 	 * compressed bytes are carried over untouched, so nothing is re-compressed
 	 * and the output can be opened by any tool that knows WinZip AES.
 	 */
-	public static function encryptZip(srcPath:String, outPath:String, pass:String, ?onProgress:Float->Void):Void {
+	public static function encryptZip(srcPath:String, outPath:String, pass:String, ?onProgress:Float->Void,
+			?allowBuiltInKey:Bool = false):Void {
 		#if sys
 		if (pass == null || pass.length == 0) throw "ZipAes: missing password";
+		if (!allowBuiltInKey && ScriptCrypto.isBuiltInKey(pass))
+			throw "ZipAes: refusing to seal a pack with the built-in fallback key, set a real one";
 
 		var entries = ZipPassword.readCentral(srcPath);
 		if (entries == null) throw "ZipAes: cannot read the zip index";

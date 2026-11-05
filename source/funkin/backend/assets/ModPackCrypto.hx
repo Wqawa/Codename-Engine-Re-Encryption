@@ -108,10 +108,15 @@ class ModPackCrypto {
 
 	// -------------------------------------------------------------- container
 
-	/** Wraps a zip into a CNEZ container. Layout and costs live in `CnezV2`. */
-	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
+	/**
+	 * Wraps a zip into a CNEZ container. Layout and costs live in `CnezV2`.
+	 *
+	 * `allowBuiltInKey` is for re-sealing a pack that was already sealed with the
+	 * fallback key (the merge does that); creating a new one with it is refused.
+	 */
+	public static function pack(zipBytes:Bytes, ?pass:String, ?onProgress:Float->Void, ?allowBuiltInKey:Bool = false):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
-		return CnezV2.pack(zipBytes, ScriptCrypto.resolveKeyValue(pass), onProgress);
+		return CnezV2.pack(zipBytes, ScriptCrypto.resolveKeyValue(pass), onProgress, allowBuiltInKey);
 	}
 
 	/**
@@ -414,6 +419,7 @@ class ModPackCrypto {
 
 		var key = resolveKey(packPath);
 		if (key == null) return null;
+		if (ScriptCrypto.isBuiltInKey(key)) ScriptCrypto.warnBuiltInKey(packPath);
 
 		try {
 			initCache();

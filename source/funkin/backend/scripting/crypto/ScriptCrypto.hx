@@ -23,18 +23,26 @@ import haxe.io.BytesBuffer;
  *   - NOT runtime protection. The engine has to decrypt the pack to load it, so
  *     the files are readable in the cache folder while the game runs.
  *   - DEFAULT_PASSWORD is compiled into the executable, so anyone with the engine
- *     and a disassembler can read it. It stops casual browsing and nothing more;
- *     ship a real key with script_key.txt or setPassword().
+ *     and a disassembler can read it. It stops casual browsing and nothing more.
+ *     It is still what opens a pack that shipped without a key file, but it can no
+ *     longer SEAL one: the editor and the writers refuse to (see isBuiltInKey).
  *
- * KDF note: deriveKeys() is a custom iterated SHA-256 construction, not PBKDF2 or
- * Argon2, and it has not been cryptographically audited. It is fine for keeping
- * scripts unreadable to casual users; switch to a standard KDF if the key has to
- * resist offline brute force.
+ * KDF note: container version 3 uses PBKDF2-HMAC-SHA256 (200k iterations, ~1.3 s
+ * on hxcpp per unlock); version 2 used a custom 2048-round SHA-256 loop and is
+ * still readable. The old one gave an offline attacker millions of guesses per
+ * second, which is why a weak password fell in hours.
  */
 class ScriptCrypto {
 	/** Nonce size of the counter based DRBG that randomBytes() uses. */
 	static inline var NONCE_SIZE:Int = 12;
+	/** Work factor of container version 2 (iterated SHA-256). Read only, never written. */
 	static inline var KDF_ROUNDS:Int = 2048;
+	/**
+	 * Work factor of container version 3 (PBKDF2-HMAC-SHA256). Cost on hxcpp: ~6.3 us
+	 * per iteration, so ~1.3 s once per unlock. The old KDF ran in milliseconds and
+	 * left offline guessing at millions of tries per second.
+	 */
+	public static inline var PBKDF2_ITERATIONS:Int = 200000;
 	static inline var DEFAULT_PASSWORD:String = "CNE::script::v1::d0nt_t0uch_th3_sky";
 
 	/** Set by setPassword(); overrides every key file. */
@@ -441,14 +449,48 @@ class ScriptCrypto {
 		return h;
 	}
 
-	public static function deriveKeys(pass:String, salt:Bytes):{enc:Bytes, mac:Bytes} {
-		var h = sha256(Bytes.ofString(pass + "|" + salt.toHex()));
-		for (i in 0...KDF_ROUNDS)
-			h = sha256(concat(h, salt));
+	/**
+	 * Keys for a CNEZ container.
+	 *
+	 * `kdf` picks the work factor and has to match the container version: 1 is the
+	 * iterated SHA-256 of version 2, 2 is PBKDF2-HMAC-SHA256 of version 3. The label
+	 * step is the same in both, so only the expensive part differs.
+	 */
+	public static function deriveKeys(pass:String, salt:Bytes, ?kdf:Int = 1):{enc:Bytes, mac:Bytes} {
+		var h:Bytes;
+		if (kdf >= 2) {
+			h = Pbkdf2.deriveSHA256(Bytes.ofString(pass), salt, PBKDF2_ITERATIONS, 32);
+		} else {
+			h = sha256(Bytes.ofString(pass + "|" + salt.toHex()));
+			for (i in 0...KDF_ROUNDS)
+				h = sha256(concat(h, salt));
+		}
 		return {
 			enc: sha256(concat(h, Bytes.ofString("cne-enc"))),
 			mac: sha256(concat(h, Bytes.ofString("cne-mac")))
 		};
+	}
+
+	/**
+	 * True when `key` is the fallback that ships inside the executable.
+	 *
+	 * Opening a pack with it still works - packs published that way have to stay
+	 * readable - but sealing one with it is refused everywhere: a public constant is
+	 * not a password, and a pack sealed with it looks protected while being readable
+	 * by anyone holding the engine.
+	 */
+	public static function isBuiltInKey(key:String):Bool {
+		return key != null && key == DEFAULT_PASSWORD;
+	}
+
+	static var builtInWarned:Map<String, Bool> = [];
+
+	/** Says once per pack that it is sealed with the public fallback key. */
+	public static function warnBuiltInKey(what:String):Void {
+		if (what == null || builtInWarned.exists(what)) return;
+		builtInWarned.set(what, true);
+		Logs.warn('"$what" is sealed with the built-in fallback key, which ships inside the executable: '
+			+ 'anyone with the engine can open it. Re-seal it with a real key.');
 	}
 
 	public static function hmacTag(macKey:Bytes, data:Bytes):Bytes {

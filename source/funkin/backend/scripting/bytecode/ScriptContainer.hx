@@ -31,7 +31,9 @@ import haxe.io.Bytes;
 class ScriptContainer {
 	public static inline var EXTENSION:String = "hxb";
 
-	public static inline var VERSION:Int = 2;
+	/** Written version. 3 moved the key derivation to PBKDF2; 2 still loads. */
+	public static inline var VERSION:Int = 3;
+	public static inline var VERSION_MIN:Int = 2;
 	/**
 	 * Revision of the bytecode compiler that produced a container, stored in header byte 10.
 	 * Revision 0 are all packs written before this byte existed: their compiler dropped the
@@ -158,7 +160,8 @@ class ScriptContainer {
 		var body:Bytes;
 		if (flags & FLAG_KEY != 0) {
 			var password = opts.pass != null ? opts.pass : ScriptCrypto.getPassword(opts.scriptName);
-			var keys = ScriptCrypto.deriveKeys(ScriptCrypto.resolveKeyValue(password == null ? "" : password), salt);
+			// version 3 derives keys with PBKDF2, see ScriptCrypto.deriveKeys
+			var keys = ScriptCrypto.deriveKeys(ScriptCrypto.resolveKeyValue(password == null ? "" : password), salt, 2);
 			var cipher = ChaCha20.xorBytes(keys.enc, nonce, 1, payload);
 			var tag = ScriptCrypto.hmacTag(keys.mac, cipher);
 			body = SecureBytes.concat(cipher, tag);
@@ -220,7 +223,7 @@ class ScriptContainer {
 		if (!isContainer(data)) throw "Script container: bad magic (not a CNX2 file)";
 
 		var version = data.get(4);
-		if (version != VERSION) throw "Script container: unsupported version " + version;
+		if (version < VERSION_MIN || version > VERSION) throw "Script container: unsupported version " + version;
 
 		var flags = data.get(5);
 		if (flags & ~KNOWN_FLAGS != 0) throw "Script container: unknown layers 0x" + StringTools.hex(flags);
@@ -254,7 +257,8 @@ class ScriptContainer {
 		var payload:Bytes;
 		if (flags & FLAG_KEY != 0) {
 			var password = pass != null ? pass : ScriptCrypto.getPassword(scriptName);
-			var keys = ScriptCrypto.deriveKeys(ScriptCrypto.resolveKeyValue(password == null ? "" : password), salt);
+			var keys = ScriptCrypto.deriveKeys(ScriptCrypto.resolveKeyValue(password == null ? "" : password), salt,
+				version >= 3 ? 2 : 1);
 			var expected = ScriptCrypto.hmacTag(keys.mac, content);
 			if (!SecureBytes.equalConstantTime(expected, tag)) {
 				SecureBytes.wipe(keys.enc);

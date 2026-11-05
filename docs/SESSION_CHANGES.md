@@ -178,7 +178,35 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 
 ---
 
-## 九、没做的
+## 九、11-06 的安全修复（评估报告 V5 / V6）
+
+报告来自一次针对 `2hotBFmix_password.zip` 的逆向评估（在仓库外）。V1/V2（加密包里混明文条目）
+的处理见上一节，这里只记 V5、V6。
+
+**V5：内置口令只能读，不能封**
+
+- `ScriptCrypto.isBuiltInKey()` / `warnBuiltInKey()`：读到用内置密钥封的包时，日志点名警告一次
+  （每个包一次运行只提醒一次）。
+- 封包路径拒绝它：`EncryptionEditor.sealProblem()` 拦住导出（单包、批量、带 key 的脚本保护），
+  `CnezV2.pack` / `ZipAes.encryptZip` 各自也会抛错；唯一例外是 `ZipEditCache` 合并时按原密钥
+  重封（`allowBuiltInKey`），否则用旧密钥封的包一旦有改动就再也合并不回去。
+- 加密工具的 Key 字段不再预填内置密钥（`defaultKeyField()`：没有真 key 就留空）。
+
+**V6：KDF 换成 PBKDF2-HMAC-SHA256**
+
+- 新增 `Pbkdf2.deriveSHA256`（ipad/opad 只算一次，比每轮重算 HMAC 少三分之一开销），
+  用 RFC 7914 的 `password`/`salt` 向量核对过 c=1/2/4096 与 dkLen=32/40。
+- CNEZ 容器版本升到 **3**（读 2 和 3）：版本 2 仍走旧的 2048 轮 SHA-256，版本 3 走 PBKDF2 20 万轮。
+  头部布局一个字节没动，版本字节本身在根 tag 覆盖范围内，所以旧包不会被误判成新包。
+- 脚本容器（CNX2）同样升到版本 3，v2 容器仍可读。
+- 代价：解锁多约 1.3 s（hxcpp 实测 6.3 µs/轮）；攻击者每次尝试的代价抬约 100 倍。
+
+**仍开着的**：V3（发布目录里源包与密封包并放）、V4（解密视频落盘、只在正常退出时清）、
+V7（key token 只是混淆，不是分发密钥的安全手段）。
+
+---
+
+## 十、没做的
 
 | 项 | 状态 |
 | --- | --- |
