@@ -92,6 +92,9 @@ class InspectorGizmo {
 		}
 
 		var camera = prepareObjectCamera(objectData, object);
+		// no camera to project through: the state was torn down under the selection (leaving
+		// a playtest, closing the game) and FlxG.camera is null at that point
+		if (camera == null) return;
 		var bounds = object.getScreenPosition(null, camera);
 		var position = bounds.clone();
 		var origin = bounds.clone();

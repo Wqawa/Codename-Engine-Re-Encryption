@@ -75,6 +75,8 @@ class ConsoleInspector {
 	private var __sinceRefresh:Float = 1;
 	/** True on the frame the tree was rebuilt; the tree walk uses it to refresh groups. */
 	private var treeRefreshed:Bool = false;
+	/** The state the tree was last built for; a switch invalidates every node in it. */
+	private var lastInspectedState:FlxState = null;
 
 	function updateObjects() {
 		var states:Array<FlxState> = [FlxG.state];
@@ -177,6 +179,20 @@ class ConsoleInspector {
 	}
 
 	public function displayUI() {
+
+		// nothing to inspect while the game is between states (or already tearing down)
+		if (FlxG.state == null) return;
+
+		// A state switch destroys everything the tree points at, cameras included, so a
+		// selection from the old state has to go with it: drawing its gizmo asked the object
+		// for a screen position and hit a null camera (leaving a playtest, closing the game).
+		var state = FlxG.state;
+		if (state != lastInspectedState) {
+			lastInspectedState = state;
+			selectedObject = null;
+			selectedObjectData = null;
+			__sinceRefresh = refreshInterval; // rebuild now, not up to a tick later
+		}
 
 		treeRefreshed = (__sinceRefresh += FlxG.rawElapsed) >= refreshInterval;
 		if (treeRefreshed) __sinceRefresh = 0;
