@@ -211,8 +211,39 @@ class ZipAes {
 
 		if (FileSystem.exists(outPath)) FileSystem.deleteFile(outPath);
 		FileSystem.rename(tmp, outPath);
+
+		// An entry without the encryption flag is as good as no encryption: any unzip tool
+		// reads it without the password. Appending to an already sealed pack (an injector,
+		// a merge, a tool outside this codebase) leaves exactly that, so the finished file
+		// is checked rather than trusted - one leaked entry undoes the whole pack.
+		var leaked = plaintextEntries(outPath);
+		if (leaked.length > 0) {
+			try FileSystem.deleteFile(outPath) catch (e:Dynamic) {}
+			throw 'ZipAes: ${leaked.length} entr${leaked.length == 1 ? "y" : "ies"} would not be encrypted ('
+				+ leaked.slice(0, 5).join(", ") + ')';
+		}
+
 		if (onProgress != null) onProgress(1);
 		#end
+	}
+
+	/**
+	 * Names of the entries that carry no encryption flag, directories excluded.
+	 *
+	 * A password zip is only as sealed as its weakest entry: one plaintext file next to a
+	 * hundred AES ones opens without the password.
+	 */
+	public static function plaintextEntries(path:String):Array<String> {
+		var out:Array<String> = [];
+		#if sys
+		var entries = ZipPassword.readCentral(path);
+		if (entries == null) return out;
+		for (e in entries) {
+			if (e.name.length > 0 && StringTools.endsWith(e.name, "/")) continue;
+			if ((e.flags & ZipPassword.FLAG_ENCRYPTED) == 0) out.push(e.name);
+		}
+		#end
+		return out;
 	}
 
 	static function writeLocalHeader(buf:BytesBuffer, e:ZipEntry, version:Int, flags:Int, method:Int, crc:Int, csize:Int, name:Bytes,

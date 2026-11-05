@@ -52,10 +52,32 @@ class ZipPassword {
 			// the plain zip reader, which would crash on its encrypted entries.
 			return (localHeaderFlags(path) & FLAG_ENCRYPTED) != 0;
 		}
-		for (e in entries)
-			if ((e.flags & FLAG_ENCRYPTED) != 0) return true;
+		var encrypted = 0;
+		var plain:Array<String> = [];
+		for (e in entries) {
+			// directories carry no data and are never encrypted
+			if (e.name.length > 0 && StringTools.endsWith(e.name, "/")) continue;
+			if ((e.flags & FLAG_ENCRYPTED) != 0) encrypted++;
+			else plain.push(e.name);
+		}
+		// A half encrypted pack is a pack with a hole: the plaintext entries open without
+		// the password, and one of them is enough to leak a whole script. A shipped password
+		// zip lost an entry that way once (an appender that did not know about encryption),
+		// so this is said out loud instead of loaded quietly.
+		if (encrypted > 0 && plain.length > 0) warnMixed(path, plain);
+		return encrypted > 0;
 		#end
 		return false;
+	}
+
+	static var mixedWarned:Map<String, Bool> = [];
+
+	static function warnMixed(path:String, plain:Array<String>):Void {
+		if (mixedWarned.exists(path)) return;
+		mixedWarned.set(path, true);
+		var shown = plain.slice(0, 5).join(", ") + (plain.length > 5 ? ", ..." : "");
+		Logs.warn('Zip: "${haxe.io.Path.withoutDirectory(path)}" is only partly encrypted; '
+			+ '${plain.length} file(s) can be read without the password ($shown)');
 	}
 
 	/** General purpose flags of the first local file header (0 when there is none). */

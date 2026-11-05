@@ -107,6 +107,10 @@ magic 与脚本容器的 magic 刻意不同，脚本不可能被当成 mod 包�
   `salt(8/12/16) + 密码校验(2) + AES-CTR 密文 + 认证(10)`，密钥来自 PBKDF2-HMAC-SHA1（1000 轮），
   完整性用截断的 HMAC-SHA1。`ZipAes` 既能读也能写——加密工具导出的"AES 密码 zip"就是它写的，
   所以玩家只需要输一次密码，7-Zip / WinRAR / Bandizip 也能直接打开。
+  密码 zip 的强度取决于**最弱的条目**：一条没带加密标志的普通条目，任何解压工具都能不输密码读出来，
+  AES 就白做了。所以写完之后 `ZipAes` 会把成品重新读一遍，发现明文条目就删掉产物并报错；
+  加载别人的包时 `ZipPassword.isProtected` 也会检查"一半加密一半明文"，在日志里点名警告
+  （一次运行只警告一次）。
 - **包内自带的 key 文件**：`ScriptCrypto` 只认磁盘上的文件，而 zip 条目不是文件，所以打包 mod 加载时
   `ModsFolder.registerKeyFilesFromPack` 会把包里的 `data/script_key.txt` / `script_key.txt` 复制到
   `.cne/keys/` 并注册。没有这一层，包内脚本用了自定义 key 时就只能把 `script_key.txt` 放到 exe 旁边。
