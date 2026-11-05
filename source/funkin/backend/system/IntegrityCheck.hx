@@ -69,13 +69,18 @@ class IntegrityCheck {
 		reported = true;
 	}
 
+	/** Findings so far, for the counter the check screen shows while it runs. */
+	public static function problemCount():Int {
+		return missing.length + changed.length + extra.length;
+	}
+
 	public static function summary():String {
 		if (manifestProblem != null) return manifestProblem;
 		if (!manifestFound) return 'no manifest shipped';
 		var parts:Array<String> = [];
 		if (missing.length > 0) parts.push('${missing.length} missing');
 		if (changed.length > 0) parts.push('${changed.length} modified');
-		if (extra.length > 0) parts.push('${extra.length} unlisted');
+		if (extra.length > 0) parts.push('${extra.length} added');
 		return parts.length == 0 ? 'all $checked file(s) match' : parts.join(', ');
 	}
 
@@ -207,7 +212,7 @@ class IntegrityCheck {
 			Logs.warn(line + ' - see the dialog for the first few of each kind.');
 			logList('missing', missing);
 			logList('modified', changed);
-			logList('unlisted', extra);
+			logList('added', extra);
 		}
 		else Logs.trace(line, INFO);
 		#end

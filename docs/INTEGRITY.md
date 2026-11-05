@@ -67,14 +67,22 @@ CNEZ-INTEGRITY 1
 校验结果同时写日志：
 
 - 全部通过：`Integrity check: all N file(s) match`
-- 有差异：`Integrity check: X missing, Y modified, Z unlisted - see the dialog for the first few of each kind.`
+- 有差异：`Integrity check: X missing, Y modified, Z added - see the dialog for the first few of each kind.`
   随后按类型各写一行完整列表（每类最多 40 个，多余的收成 `... and N more`）：
   `Integrity: missing (1): assets/data/characters/xx.json | ...`
 
-弹窗是按类型分段的，不再是混在一起的一段话：每段一个颜色（缺失红、已修改琥珀、未列出蓝），
-段头带数量，下面先给 4 个文件名，其余折成 `... and N more`；说明文字用灰色。弹窗里放不下整份清单，
-完整列表看日志。分段的实现是 `UIWarningSubstate` 的 `lines` 参数（每行自带颜色/字号/间距），
-普通单段消息仍走原来的 `message`。
+弹窗是按类型分段的，不再是混在一起的一段话：**缺失 / 新加 / 被修改** 各一段，段头带数量，
+下面先给 4 个文件名，其余折成 `... and N more`；说明文字用灰色。颜色按严重程度排：被修改红、
+缺失琥珀、新加蓝。弹窗里放不下整份清单，完整列表看日志。分段的实现是 `UIWarningSubstate`
+的 `lines` 参数（每行自带颜色/字号/间距），普通单段消息仍走原来的 `message`。
+
+弹窗本身（面板染色 + 图标）也按最严重的差异选类型：有被修改 → `ERROR`（红），否则有缺失 →
+`WARNING`（黄），只剩新加 → `INFO`（蓝）；清单读不出来同样按 `ERROR`。所以整个弹窗的颜色
+就是这次差异的等级。
+
+检查过程中的界面会像崩溃屏那样轻微上下浮动（`PopupScreen.setContentOffset`），旁边的小窗
+实时显示已经查到的问题总数，数字颜色跟着等级走；进度条每帧更新，文字类标签 10 Hz 更新——
+每改一次文本都要重排字形，那是这个界面"卡"的主要来源。
 
 ---
 
@@ -88,8 +96,10 @@ CNEZ-INTEGRITY 1
 | 清单签名不符 | 清单本身被改过 | 弹提示，且**整份清单作废**（基准已经不可信） |
 | exe 对不上 | 重新构建过，没重生成清单 | 只跳过 exe 这一条，其余照查 |
 
-`extra` 也算差异：`assets/` 里冒出一个清单没有的文件，正是塞脚本的形状。早先版本只记日志，
-等于这类改动永远不会被看见。
+`extra`（弹窗里叫 **Added / 新加**）也算差异：`assets/` 里冒出一个清单没有的文件，正是塞脚本的形状。
+早先版本只记日志，等于这类改动永远不会被看见。
+
+等级（决定弹窗类型和配色）：`changed` 被修改 = error > `missing` 缺失 = warning > `extra` 新加 = info。
 
 exe 单独处理是因为它每次重建都会变。整个清单作废过一次的代价太大——一次重建就能让检查失效到
 有人记得重新生成清单为止，期间改个资源名都发现不了。

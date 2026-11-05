@@ -2,7 +2,9 @@ package funkin.menus;
 
 import flixel.FlxG;
 import flixel.FlxState;
+import flixel.text.FlxText.FlxTextAlign;
 import funkin.backend.system.IntegrityCheck;
+import funkin.editors.ui.UISliceSprite;
 import funkin.editors.ui.UIText;
 import funkin.editors.ui.UIWarningSubstate;
 import funkin.editors.ui.UIWarningSubstate.UIWarningKind;
@@ -20,12 +22,21 @@ class IntegrityScreen extends PopupScreen {
 	/** Names shown per section before it turns into "... and N more". */
 	static inline var NAMES_PER_SECTION:Int = 4;
 
-	// one colour per kind of finding: red is gone, amber is not what shipped, blue is new
-	static inline var COLOR_MISSING:Int = 0xFFFF6B6B;
-	static inline var COLOR_CHANGED:Int = 0xFFFFD24D;
-	static inline var COLOR_EXTRA:Int = 0xFF5BB0FF;
+	// Severity, not kind: the same three colours the dialog is tinted with, so a red
+	// heading and a red panel always mean the same thing. Modified is the worst finding,
+	// a missing file after that, an added one only worth a note.
+	static inline var COLOR_ERROR:Int = 0xFFFF6B6B;
+	static inline var COLOR_WARN:Int = 0xFFFFD24D;
+	static inline var COLOR_INFO:Int = 0xFF5BB0FF;
 	/** Explanations and the intro; the names carry the colour instead. */
 	static inline var COLOR_HINT:Int = 0xFF9C9CAA;
+
+	/** How often the labels are rebuilt. A text field re-shapes its glyphs on every change. */
+	static inline var LABEL_INTERVAL:Float = 1 / 10;
+
+	static inline var COUNTER_W:Int = 208;
+	static inline var COUNTER_H:Int = 118;
+	static inline var COUNTER_GAP:Int = 14;
 
 	var work:Array<String>;
 	var locked:Array<String>;
@@ -33,7 +44,17 @@ class IntegrityScreen extends PopupScreen {
 	var bar:PopupProgress;
 	var info:UIText;
 
+	/** Side window with the running number of findings. */
+	var counterPanel:UISliceSprite;
+	var counterTitle:UIText;
+	var counterNumber:UIText;
+	var counterHint:UIText;
+	var shownProblems:Int = -1;
+
 	var movingOn:Bool = false;
+	/** Seconds since the screen opened, for the idle bob. */
+	var bobTime:Float = 0;
+	var labelTimer:Float = 0;
 
 	public function new(work:Array<String>, locked:Array<String>) {
 		super();
@@ -51,18 +72,70 @@ class IntegrityScreen extends PopupScreen {
 		info = addText("0 / 0", 13, PopupScreen.COLOR_TEXT, 0);
 		endPanel();
 
+		buildCounter();
+
 		// already running when the window opened; the call is a no-op then
 		IntegrityCheck.startVerify();
+	}
+
+	/**
+	 * The small window beside the panel, with how many findings there are so far.
+	 *
+	 * The check reads a thousand files and the bar alone barely moves, which reads as a
+	 * frozen screen; the counter is the thing that actually ticks while it grinds.
+	 */
+	function buildCounter():Void {
+		var x = panel.x + panel.width + COUNTER_GAP;
+		// centred against the panel, so the two read as one row while they bob
+		var y = Math.round(panel.y + ((panel.height - COUNTER_H) / 2));
+		if (x + COUNTER_W > FlxG.width - 12) {
+			// no room on the right: mirror it to the left
+			x = panel.x - COUNTER_GAP - COUNTER_W;
+			if (x < 12) {
+				// neither side fits: sit under the panel, right aligned, rather than on top of it
+				x = Math.min(panel.x + panel.width - COUNTER_W, FlxG.width - COUNTER_W - 12);
+				y = Math.round(panel.y + panel.height + COUNTER_GAP);
+			}
+		}
+
+		final pad = PopupScreen.PAD;
+		final textW = COUNTER_W - pad * 2;
+
+		counterPanel = place(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
+		counterPanel.resize(COUNTER_W, COUNTER_H);
+
+		counterTitle = place(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
+		counterTitle.y = y + ((PopupScreen.TITLE_H - counterTitle.height) / 2);
+
+		counterNumber = place(new UIText(x + pad, y + PopupScreen.TITLE_H + 12, textW, "0", 30, COLOR_HINT));
+		counterNumber.alignment = FlxTextAlign.CENTER;
+
+		counterHint = place(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
+		counterHint.alignment = FlxTextAlign.CENTER;
+		counterHint.y = counterNumber.y + counterNumber.height + 2;
 	}
 
 	override function update(elapsed:Float) {
 		super.update(elapsed);
 
+		// The crash overlay's idle bob, same amplitude and speed: a frame that keeps moving
+		// hides the hitch of a check that reads every shipped file.
+		bobTime += elapsed;
+		setContentOffset(Math.sin(bobTime * 1.5) * 5);
+
 		final total = IntegrityCheck.total;
 		final fraction = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));
 		bar.value = fraction;
-		if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
-		info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
+
+		// Bar per frame, labels at 10 Hz: the bar is a rect, but every label change re-shapes
+		// its glyphs, and the counter was being rebuilt 60 times a second for numbers nobody
+		// can read that fast - most of what made this screen feel like it was hitching.
+		if ((labelTimer += elapsed) >= LABEL_INTERVAL) {
+			labelTimer = 0;
+			if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
+			info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
+			updateCounter();
+		}
 
 		if (movingOn || !IntegrityCheck.done) return;
 
@@ -79,6 +152,23 @@ class IntegrityScreen extends PopupScreen {
 		// the dialog is up; wait for the player to close it
 		if (subState != null) return;
 		next();
+	}
+
+	function updateCounter():Void {
+		if (counterNumber == null) return;
+		final found = IntegrityCheck.problemCount();
+		if (found == shownProblems) return;
+		shownProblems = found;
+		counterNumber.text = Std.string(found);
+		counterNumber.color = severityColor();
+	}
+
+	/** The colour of the counter, from the worst finding so far. */
+	static function severityColor():Int {
+		if (IntegrityCheck.changed.length > 0) return COLOR_ERROR;
+		if (IntegrityCheck.missing.length > 0) return COLOR_WARN;
+		if (IntegrityCheck.extra.length > 0) return COLOR_INFO;
+		return COLOR_HINT;
 	}
 
 	/**
@@ -99,18 +189,18 @@ class IntegrityScreen extends PopupScreen {
 		var lines:Array<WarningLine> = [];
 
 		if (IntegrityCheck.manifestProblem != null) {
-			lines.push({text: IntegrityCheck.manifestProblem, color: COLOR_MISSING, size: 13});
+			lines.push({text: IntegrityCheck.manifestProblem, color: COLOR_ERROR, size: 13});
 			lines.push({text: "The check could not run, so nothing was verified.", color: COLOR_HINT, size: 12, gap: 10});
 		} else {
 			lines.push({
 				text: '${IntegrityCheck.checked} file(s) were compared against the manifest shipped with this build.',
 				color: COLOR_HINT, size: 12});
 			addSection(lines, "Missing", "Listed in the manifest, no longer on disk.",
-				IntegrityCheck.missing, COLOR_MISSING);
+				IntegrityCheck.missing, COLOR_WARN);
+			addSection(lines, "Added", "Under assets/, but not in the manifest.",
+				IntegrityCheck.extra, COLOR_INFO);
 			addSection(lines, "Modified", "On disk, but not what this build shipped.",
-				IntegrityCheck.changed, COLOR_CHANGED);
-			addSection(lines, "Unlisted", "Under assets/, but not in the manifest.",
-				IntegrityCheck.extra, COLOR_EXTRA);
+				IntegrityCheck.changed, COLOR_ERROR);
 			lines.push({
 				text: "The game keeps running; anything loaded from the files above may not be what was shipped.",
 				color: COLOR_HINT, size: 12, gap: 16});
@@ -120,7 +210,18 @@ class IntegrityScreen extends PopupScreen {
 			"Files Do Not Match This Build",
 			"",
 			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],
-			UIWarningKind.INFO, false, lines);
+			severityKind(), false, lines);
+	}
+
+	/**
+	 * How the dialog itself is drawn, from the worst finding: a modified file is an error,
+	 * a missing one a warning, an added one only a note. The panel tint and the icon
+	 * follow this, so the colour of the whole dialog says how bad it is.
+	 */
+	static function severityKind():UIWarningKind {
+		if (IntegrityCheck.manifestProblem != null || IntegrityCheck.changed.length > 0) return UIWarningKind.ERROR;
+		if (IntegrityCheck.missing.length > 0) return UIWarningKind.WARNING;
+		return UIWarningKind.INFO;
 	}
 
 	/**

@@ -70,6 +70,8 @@ class PopupScreen extends UIState {
 	var panelW:Int = 0;
 	var moved:Array<FlxSprite> = [];
 	var buttonDefs:Array<PopupButton> = null;
+	/** Current vertical shift of the content; see setContentOffset(). */
+	var contentOffset:Float = 0;
 
 	override function create() {
 		super.create();
@@ -156,6 +158,21 @@ class PopupScreen extends UIState {
 
 	public function setButtons(items:Array<PopupButton>):Void
 		buttonDefs = items;
+
+	/**
+	 * Slides everything this screen laid out, panel and buttons included, by `offset` px.
+	 *
+	 * For screens that idle-animate: the file check bobs the way the crash overlay does,
+	 * because a frame that keeps moving makes its hitches far less obvious. The shade stays
+	 * put - only what the panel owns moves.
+	 */
+	public function setContentOffset(offset:Float):Void {
+		final delta = offset - contentOffset;
+		if (delta == 0) return;
+		contentOffset = offset;
+		for (sprite in moved) sprite.y += delta;
+		for (button in buttons) button.y += delta;
+	}
 
 	/** Sizes and centres the panel around what was added, then builds the footer row. */
 	public function endPanel():Void {
