@@ -140,6 +140,19 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
   系统窗口时读这个标志（`SDL_WINDOW_ALWAYS_ON_TOP`），而 ImGui 每帧都会用窗口自身的标志
   把它重写掉，所以要在 `begin()` 之后每帧补一次。
 
+**与上游 1.1.0 的公开 API 差异（脚本会碰到的）**
+
+| 变更 | 旧写法会怎样 | 现在 |
+| --- | --- | --- |
+| `UIWarningSubstate` 第 4 参 `isError:Bool` → `kind:UIWarningKind` | `(title, msg, buttons, true)` 类型不符 | 第 4 参收 `Dynamic`，`true/false` 映射回 `ERROR/WARNING`（和旧版的两种外观一一对应）；另补 `isError` 属性，读写都映射到 `kind` |
+| `SaveWarning.warningFunc` 删掉 | 赋值报“字段不存在” | 字段保留但**不再调用**（它原来会在弹窗之外再插一手，正是双弹窗的来源）；保存钩子用 `saveFunc` |
+| `PlaytestingWarningSubstate` 删掉 | `new` 找不到类 | 不恢复（内部弹窗，仓库内无引用）；恢复命令在 `AGENTS.md` 的“已删除的上游文件”表 |
+| `Flags.SHADERS_CACHE_RESET_ON_SWITCH_STATE` 删掉 | mod 的 `config` 里写它会被当成未知 flag，静默失效 | 恢复该 flag 与 `GlobalScript` 里 `Main.refreshShaders()` 的调用 |
+| `UIWarningSubstate` 第 5 参及以后 | — | 第 5 参仍是 `wantsInput`，第 6 参新增 `lines`；旧调用不受影响 |
+
+其余公开签名变化都是“追加可选参数”（`ZipFolderLibrary.new`、`ModsFolder.loadLibraryFromZip`），
+`WarningButton` / `triggerWarning` / `Logs` 的签名没动。
+
 ---
 
 ## 八、没做的

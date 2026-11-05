@@ -20,6 +20,15 @@ class SaveWarning {
 	public static var selectionClass:Class<EditorTreeMenu> = null;
 	public static var saveFunc:Void->Void = null;
 
+	/**
+	 * Kept only so scripts written against 1.1.0 do not fail when they assign to it.
+	 *
+	 * It is never called: the hook ran *in addition to* the dialog, which is how a playtest
+	 * ended up with two stacked prompts. triggerWarning() always opens the shared dialog
+	 * now, and saveFunc is the supported place to hook the save.
+	 */
+	public static var warningFunc:Bool->Void = null;
+
 	public static function init() {
 		showWarning = false;
 

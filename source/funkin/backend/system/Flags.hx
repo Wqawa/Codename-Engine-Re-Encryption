@@ -79,6 +79,9 @@ class Flags {
 	@:lazy public static var PATHS_CACHE_LIFETIME:Null<Int> = null;
 	public static var PATHS_CACHE_RESET_ON_SWITCH_STATE:Bool = true;
 
+	/** Turn this on to debug custom shaders: shader programs are dropped on every state switch. */
+	public static var SHADERS_CACHE_RESET_ON_SWITCH_STATE:Bool = false;
+
 	public static var GAME_WIDTH:Int = 1280;
 	public static var GAME_HEIGHT:Int = 720;
 

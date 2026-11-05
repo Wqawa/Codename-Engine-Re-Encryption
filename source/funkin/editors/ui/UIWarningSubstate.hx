@@ -220,15 +220,41 @@ class UIWarningSubstate extends MusicBeatSubstate {
 	 *                   `inputValue()`. The dialog never acts on the text itself - the
 	 *                   caller decides what it means.
 	 */
-	public function new(title:String, message:String, buttons:Array<WarningButton>, ?kind:UIWarningKind = ERROR,
+	public function new(title:String, message:String, buttons:Array<WarningButton>, ?kind:Dynamic = null,
 			?wantsInput:Bool = false, ?lines:Array<WarningLine> = null) {
 		super();
 		this.title = title;
 		this.message = message;
 		this.buttons = buttons;
-		this.kind = kind;
+		this.kind = resolveKind(kind);
 		this.wantsInput = wantsInput;
 		this.lines = lines;
+	}
+
+	/**
+	 * 1.1.0's fourth argument was `isError:Bool`, and it became this enum. A bool is mapped
+	 * back (true = error, false = warning, the pair 1.1.0 used to draw) so a script written
+	 * against the old signature opens what it opened before instead of failing on the type.
+	 */
+	static function resolveKind(kind:Dynamic):UIWarningKind {
+		if (kind == null) return ERROR;
+		if (Std.isOfType(kind, Bool)) {
+			var asBool:Bool = kind;
+			return asBool ? ERROR : WARNING;
+		}
+		return cast kind;
+	}
+
+	/**
+	 * 1.1.0 read this field to pick the skin, the icon and the tint. Kept as a view on
+	 * `kind`, so a script that set it on a dialog it built still gets that look.
+	 */
+	public var isError(get, set):Bool;
+	function get_isError():Bool
+		return kind == ERROR;
+	function set_isError(value:Bool):Bool {
+		kind = value ? ERROR : WARNING;
+		return value;
 	}
 }
 
