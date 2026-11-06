@@ -196,7 +196,7 @@ new UIWarningSubstate(title, message, buttons, ?kind = ERROR, ?wantsInput = fals
 
 - 新增 `Pbkdf2.deriveSHA256`（ipad/opad 只算一次，比每轮重算 HMAC 少三分之一开销），
   用 RFC 7914 的 `password`/`salt` 向量核对过 c=1/2/4096 与 dkLen=32/40。
-- CNEZ 容器版本升到 **3**（读 2 和 3）：版本 2 仍走旧的 2048 轮 SHA-256，版本 3 走 PBKDF2 20 万轮。
+- CNEZ 容器版本升到 **3**（当时读 2 和 3；11-07 起 v1 也回来了，见第十四节）：版本 2 仍走旧的 2048 轮 SHA-256，版本 3 走 PBKDF2 20 万轮。
   头部布局一个字节没动，版本字节本身在根 tag 覆盖范围内，所以旧包不会被误判成新包。
 - 脚本容器（CNX2）同样升到版本 3，v2 容器仍可读。
 - 代价：解锁多约 1.3 s（hxcpp 实测 6.3 µs/轮）；攻击者每次尝试的代价抬约 100 倍。
@@ -247,7 +247,7 @@ V7（key token 只是混淆，不是分发密钥的安全手段）。
 | 帧率 | FramePacer 配置项（`Options.framePacerMode`）、"More optimization with gc"、顺手回退了之前那个分数标签优化 |
 | 角色 / 舞台 | 角色编辑器拖拽与手柄修复、`DEBUG_HITBOX` 换色、`characterPosGuide.frag`、`applyStageMatrix` 默认改由 `USE_LEGACY_FLXANIMATE_STAGE_MATRIX` 决定（`MOD_API_VERSION < 3` 才是 true） |
 | freeplay | 歌曲列表 addon 支持及后续修补、上下键 turbo 控制、预览音乐修复、列表滚动加速 |
-| 播放 | `StrumLine` 与 `PlayState` 解耦、`ignoreInactive` 与 `ignoreInvisible` 修好接到 `getStrumlineCamPos` / `getCharactersCamPos`、`Flags.FORCE_CAM_ZOOM_EVERY_MEASURE` |
+| 播放 | `StrumLine` 与 `PlayState` 解耦、`ignoreInactive` 与 `ignoreInvisible` 接到 `getStrumlineCamPos` / `getCharactersCamPos`、`Flags.FORCE_CAM_ZOOM_EVERY_MEASURE`。**注意：上游 `064d91b` 把两个 ignore 条件写反，本轮已修回** |
 | 其它 | `ScriptableShader` / `ShaderResizeFix` 弃用修复、`SaveSubstate` 取消时崩溃、`ModSwitchMenu` addon 迭代、`WindowUtils` 旧兼容 API 恢复、`DEFAULT_GITAROO` 默认 false |
 
 **冲突（3 处，都以官方为准，只保留本 fork 必须的注入）**
@@ -291,3 +291,95 @@ V7（key token 只是混淆，不是分发密钥的安全手段）。
 | 加密包内部条目被增删 | 检测不到。清单按文件校验，`mods/x.zip` 整体算一个文件 |
 | `assets/` 之外的文件 | 不校验。`saves/`、`options/` 是玩家数据，`mods/` 是玩家内容 |
 | "保存并退出到菜单"当场合并 | 不做。运行中的 mod 正被资源库读着（文件句柄或内存里的解密副本），当场重写会让之后读到的资源和包对不上；合并只在关闭游戏或切换 mod 时做，暂存目录在那之前就是可读的 |
+
+---
+
+## 十四、11-06 压缩包 mod "能读贴图、没有歌"的两个原因
+
+现象：`mods/<name>.zip` 进游戏后角色、图标、图片都正常，歌单是空的，日志里一行错都没有；
+同一份内容解压成文件夹就全对。两条独立的原因，撞在同一个症状上。
+
+**1. 歌单扫描把 zip 库强转成文件夹库（CNE 本体，上游 450ab5b5 引入）**
+
+- `source/funkin/menus/FreeplayState.hx` 的 `FreeplaySonglist.getSongsFromSource` 逐库扫描时写的是
+  `final modLib:ModsFolderLibrary = cast mods[i++];`，而 zip 包挂的是 `ZipFolderLibrary`
+  （`extends AssetLibrary implements IModsAssetLibrary`，和 `ModsFolderLibrary` 没有继承关系）。
+- `ModsFolderLibrary.getFolders` 走磁盘 `FileSystem.readDirectory(getAssetPath())`，对 zip 库来说
+  那个路径不存在，异常被吞掉后 `return []`，于是 `songsFound` 为空、没有歌、没有报错。
+  这正是"贴图都在、就是没歌"：图片走 `Assets` 的库派发，歌单走的是这条被强转的磁盘枚举。
+- 上游基线是对的：`git show baseline/upstream-1.1.0:source/funkin/menus/FreeplayState.hx` 用
+  `Paths.getFolderDirectories(...)` → `assetsTree.getFolders` → 接口派发。逐库扫描出现在
+  `ebc621ce`（合上游 450ab5b5）里，它的父提交 `c7bda431` 中 `getLoadedModsLibs` 出现 0 次。
+- 修法是**最小规避**，没有重写这段：类型改成接口 `IModsAssetLibrary`，`exists` 不在接口里，
+  用一个 `libExists()` 走 `cast(lib, openfl.utils.AssetLibrary).exists(path, "TEXT")`。
+  `Paths.txt()` 已经返回 `assets/...` 路径，早期版本又拼了一次 `assets/`，会把
+  `data/config/freeplaySonglist/LIB_<mod>.txt` 变成永远不存在的双前缀路径；本轮已改正。
+- 同时把原来的 `while (mods[0]...)` 轮转换成先查下标再 `splice`：目标 mod 不在列表里时，
+  旧写法会原地旋转到死；空列表也先返回，不再访问 `mods[0]`。
+
+**2. CNEZ 版本 1 的包读不了（本 fork 自己的回归）**
+
+- 现场那个 `2hotBfmix_encrypted.zip` 头部是 `CNEZ 01`：0..3 magic、4 版本、8..23 salt、24..35 nonce、
+  36..39 payload 长度、40.. 单条 ChaCha20 密文、尾 32 字节 HMAC-SHA256（覆盖头和密文）。
+  实测 `40 + 132670632 + 32 = 132670704` 正好等于文件大小。
+- 版本 1 是 1.0.1 分支的写法（`e9ac49b8` 的 `ModPackCrypto.VERSION = 1`）。11-02 `9d9d21d9` 换成
+  分块布局的版本 2，11-06 `80d406af` 提版本 3 时把 `VERSION_MIN` 设成 2：**旧包从此被判成普通 zip**，
+  没有 EOCD → 0 条目 → 库是空的但"加载成功"，日志一行不报。用户以为那是 v2 包，其实是 v1。
+- 修法：新增 `source/funkin/backend/assets/CnezV1.hx`（只读，不写信）：`isV1` / `isV1File` /
+  `verifyKeyFile`（解前 4 字节看 `PK`，和旧代码同一套廉价探针）/ `unpack`（长度校验 + 常时 HMAC 比较）。
+  `ModPackCrypto` 侧的接线：`isEncryptedPack` 认 v1，`isEncryptedPackFile` 改成版本区间 1..3，
+  `containerVersion()` 把"是 CNEZ 但版本不认识"报给加载器，`zipFor` 里 v1 走整包解密后
+  `SysZip.fromBytes`（单条密文流没有块表，没法按需 seek），`keyWorksUncached` 用 v1 的探针。
+- 版本 1 的 KDF 与现在 `ScriptCrypto.deriveKeys(pass, salt, kdf = 1)` 的分支逐字相同（sha256(pass + "|" +
+  salt 十六进制) 再 2048 轮 sha256(h + salt)），所以不需要第二个 KDF 实现。
+- 附带：`ModsFolder.loadModLib` 现在对"CNEZ 魔数但版本不认识"的包 `Logs.error` 并跳过，
+  不再静默当成空 zip（版本 4 或更旧的包也是这个待遇，而不是"加载成功但没内容"）。
+
+**验证**：完整编译 `haxelib run lime build windows -nocolor -DHXCPP_COMPILE_CACHE=C:\Users\36369\AppData\Local\cne-hxcpp-cache`
+于 2026-11-07 00:38:35 通过，`export/release/windows/bin/CodenameEngine.exe` 70,212,608 字节，
+日志无 `error:`；没有启动 exe。发布目录的 `integrity.dat` 用离线脚本重算 exe 条目并重签，
+共 937 条。
+
+真包端到端（密码由包作者提供）：对现场那个 `2hotBfmix_encrypted.zip` 做了三路互相独立的验证——
+
+1. Python 按 v1 规格独立实现 KDF（sha256(pass + "|" + salt.toHex()) 再 2048 轮 sha256(h + salt)）
+   算 HMAC-SHA256，与包里尾部 32 字节一致 → 密码、头布局、长度公式全对；
+2. openssl 独立解密：IV 用 `01000000`（counter = 1 的 IETF ChaCha20）+ nonce，`enc -chacha20 -d`
+   得到 132,670,632 字节，sha256 `bc531b2bbd560d836092b9cfd9b40d25ce0d32c6cb9d8e7b46b66b120052ee12`；
+3. 本仓库的 `CnezV1.unpack`（编译成 neko 跑真包，不是 python 复刻）解出同样字节数、同样 sha256
+   → 与 openssl 逐字节相同。
+
+解出来的 zip 有 186 个条目；和 `2hotBFmix (1).zip` 比，156 个文件内容完全相同，差异是加密包里
+脚本被编译成了 `data/events/*_protected.hxb`、`data/notes/*_protected.hxb`（明文包是对应的 .hx），
+外加更新过的 `data/config/modpack.ini` 与 `songs/2hot-(bf-mix)/charts/hard.json` → 它是这份 mod
+的较新构建，不是同一份字节的副本，所以整文件 sha256 不同属正常。
+
+注意：纯 Haxe 的 ChaCha20 在 neko 上大约 0.06 MB/s，132 MB 跑了两千多秒。这条路只在需要
+"用引擎自己的代码验证真实包"时走，平时用 Python/openssl 对拍就够。
+
+---
+
+## 十五、11-06 RC4 之后的复查
+
+**先纠正一个前提：本次实际合的不是 RC4。** 上游 `v1.1.0-rc4` 是 `2dd7d811`，而 `ebc621ce`
+合的是 `450ab5b5`；两者相差 17 个提交，歌单强转（`d7c70cf6`）和其他几处回归都在 RC4 之后。
+以后说“只合了 RC4”时，要先看 `git show -s` 的目标 SHA，不能拿 tag 名当基线。
+
+在这批上游改动和本 fork 的接缝上，本轮又确认并修掉了这些问题：
+
+| 位置 | 问题 | 修法 |
+| --- | --- | --- |
+| `game/PlayState.hx` | 上游 `064d91b` 把 `ignoreInvisible` / `ignoreInactive` 的条件写反：默认 true 时反而把隐藏、失活角色算进相机平均值 | 恢复 `ignoreInvisible && (...)` / `ignoreInactive && ...`，并留一句上游提交号 |
+| `game/StrumLine.hx` | `__dispatchOnMiss` 的 `directionID` 默认 0，`if (directionID == null)` 永远不成立，非 0 方向的 miss 全报成 0 | 默认值改成 `Null<Int> = null`，事件方向兜底 0 |
+| `editors/character/CharacterEditor.hx` | 上游把保存路径改成 `assetsTree.getPath(...)`；zip 包的路径是虚拟路径，写不进去，且 `Paths.getAssetsRoot()` 本来就会落到暂存目录 | 只有父目录真实存在才用资源树路径，否则回退 `Paths.getAssetsRoot()`，与 `Chart.save()` 一致 |
+| `editors/character/CharacterEditor.hx` | 三个姿态引导角色在 `changeStage(null)` 后只是被 `remove`，关闭编辑器时仍持有纹理和共享 shader | `destroy()` 里逐个 `remove` + `destroy`；shader 本身由 GC 回收 |
+| `menus/FreeplayState.hx` | `libExists` 重复拼 `assets/`；目标 mod 不在列表时 `while (mods[0]...)` 无限旋转；`i++` 后再 `i++` 会跳过一项 | 直接使用 `Paths.txt()` 的路径；先查下标再 `splice`；空列表返回；删掉二次自增 |
+| `backend/assets/ModPackCrypto.hx` | `containerVersion` 用 0 兼作“不是 CNEZ”，版本 0 的 CNEZ 会漏报 | 哨兵改成 -1，`ModsFolder` 用 `>= 0` 判断 |
+| `backend/utils/ControlsUtil.hx`、`options/keybinds/KeybindsOptions.hx` | 上游 per-addon 方案只读 `config/controls/LIB_*.xml`，旧版全局 `config/controls.xml` 不再生效 | 先读全局文件，再读各 mod 的 `LIB_` 文件；后者仍按加载顺序覆盖 |
+| `backend/shaders/ScriptableShader.hx` | 没有 `scriptName` 且 shader 没有源文件路径时，新代码会拿空字符串去 `Paths.script` | 恢复明确的 “Missing name” 异常 |
+| `options/Options.hx` | `characterDragging` 从 Bool 改成 `CharacterDragMode` 枚举，旧脚本的 `= true/false` 会类型不符 | 加 `@:from Bool` / `@:to Bool`，true 映射 OFFSET，false 映射 NONE |
+
+**没有改的**：`UIButtonList` 把滚轮步长乘以按钮数（上游有意“加速滚动”），这不是本轮回归，
+但列表很长时手感会变得很跳，是否恢复固定步长需要实机确认；`getCharactersCamPos` 新增的
+`?ignoreInactive` 插在 `?out` 前面，旧的 4 参数脚本调用会受影响，属于上游 API 变更，
+当前仓库内没有调用点，暂不额外加兼容层。

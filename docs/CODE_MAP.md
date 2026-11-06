@@ -104,7 +104,7 @@ graph LR
 集中在两个位置：
 
 ```
-backend/assets/        CnezV2, ModPackCrypto, ModPackSelfTest, ZipAes, ZipPassword,
+backend/assets/        CnezV1, CnezV2, ModPackCrypto, ModPackSelfTest, ZipAes, ZipPassword,
                        SysZip, OverlayZipFolderLibrary, ZipEditCache, ProtectedBuffer
 backend/scripting/     crypto/ScriptCrypto, bytecode/ScriptContainer
 backend/system/        IntegrityCheck, RuntimeDirs
