@@ -397,13 +397,15 @@ class StrumLine extends FlxTypedGroup<Strum> {
 	 * For use outside of `PlayState` only.
 	 * (you will need to call deleteNote manually !!!! for flexibility reasons)
 	 */
-	private inline function __dispatchOnMiss(?note:Note, ?directionID:Int = 0) {
+	private inline function __dispatchOnMiss(?note:Note, ?directionID:Null<Int> = null) {
 		//if (note == null) return; // cant because ghost tapping
 		var hasNote:Bool = note != null;
+		// Null means "take it from the note"; a default of 0 used to make every
+		// non-zero direction report 0 for plain misses.
 		if (hasNote && directionID == null) directionID = note.strumID;
 		var event:NoteMissEvent = EventManager.get(NoteMissEvent);
 		event.note = note;
-		event.direction = directionID;
+		event.direction = directionID == null ? 0 : directionID;
 		onMiss.dispatch(event);
 	}
 

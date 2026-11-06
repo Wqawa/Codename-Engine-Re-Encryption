@@ -30,7 +30,12 @@ class ScriptableShader extends FlxBasic implements IHScriptCustomBehaviour {
 			parentScriptPack = PlayState.instance.scripts;
 
 		if (scriptName != null) script = Script.create(Paths.script('shaders/$scriptName'));
-		else script = Script.create(Paths.script(Path.withoutExtension(shader._fragmentFilePath ?? shader._vertexFilePath ?? ""), null, true));
+		else {
+			final source = shader._fragmentFilePath ?? shader._vertexFilePath;
+			if (source == null)
+				throw "Missing name for shader script, please provide a scriptName, or use CustomShader";
+			script = Script.create(Paths.script(Path.withoutExtension(source), null, true));
+		}
 
 		script.setParent(shader);
 		script.set("shader", shader);

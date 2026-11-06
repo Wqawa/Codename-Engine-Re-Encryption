@@ -98,6 +98,10 @@ class ControlsUtil {
 
 	public static function loadCustomControls() {
 		var filePaths:Array<String> = [];
+		// Keep the pre-1.1 global file working; per-mod LIB_ files still override it
+		// because they are appended afterwards and load in order.
+		var legacyPath = Paths.xml('config/controls');
+		if (Assets.exists(legacyPath)) filePaths.push(legacyPath);
 		for (modName in ModsFolder.getLoadedMods()) {
 			var folder = Paths.xml('config/controls/LIB_$modName');
 

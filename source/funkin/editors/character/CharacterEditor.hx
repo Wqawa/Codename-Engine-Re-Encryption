@@ -372,6 +372,14 @@ class CharacterEditor extends UIState {
 		draggingOffset.put();
 		clipboard.put();
 
+		// The three pose guides are only members while a stage is selected; after
+		// "no stage" they would otherwise stay alive with their shader and textures.
+		for (guide in [dad, boyfriend, gf]) {
+			if (guide == null) continue;
+			remove(guide);
+			guide.destroy();
+		}
+
 		super.destroy();
 		if(Framerate.isLoaded) {
 			Framerate.fpsCounter.alpha = 1;
@@ -512,11 +520,18 @@ class CharacterEditor extends UIState {
 	function _file_save(_) {
 		#if sys
 		UIState.playEditorSound(Flags.DEFAULT_EDITOR_SAVE_SOUND);
-		CoolUtil.safeSaveFile(
-			Paths.assetsTree.getPath(Paths.xml('characters/${character.curCharacter}'))
-				?? '${Paths.getAssetsRoot()}/data/characters/${character.curCharacter}.xml',
-			buildCharacter()
-		);
+		// A path inside a zip is virtual: it exists as an asset but its folder does not
+		// exist on disk, so writing there fails. Fall back to the one writable root
+		// (base assets or the packed mod's staging folder), exactly like Chart.save().
+		var savePath = Paths.assetsTree.getPath(Paths.xml('characters/${character.curCharacter}'));
+		if (savePath != null) {
+			final dir = haxe.io.Path.directory(savePath);
+			if (dir == null || dir == "" || !FileSystem.exists(dir) || !FileSystem.isDirectory(dir))
+				savePath = null;
+		}
+		if (savePath == null)
+			savePath = '${Paths.getAssetsRoot()}/data/characters/${character.curCharacter}.xml';
+		CoolUtil.safeSaveFile(savePath, buildCharacter());
 		#else
 		_file_saveas(_);
 		#end
