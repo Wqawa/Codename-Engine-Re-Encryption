@@ -189,9 +189,18 @@ class IntegrityCheck {
 		var skipExe = exeDiffers(entries);
 
 		total = entries.length;
+
+		// The listed paths, then the ones on disk that are not in it. Neither pass hashes
+		// anything, and running them first is what lets the counter show the additions while
+		// the scan is still working: they used to be collected in one lump at the very end,
+		// on the same frame the dialog covered the screen.
 		var listed = new Map<String, Bool>();
+		for (e in entries) listed.set(e.path, true);
+		walkAssets(function(path:String) {
+			if (!listed.exists(path)) extra.push(path);
+		});
+
 		for (e in entries) {
-			listed.set(e.path, true);
 			checked++;
 			if (skipExe && isExePath(e.path)) continue;
 			if (!FileSystem.exists(e.path)) {
@@ -201,10 +210,6 @@ class IntegrityCheck {
 			var data = File.getBytes(e.path);
 			if (data.length != e.size || Sha256.make(data).toHex() != e.hash) changed.push(e.path);
 		}
-
-		walkAssets(function(path:String) {
-			if (!listed.exists(path)) extra.push(path);
-		});
 
 		var line = 'Integrity check: ' + summary();
 		if (hasProblems()) {

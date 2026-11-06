@@ -50,6 +50,8 @@ class IntegrityScreen extends PopupScreen {
 
 	var movingOn:Bool = false;
 	var labelTimer:Float = 0;
+	/** Set once the check is over and the final numbers have been written. */
+	var finalShown:Bool = false;
 
 	public function new(work:Array<String>, locked:Array<String>) {
 		super();
@@ -128,17 +130,29 @@ class IntegrityScreen extends PopupScreen {
 		final fraction = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));
 		bar.value = fraction;
 
-		// Bar per frame, labels at 10 Hz: the bar is a rect, but every label change re-shapes
-		// its glyphs, and the counter was being rebuilt 60 times a second for numbers nobody
-		// can read that fast - most of what made this screen feel like it was hitching.
+		// The counter runs every frame. It only writes when the number actually changes, and
+		// it is the one thing the player watches; held to the 10 Hz budget it was still a tick
+		// behind when the scan ended, and the dialog that opened on that same frame froze the
+		// stale number on screen for good.
+		updateCounter();
+
+		// The percentage and the N / M line stay at 10 Hz: the bar is a rect, but every text
+		// change re-shapes its glyphs and both of these change on nearly every frame.
 		if ((labelTimer += elapsed) >= LABEL_INTERVAL) {
 			labelTimer = 0;
 			if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
 			info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
-			updateCounter();
 		}
 
 		if (movingOn || !IntegrityCheck.done) return;
+
+		// the counts are final; write them once, whatever the last 10 Hz tick missed
+		if (!finalShown) {
+			finalShown = true;
+			if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
+			info.text = IntegrityCheck.summary();
+			updateCounter();
+		}
 
 		if (!IntegrityCheck.reported) {
 			if (!IntegrityCheck.hasProblems()) {
