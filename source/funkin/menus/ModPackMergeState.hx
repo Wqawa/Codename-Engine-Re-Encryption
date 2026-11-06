@@ -39,14 +39,14 @@ class ModPackMergeState extends PopupScreen {
 	override function create() {
 		super.create();
 
-		beginPanel("Merging staged files", 720);
-		addText('The files saved for "$mod" are written into its pack now. The whole archive is rewritten, '
-			+ "so this takes a moment on a big mod.", 13, PopupScreen.COLOR_TEXT, 16);
+		beginPanel(TU.translate('pack.merge.title', null, "Merging staged files"), 720);
+		addText(TU.translate('pack.merge.intro', [mod], 'The files saved for "$mod" are written into its pack now. '
+			+ "The whole archive is rewritten, so this takes a moment on a big mod."), 13, PopupScreen.COLOR_TEXT, 16);
 
 		bar = addProgress(14);
 		// the real message is only set once startMergeAsync runs, below
-		statusText = addText("Reading the staged files", 13, PopupScreen.COLOR_INFO, 10);
-		hintText = addText("Working", 13, PopupScreen.COLOR_TEXT, 0);
+		statusText = addText(TU.translate('pack.merge.reading', null, "Reading the staged files"), 13, PopupScreen.COLOR_INFO, 10);
+		hintText = addText(TU.translate('pack.merge.working', [""], "Working"), 13, PopupScreen.COLOR_TEXT, 0);
 		endPanel();
 
 		ZipEditCache.startMergeAsync(mod);
@@ -57,14 +57,17 @@ class ModPackMergeState extends PopupScreen {
 		waited += elapsed;
 
 		if (statusText != null) {
-			statusText.text = ZipEditCache.mergeMessage;
+			// the worker only records the key; the lookup happens here, on the main thread
+			statusText.text = ZipEditCache.mergeKey == null
+				? ZipEditCache.mergeMessage
+				: TU.translate(ZipEditCache.mergeKey, ZipEditCache.mergeParams, ZipEditCache.mergeMessage);
 			statusText.color = ZipEditCache.mergeFailed ? PopupScreen.COLOR_ERROR : PopupScreen.COLOR_INFO;
 		}
 		if (hintText != null) {
 			var dots = ".".repeat(Std.int(waited * 2) % 4);
 			hintText.text = ZipEditCache.mergeFailed
-				? "The staged files were left on disk, so nothing was lost."
-				: "Working" + dots;
+				? TU.translate('pack.merge.failedLeft', null, "The staged files were left on disk, so nothing was lost.")
+				: TU.translate('pack.merge.working', [dots], "Working" + dots);
 		}
 		if (bar != null) {
 			bar.value = Math.min(1, ZipEditCache.mergeProgress);

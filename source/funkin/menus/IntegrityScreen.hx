@@ -66,9 +66,8 @@ class IntegrityScreen extends PopupScreen {
 	override function create() {
 		super.create();
 
-		beginPanel("Checking game files", 640);
-		addText("Every shipped file is compared against the manifest before anything else starts. "
-			+ "The game keeps running either way.", 13, PopupScreen.COLOR_TEXT, 16);
+		beginPanel(TU.translate('integrity.title', null, "Checking game files"), 640);
+		addText(TU.translate('integrity.intro', null, "Every shipped file is compared against the manifest before anything else starts. The game keeps running either way."), 13, PopupScreen.COLOR_TEXT, 16);
 		bar = addProgress(14);
 		info = addText("0 / 0", 13, PopupScreen.COLOR_TEXT, 0);
 		endPanel();
@@ -107,13 +106,13 @@ class IntegrityScreen extends PopupScreen {
 
 		placeSide(new UISliceSprite(x, y, COUNTER_W, COUNTER_H, 'editors/ui/normal-popup'));
 
-		final title = placeSide(new UIText(x + pad, 0, textW, "Problems", 15, PopupScreen.COLOR_TEXT));
+		final title = placeSide(new UIText(x + pad, 0, textW, TU.translate('integrity.counterTitle', null, "Problems"), 15, PopupScreen.COLOR_TEXT));
 		title.y = y + ((PopupScreen.TITLE_H - title.height) / 2);
 
 		counterNumber = placeSide(new UIText(x + pad, y + PopupScreen.TITLE_H + 12, textW, "0", 30, COLOR_HINT));
 		counterNumber.alignment = FlxTextAlign.CENTER;
 
-		final hint = placeSide(new UIText(x + pad, 0, textW, "found so far", 11, COLOR_HINT));
+		final hint = placeSide(new UIText(x + pad, 0, textW, TU.translate('integrity.counterHint', null, "found so far"), 11, COLOR_HINT));
 		hint.alignment = FlxTextAlign.CENTER;
 		hint.y = counterNumber.y + counterNumber.height + 2;
 	}
@@ -141,7 +140,9 @@ class IntegrityScreen extends PopupScreen {
 		if ((labelTimer += elapsed) >= LABEL_INTERVAL) {
 			labelTimer = 0;
 			if (progressLabel != null) progressLabel.text = Std.int(fraction * 100) + "%";
-			info.text = IntegrityCheck.done ? IntegrityCheck.summary() : '${IntegrityCheck.checked} / $total';
+			info.text = IntegrityCheck.done
+				? IntegrityCheck.summary()
+				: TU.translate('integrity.progress', [IntegrityCheck.checked, total], '${IntegrityCheck.checked} / $total');
 		}
 
 		if (movingOn || !IntegrityCheck.done) return;
@@ -205,26 +206,32 @@ class IntegrityScreen extends PopupScreen {
 
 		if (IntegrityCheck.manifestProblem != null) {
 			lines.push({text: IntegrityCheck.manifestProblem, color: COLOR_ERROR, size: 13});
-			lines.push({text: "The check could not run, so nothing was verified.", color: COLOR_HINT, size: 12, gap: 10});
+			lines.push({text: TU.translate('integrity.dialog.checkFailed', null, "The check could not run, so nothing was verified."), color: COLOR_HINT, size: 12, gap: 10});
 		} else {
 			lines.push({
-				text: '${IntegrityCheck.checked} file(s) were compared against the manifest shipped with this build.',
+				text: TU.translate('integrity.dialog.compared', [IntegrityCheck.checked], '${IntegrityCheck.checked} file(s) were compared against the manifest shipped with this build.'),
 				color: COLOR_HINT, size: 12});
-			addSection(lines, "Missing", "Listed in the manifest, no longer on disk.",
+			addSection(lines,
+				TU.translate('integrity.dialog.sectionMissing', [IntegrityCheck.missing.length], 'Missing  (${IntegrityCheck.missing.length})'),
+				TU.translate('integrity.dialog.whyMissing', null, "Listed in the manifest, no longer on disk."),
 				IntegrityCheck.missing, COLOR_WARN);
-			addSection(lines, "Added", "Under assets/, but not in the manifest.",
+			addSection(lines,
+				TU.translate('integrity.dialog.sectionAdded', [IntegrityCheck.extra.length], 'Added  (${IntegrityCheck.extra.length})'),
+				TU.translate('integrity.dialog.whyAdded', null, "Under assets/, but not in the manifest."),
 				IntegrityCheck.extra, COLOR_INFO);
-			addSection(lines, "Modified", "On disk, but not what this build shipped.",
+			addSection(lines,
+				TU.translate('integrity.dialog.sectionModified', [IntegrityCheck.changed.length], 'Modified  (${IntegrityCheck.changed.length})'),
+				TU.translate('integrity.dialog.whyModified', null, "On disk, but not what this build shipped."),
 				IntegrityCheck.changed, COLOR_ERROR);
 			lines.push({
-				text: "The game keeps running; anything loaded from the files above may not be what was shipped.",
+				text: TU.translate('integrity.dialog.outro', null, "The game keeps running; anything loaded from the files above may not be what was shipped."),
 				color: COLOR_HINT, size: 12, gap: 16});
 		}
 
 		return new UIWarningSubstate(
-			"Files Do Not Match This Build",
+			TU.translate('integrity.dialog.title', null, "Files Do Not Match This Build"),
 			"",
-			[{label: "Continue", color: 0x969533, onClick: function(_) {}}],
+			[{label: TU.translate('integrity.dialog.continue', null, "Continue"), color: 0x969533, onClick: function(_) {}}],
 			severityKind(), false, lines);
 	}
 
@@ -246,11 +253,12 @@ class IntegrityScreen extends PopupScreen {
 	 */
 	static function addSection(lines:Array<WarningLine>, title:String, hint:String, list:Array<String>, color:Int):Void {
 		if (list.length == 0) return;
-		lines.push({text: '${title}  (${list.length})', color: color, size: 13, gap: 16});
+		lines.push({text: title, color: color, size: 13, gap: 16});
 		lines.push({text: hint, color: COLOR_HINT, size: 11, gap: 2});
 		for (i in 0...list.length) {
 			if (i >= NAMES_PER_SECTION) {
-				lines.push({text: '  ... and ${list.length - NAMES_PER_SECTION} more', color: color, size: 11, gap: 2});
+				lines.push({text: '  ' + TU.translate('integrity.dialog.more', [list.length - NAMES_PER_SECTION],
+					'... and ${list.length - NAMES_PER_SECTION} more'), color: color, size: 11, gap: 2});
 				break;
 			}
 			lines.push({text: '  ' + list[i], color: color, size: 11, gap: 2});

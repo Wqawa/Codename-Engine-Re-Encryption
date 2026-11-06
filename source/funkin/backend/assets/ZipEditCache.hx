@@ -217,6 +217,9 @@ class ZipEditCache {
 	public static var mergeDone:Bool = false;
 	public static var mergeFailed:Bool = false;
 	public static var mergeMessage:String = "";
+	/** Translation key and params of mergeMessage; see the note in merge(). */
+	public static var mergeKey:String = null;
+	public static var mergeParams:Array<Dynamic> = null;
 	/** 0..1 progress of the merge pass, for the screen that reports it. */
 	public static var mergeProgress:Float = 0;
 
@@ -226,6 +229,8 @@ class ZipEditCache {
 		mergeDone = false;
 		mergeFailed = false;
 		mergeProgress = 0;
+		mergeKey = 'pack.merge.reading';
+		mergeParams = null;
 		mergeMessage = "Reading the staged files";
 		#if target.threaded
 		sys.thread.Thread.create(function() runMerge(mod));
@@ -239,6 +244,8 @@ class ZipEditCache {
 			mergeMessage = merge(mod);
 		} catch (e:Dynamic) {
 			mergeFailed = true;
+			mergeKey = 'pack.merge.failed';
+			mergeParams = [Std.string(e)];
 			mergeMessage = 'could not merge the staged files: $e';
 			Logs.error('Could not merge the staged changes into "$mod": ' + e);
 		}
@@ -377,6 +384,10 @@ class ZipEditCache {
 		for (file in files) {
 			try FileSystem.deleteFile(folder(mod, false) + file) catch (e:Dynamic) {}
 		}
+		// the worker only records what to say; the screen translates it, because the
+		// translation lookups are not thread safe
+		mergeKey = 'pack.merge.done';
+		mergeParams = [files.length, Path.withoutDirectory(pack)];
 		return 'merged ${files.length} file(s) into ${Path.withoutDirectory(pack)}';
 		#else
 		return 'not supported on this target';

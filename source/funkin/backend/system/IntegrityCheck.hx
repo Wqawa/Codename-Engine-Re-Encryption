@@ -76,12 +76,12 @@ class IntegrityCheck {
 
 	public static function summary():String {
 		if (manifestProblem != null) return manifestProblem;
-		if (!manifestFound) return 'no manifest shipped';
+		if (!manifestFound) return TU.translate('integrity.summary.noManifest', null, 'no manifest shipped');
 		var parts:Array<String> = [];
-		if (missing.length > 0) parts.push('${missing.length} missing');
-		if (changed.length > 0) parts.push('${changed.length} modified');
-		if (extra.length > 0) parts.push('${extra.length} added');
-		return parts.length == 0 ? 'all $checked file(s) match' : parts.join(', ');
+		if (missing.length > 0) parts.push(TU.translate('integrity.summary.missing', [missing.length], '${missing.length} missing'));
+		if (changed.length > 0) parts.push(TU.translate('integrity.summary.changed', [changed.length], '${changed.length} modified'));
+		if (extra.length > 0) parts.push(TU.translate('integrity.summary.added', [extra.length], '${extra.length} added'));
+		return parts.length == 0 ? TU.translate('integrity.summary.ok', [checked], 'all $checked file(s) match') : parts.join(', ');
 	}
 
 	// ------------------------------------------------------------- generation
@@ -135,7 +135,7 @@ class IntegrityCheck {
 				verifyAll();
 			}
 		} catch (e:Dynamic) {
-			manifestProblem = 'The integrity manifest could not be read: ' + Std.string(e);
+			manifestProblem = TU.translate('integrity.problem.unreadable', [Std.string(e)], 'The integrity manifest could not be read: ' + Std.string(e));
 			Logs.error(manifestProblem);
 		}
 		done = true;
@@ -149,7 +149,7 @@ class IntegrityCheck {
 		var raw = StringTools.replace(File.getContent(MANIFEST), '\r\n', '\n');
 		var lines = raw.split(NL);
 		if (lines.length < 2 || StringTools.trim(lines[0]) != HEADER) {
-			manifestProblem = 'The integrity manifest is not in a format this build understands.';
+			manifestProblem = TU.translate('integrity.problem.format', null, 'The integrity manifest is not in a format this build understands.');
 			return;
 		}
 
@@ -173,12 +173,12 @@ class IntegrityCheck {
 		}
 
 		if (signature == null) {
-			manifestProblem = 'The integrity manifest is not signed.';
+			manifestProblem = TU.translate('integrity.problem.unsigned', null, 'The integrity manifest is not signed.');
 			return;
 		}
 		// a hand-edited manifest, or one swapped for another set of hashes, dies here
 		if (sign(body.toString()) != signature.toLowerCase()) {
-			manifestProblem = 'The integrity manifest was modified (its signature does not match).';
+			manifestProblem = TU.translate('integrity.problem.tampered', null, 'The integrity manifest was modified (its signature does not match).');
 			Logs.error(manifestProblem);
 			return;
 		}

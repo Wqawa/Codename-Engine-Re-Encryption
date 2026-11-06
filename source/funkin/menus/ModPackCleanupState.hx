@@ -56,14 +56,16 @@ class ModPackCleanupState extends PopupScreen {
 		// UI would turn "the game cannot close" into "the game crashes when closing".
 		// When it does fail the exit hook still wipes the same things on the way out.
 		try {
-			beginPanel(continuing ? "Cleaning up before the switch" : "Cleaning up before closing", 720);
-			addText("The decrypted mod pack, the keys copied out of it and everything lifted onto disk only exist "
-				+ "while the game runs. They are wiped now, so nothing readable is left behind.", 13, PopupScreen.COLOR_TEXT, 16);
+			beginPanel(continuing
+				? TU.translate('pack.cleanup.titleSwitch', null, "Cleaning up before the switch")
+				: TU.translate('pack.cleanup.titleClose', null, "Cleaning up before closing"), 720);
+			addText(TU.translate('pack.cleanup.intro', null, "The decrypted mod pack, the keys copied out of it and everything lifted onto disk only exist while the game runs. They are wiped now, so nothing readable is left behind."), 13, PopupScreen.COLOR_TEXT, 16);
 
 			bar = addProgress(14);
 			// the label is only filled once beginCleanup() runs, below
-			stageText = addText(ModPackCrypto.cleanupLabel.length > 0 ? ModPackCrypto.cleanupLabel : "Releasing the pack handles",
-				13, PopupScreen.COLOR_INFO, 14);
+			stageText = addText(ModPackCrypto.cleanupLabel.length > 0
+				? ModPackCrypto.cleanupLabel
+				: TU.translate('pack.cleanup.stepHandles', null, "Releasing the pack handles"), 13, PopupScreen.COLOR_INFO, 14);
 
 			// what was actually removed, one line per item; filled in as the steps run
 			final summaryY = row(SUMMARY_ROOM, 14);
@@ -72,10 +74,12 @@ class ModPackCleanupState extends PopupScreen {
 			place(summaryText);
 
 			hintText = addText(continuing
-				? "The switch continues on its own when this is done."
-				: "The window closes on its own when this is done.", 13, PopupScreen.COLOR_TEXT, 0);
+				? TU.translate('pack.cleanup.hintSwitch', null, "The switch continues on its own when this is done.")
+				: TU.translate('pack.cleanup.hintClose', null, "The window closes on its own when this is done."), 13, PopupScreen.COLOR_TEXT, 0);
 
-			setButtons([{label: continuing ? "Continue now" : "Close now", onClick: function() finish(), width: 200}]);
+			setButtons([{label: continuing
+				? TU.translate('pack.button.continueNow', null, "Continue now")
+				: TU.translate('pack.button.closeNow', null, "Close now"), onClick: function() finish(), width: 200}]);
 			endPanel();
 
 			// the button is reachable from the first frame, but switching away in the middle of
@@ -119,8 +123,12 @@ class ModPackCleanupState extends PopupScreen {
 			finish();
 			return;
 		}
-		if (hintText != null)
-			hintText.text = (continuing ? "Continuing in " : "Closing in ") + Math.ceil(countdown) + " second(s) - or press the button.";
+		if (hintText != null) {
+			var left = Math.ceil(countdown);
+			hintText.text = continuing
+				? TU.translate('pack.cleanup.countdownContinue', [left], "Continuing in " + left + " second(s) - or press the button.")
+				: TU.translate('pack.cleanup.countdownClose', [left], "Closing in " + left + " second(s) - or press the button.");
+		}
 	}
 
 	/**

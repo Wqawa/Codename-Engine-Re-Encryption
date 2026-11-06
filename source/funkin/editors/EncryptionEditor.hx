@@ -42,7 +42,8 @@ class EncryptionEditor extends UIState {
 	static inline var TAB_MODPACK:Int = 0;
 	static inline var TAB_SCRIPTS:Int = 1;
 	static inline var TAB_HELP:Int = 2;
-	static var TAB_NAMES:Array<String> = ["Mod Pack", "Scripts", "Help"];
+	static var TAB_NAMES:Array<String> = [TU.translate('encTool.tabPack', null, "Mod Pack"),
+		TU.translate('encTool.tabScripts', null, "Scripts"), TU.translate('encTool.tabHelp', null, "Help")];
 
 	public var topMenu:UITopMenu;
 	public var bg:FlxSprite;
@@ -148,7 +149,7 @@ class EncryptionEditor extends UIState {
 			{
 				label: "File",
 				childs: [
-					{label: "Reload Key File (script_key.txt)", onSelect: (_) -> reloadKeyFile()},
+					{label: TU.translate('encTool.menu.reloadKey', null, "Reload Key File (script_key.txt)"), onSelect: (_) -> reloadKeyFile()},
 					null,
 					{label: "Exit", onSelect: (_) -> exitEditor()}
 				]
@@ -156,17 +157,17 @@ class EncryptionEditor extends UIState {
 			{
 				label: "Tools",
 				childs: [
-					{label: "Mod Pack tab", onSelect: (_) -> showTab(TAB_MODPACK)},
-					{label: "Scripts tab", onSelect: (_) -> showTab(TAB_SCRIPTS)},
+					{label: TU.translate('encTool.menu.modPack', null, "Mod Pack tab"), onSelect: (_) -> showTab(TAB_MODPACK)},
+					{label: TU.translate('encTool.menu.scripts', null, "Scripts tab"), onSelect: (_) -> showTab(TAB_SCRIPTS)},
 					null,
-					{label: "Self test: containers (scripts + mod packs)", onSelect: (_) -> runSelfTest()},
-					{label: "Generate integrity manifest", onSelect: (_) -> generateIntegrityManifest()}
+					{label: TU.translate('encTool.menu.selfTest', null, "Self test: containers (scripts + mod packs)"), onSelect: (_) -> runSelfTest()},
+					{label: TU.translate('encTool.menu.integrity', null, "Generate integrity manifest"), onSelect: (_) -> generateIntegrityManifest()}
 				]
 			},
 			{
 				label: "Help",
 				childs: [
-					{label: "About / Help", onSelect: (_) -> showTab(TAB_HELP)}
+					{label: TU.translate('encTool.menu.help', null, "About / Help"), onSelect: (_) -> showTab(TAB_HELP)}
 				]
 			}
 		]));
@@ -179,7 +180,7 @@ class EncryptionEditor extends UIState {
 		add(statusText = new UIText(10, FlxG.height - 30, FlxG.width - 20, "", 14, 0xFFFFFFFF, false));
 
 		showTab(TAB_MODPACK);
-		status("Keys: " + ScriptCrypto.keyFileSummary() + ".");
+		status(TU.translate('encTool.status.keys', [ScriptCrypto.keyFileSummary()], "Keys: " + ScriptCrypto.keyFileSummary() + "."));
 	}
 
 	// ------------------------------------------------------------------- tabs
@@ -223,7 +224,7 @@ class EncryptionEditor extends UIState {
 			// the text may only have its final height now that the tab is on screen
 			helpMeasureFrames = 0;
 			refreshHelpLayout(true);
-			status("Help - scroll the text with the mouse wheel.");
+			status(TU.translate('encTool.help.scrollHint', null, "Help - scroll the text with the mouse wheel."));
 		} else applyHelpScroll();
 	}
 
@@ -242,37 +243,36 @@ class EncryptionEditor extends UIState {
 
 		// key tokens exist for encrypted mod packs only, so they sit on top of the
 		// pack exporter and nowhere else
-		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Key Token Tool - for encrypted mod packs", 17, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, TU.translate('encTool.token.title', null, "Key Token Tool - for encrypted mod packs"), 17, 0xFFFFFFFF, false));
 		track(g, new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
-			"A token (CNEK1-...) is the key rewritten as different text: hand it to players instead of the key.\n"
-			+ "They paste it into the prompt that opens an encrypted mod pack.",
+			TU.translate('encTool.token.intro', null, "A token (CNEK1-...) is the key rewritten as different text: hand it to players instead of the key.\nThey paste it into the prompt that opens an encrypted mod pack."),
 			12, 0xFFFFFFFF, false));
 
 		track(g, new UIText(30, CONTENT_Y + 112, 60, "Key:", 14, 0xFFFFFFFF, false));
 		track(g, tokenKeyBox = new UITextBox(94, CONTENT_Y + 108, defaultKeyField(), 460));
 		track(g, clearFieldButton(tokenKeyBox, 560, CONTENT_Y + 108));
-		track(g, new UIButton(610, CONTENT_Y + 108, "Make Token", onMakeToken, 180, 32));
-		track(g, new UIButton(800, CONTENT_Y + 108, "Copy Key", onCopyKey, 150, 32));
+		track(g, new UIButton(610, CONTENT_Y + 108, TU.translate('encTool.token.make', null, "Make Token"), onMakeToken, 180, 32));
+		track(g, new UIButton(800, CONTENT_Y + 108, TU.translate('encTool.token.copyKey', null, "Copy Key"), onCopyKey, 150, 32));
 
-		track(g, new UIText(30, CONTENT_Y + 160, 60, "Token:", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 160, 60, TU.translate('encTool.token.label', null, "Token:"), 14, 0xFFFFFFFF, false));
 		track(g, tokenTokenBox = new UITextBox(94, CONTENT_Y + 156, "", 460));
 		track(g, clearFieldButton(tokenTokenBox, 560, CONTENT_Y + 156));
-		track(g, new UIButton(610, CONTENT_Y + 156, "Recover Key", onRecoverKey, 180, 32));
-		track(g, new UIButton(800, CONTENT_Y + 156, "Copy Token", onCopyToken, 150, 32));
+		track(g, new UIButton(610, CONTENT_Y + 156, TU.translate('encTool.token.recover', null, "Recover Key"), onRecoverKey, 180, 32));
+		track(g, new UIButton(800, CONTENT_Y + 156, TU.translate('encTool.token.copyToken', null, "Copy Token"), onCopyToken, 150, 32));
 
 		// -- the pack exporter itself
-		track(g, new UIText(30, CONTENT_Y + 206, FlxG.width - 60, "Encrypt a zip mod pack", 18, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 206, FlxG.width - 60, TU.translate('encTool.pack.title', null, "Encrypt a zip mod pack"), 18, 0xFFFFFFFF, false));
 
-		track(g, packModeStrong = new UIRadioButton(30, CONTENT_Y + 238, "Enhanced: CNE container (CNEZ, needs the key)", true, "packModeStrong", 540));
-		track(g, packModeStandard = new UIRadioButton(575, CONTENT_Y + 238, "Standard: password zip (AES-256)", false, "packModeStandard", 520));
+		track(g, packModeStrong = new UIRadioButton(30, CONTENT_Y + 238, TU.translate('encTool.pack.modeStrong', null, "Enhanced: CNE container (CNEZ, needs the key)"), true, "packModeStrong", 540));
+		track(g, packModeStandard = new UIRadioButton(575, CONTENT_Y + 238, TU.translate('encTool.pack.modeStandard', null, "Standard: password zip (AES-256)"), false, "packModeStandard", 520));
 		packModeStrong.onChecked = function(_) selectPackMode(0);
 		packModeStandard.onChecked = function(_) selectPackMode(1);
 
 		track(g, packModeText = new UIText(30, CONTENT_Y + 272, FlxG.width - 70, packModeDescription(0), 13, 0xFFFFFFFF, false));
 		packModeText.wordWrap = true;
 
-		track(g, new UIButton(30, CONTENT_Y + 430, "Choose .zip and Encrypt...", encryptModPack, 400, 40));
-		track(g, new UIButton(440, CONTENT_Y + 430, "Choose encrypted .zip and Decrypt...", decryptModPack, 440, 40));
+		track(g, new UIButton(30, CONTENT_Y + 430, TU.translate('encTool.pack.chooseEncrypt', null, "Choose .zip and Encrypt..."), encryptModPack, 400, 40));
+		track(g, new UIButton(440, CONTENT_Y + 430, TU.translate('encTool.pack.chooseDecrypt', null, "Choose encrypted .zip and Decrypt..."), decryptModPack, 440, 40));
 
 		// pack job progress, laid out like the loading screen the game shows when it
 		// decrypts a pack at start up. The row is invisible until a job needs it and
@@ -293,40 +293,37 @@ class EncryptionEditor extends UIState {
 
 		track(g, new UISliceSprite(10, CONTENT_Y, Std.int(FlxG.width - 20), Std.int(panelH), 'editors/ui/context-bg'));
 
-		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, "Protect a script (.hx -> .hxb)", 18, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 12, FlxG.width - 60, TU.translate('encTool.script.title', null, "Protect a script (.hx -> .hxb)"), 18, 0xFFFFFFFF, false));
 		var desc = new UIText(30, CONTENT_Y + 40, FlxG.width - 70,
-			"Pick one protection mode first - it is required, exactly one of the two. The engine reads .hxb\n"
-			+ "transparently, so a protected script is a drop in replacement for the .hx it came from - same name,\n"
-			+ "different extension. Key mode also keeps a copy of the source, so Decrypt can turn the file back\n"
-			+ "into .hx. VM mode only stores bytecode, so the game runs it but Decrypt has nothing to write out.",
+			TU.translate('encTool.script.intro', null, "Pick one protection mode first - it is required, exactly one of the two. The engine reads .hxb\ntransparently, so a protected script is a drop in replacement for the .hx it came from - same name,\ndifferent extension. Key mode also keeps a copy of the source, so Decrypt can turn the file back\ninto .hx. VM mode only stores bytecode, so the game runs it but Decrypt has nothing to write out."),
 			12, 0xFFFFFFFF, false);
 		desc.wordWrap = true;
 		track(g, desc);
 
-		track(g, new UIText(30, CONTENT_Y + 108, FlxG.width - 60, "Protection mode - pick one (required):", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 108, FlxG.width - 60, TU.translate('encTool.script.modeTitle', null, "Protection mode - pick one (required):"), 14, 0xFFFFFFFF, false));
 		track(g, scModeKey = new UIRadioButton(30, CONTENT_Y + 136,
-			"Key encryption - ChaCha20 + HMAC tag, needs the key (source can be restored)", true, "scriptMode", 620));
+			TU.translate('encTool.script.modeKey', null, "Key encryption - ChaCha20 + HMAC tag, needs the key (source can be restored)"), true, "scriptMode", 620));
 		track(g, scModeVM = new UIRadioButton(30, CONTENT_Y + 168,
-			"VM bytecode - compiled, with a per file opcode permutation (bytecode only)", false, "scriptMode", 620));
+			TU.translate('encTool.script.modeVM', null, "VM bytecode - compiled, with a per file opcode permutation (bytecode only)"), false, "scriptMode", 620));
 
-		track(g, new UIText(30, CONTENT_Y + 204, FlxG.width - 60, "Extra layers - optional, they stack on the mode above:", 14, 0xFFFFFFFF, false));
-		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 230, "Byte offset - the whole payload rotated by N bits", false, 540));
-		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 262, "Split - cut into pieces, shuffled, padding in between", false, 540));
+		track(g, new UIText(30, CONTENT_Y + 204, FlxG.width - 60, TU.translate('encTool.script.extraTitle', null, "Extra layers - optional, they stack on the mode above:"), 14, 0xFFFFFFFF, false));
+		track(g, scOffset = new UICheckbox(30, CONTENT_Y + 230, TU.translate('encTool.script.offset', null, "Byte offset - the whole payload rotated by N bits"), false, 540));
+		track(g, scSplit = new UICheckbox(30, CONTENT_Y + 262, TU.translate('encTool.script.split', null, "Split - cut into pieces, shuffled, padding in between"), false, 540));
 
-		track(g, new UIText(30, CONTENT_Y + 304, 260, "Offset bits (1-16):", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 304, 260, TU.translate('encTool.script.offsetBits', null, "Offset bits (1-16):"), 14, 0xFFFFFFFF, false));
 		track(g, scOffsetBits = new UITextBox(260, CONTENT_Y + 300, "8", 90));
-		track(g, new UIText(400, CONTENT_Y + 304, 260, "Split pieces (2-16):", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(400, CONTENT_Y + 304, 260, TU.translate('encTool.script.splitPieces', null, "Split pieces (2-16):"), 14, 0xFFFFFFFF, false));
 		track(g, scSplitCount = new UITextBox(600, CONTENT_Y + 300, "4", 90));
 
 		// Its own password, separate from the mod pack one: a script key is handed to
 		// whoever runs the scripts, a pack key signs the whole mod.
-		track(g, new UIText(30, CONTENT_Y + 342, 110, "Password:", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(30, CONTENT_Y + 342, 110, TU.translate('encTool.script.password', null, "Password:"), 14, 0xFFFFFFFF, false));
 		track(g, scPassBox = new UITextBox(150, CONTENT_Y + 338, "", 500));
 		track(g, clearFieldButton(scPassBox, 660, CONTENT_Y + 338));
-		track(g, new UIButton(720, CONTENT_Y + 338, "Save Key File...", saveScriptKey, 220, 32));
+		track(g, new UIButton(720, CONTENT_Y + 338, TU.translate('encTool.script.saveKey', null, "Save Key File..."), saveScriptKey, 220, 32));
 
-		track(g, new UIButton(30, CONTENT_Y + 386, "Choose .hx scripts and Encrypt...", encryptScripts, 420, 40));
-		track(g, new UIButton(460, CONTENT_Y + 386, "Choose .hxb and Decrypt...", decryptScripts, 440, 40));
+		track(g, new UIButton(30, CONTENT_Y + 386, TU.translate('encTool.script.chooseEncrypt', null, "Choose .hx scripts and Encrypt..."), encryptScripts, 420, 40));
+		track(g, new UIButton(460, CONTENT_Y + 386, TU.translate('encTool.script.chooseDecrypt', null, "Choose .hxb and Decrypt..."), decryptScripts, 440, 40));
 
 		track(g, scSummary = new UIText(30, CONTENT_Y + 438, FlxG.width - 60, "", 13, 0xFFFFFFFF, false));
 		scSummary.wordWrap = true;
@@ -359,15 +356,16 @@ class EncryptionEditor extends UIState {
 
 	function refreshScriptSummary() {
 		if (scSummary == null) return;
-		var mode = scriptMode == 1 ? "VM bytecode" : "key";
+		var mode = scriptMode == 1 ? TU.translate('encTool.script.modeVMShort', null, "VM bytecode") : TU.translate('encTool.script.modeKeyShort', null, "key");
 		var parts:Array<String> = [];
-		if (scOffset.checked) parts.push("offset " + intField(scOffsetBits, 8) + " bit");
+		if (scOffset.checked) parts.push(TU.translate('encTool.script.summaryOffset', [intField(scOffsetBits, 8)], "offset " + intField(scOffsetBits, 8) + " bit"));
 		if (scSplit.checked) parts.push("split x" + intField(scSplitCount, 4));
-		var extra = parts.length == 0 ? "no extra layer" : parts.join(" + ");
+		var extra = parts.length == 0 ? TU.translate('encTool.script.noExtra', null, "no extra layer") : parts.join(" + ");
 		var restore = scriptMode == 1
-			? "Bytecode only, so Decrypt cannot write the source back out."
-			: "The source travels inside the file, so Decrypt can restore it.";
-		scSummary.text = "Mode: " + mode + " + " + extra + ". " + restore + "  Output: name_protected.hxb next to the source.";
+			? TU.translate('encTool.script.restoreVM', null, "Bytecode only, so Decrypt cannot write the source back out.")
+			: TU.translate('encTool.script.restoreKey', null, "The source travels inside the file, so Decrypt can restore it.");
+		scSummary.text = TU.translate('encTool.script.summary', [mode, extra, restore],
+			"Mode: " + mode + " + " + extra + ". " + restore + "  Output: name_protected.hxb next to the source.");
 	}
 
 	/** Reads a number from a text box, clamped to [min, max]; a bad value falls back to def. */
@@ -439,32 +437,32 @@ class EncryptionEditor extends UIState {
 		else if (!dir.endsWith("/") && !dir.endsWith("\\")) dir += "/";
 
 		fileDialogOpen = true;
-		FileDialog.saveFile(FlxG.stage.window, "Save the script key as script_key.txt", function(outPath, filter) {
+		FileDialog.saveFile(FlxG.stage.window, TU.translate('encTool.dialog.saveKey', null, "Save the script key as script_key.txt"), function(outPath, filter) {
 			fileDialogOpen = false;
 			if (outPath == null || outPath.length == 0) return;
 			try {
 				File.saveContent(outPath, pass);
 				rememberDirectory(outPath);
-				status("Key written to " + outPath + " - put it next to the scripts that need it.");
+				status(TU.translate('encTool.status.keyWritten', [outPath], "Key written to " + outPath + " - put it next to the scripts that need it."));
 			} catch (e:Dynamic) {
-				status("Could not write the key file: " + Std.string(e));
+				status(TU.translate('encTool.status.keyWriteFailed', [Std.string(e)], "Could not write the key file: " + Std.string(e)));
 			}
 		}, [new FileDialogFilter("Key file", "txt"), new FileDialogFilter("All files", "*")], dir + "script_key.txt");
 	}
 
 	function encryptScripts() {
 		if (jobActive) {
-			status("Wait for the current job to finish - watch the progress bar.");
+			status(TU.translate('encTool.status.busy', null, "Wait for the current job to finish - watch the progress bar."));
 			return;
 		}
 		refreshScriptSummary();
 		var opts = scriptOptions();
 		if (!opts.useKey && !opts.useVM) {
-			status("Pick a protection mode first - key encryption or VM bytecode.");
+			status(TU.translate('encTool.status.pickMode', null, "Pick a protection mode first - key encryption or VM bytecode."));
 			return;
 		}
 		fileDialogOpen = true;
-		FileDialog.openFile(FlxG.stage.window, "Choose the script(s) to protect", function(files, filter) {
+		FileDialog.openFile(FlxG.stage.window, TU.translate('encTool.dialog.chooseScripts', null, "Choose the script(s) to protect"), function(files, filter) {
 			fileDialogOpen = false;
 			if (files == null || files.length == 0) return;
 			rememberDirectory(files[0]);
@@ -474,11 +472,11 @@ class EncryptionEditor extends UIState {
 
 	function decryptScripts() {
 		if (jobActive) {
-			status("Wait for the current job to finish - watch the progress bar.");
+			status(TU.translate('encTool.status.busy', null, "Wait for the current job to finish - watch the progress bar."));
 			return;
 		}
 		fileDialogOpen = true;
-		FileDialog.openFile(FlxG.stage.window, "Choose the protected script(s) (.hxb)", function(files, filter) {
+		FileDialog.openFile(FlxG.stage.window, TU.translate('encTool.dialog.chooseProtected', null, "Choose the protected script(s) (.hxb)"), function(files, filter) {
 			fileDialogOpen = false;
 			if (files == null || files.length == 0) return;
 			rememberDirectory(files[0]);
@@ -506,7 +504,9 @@ class EncryptionEditor extends UIState {
 			t.color = 0xFFFFFFFF;
 			t.text = "0%  -  reading " + jobName + "...";
 		});
-		status((isEncryptKind(kind) ? "Protecting " : "Unprotecting ") + jobName + " ...");
+		status(isEncryptKind(kind)
+			? TU.translate('encTool.status.protecting', [jobName], "Protecting " + jobName + " ...")
+			: TU.translate('encTool.status.unprotecting', [jobName], "Unprotecting " + jobName + " ..."));
 
 		var key = packKey(paths[0]);
 		if (kind == JOB_SCRIPT_ENCRYPT && opts.useKey) {
@@ -580,7 +580,10 @@ class EncryptionEditor extends UIState {
 		lastDirectory = Path.directory(path);
 	}
 
-	static var HELP_BODY:String =
+	static var HELP_BODY(get, never):String;
+
+	/** Read on every open instead of at class load, so it follows the language. */
+	static function get_HELP_BODY():String return TU.translate('encTool.help.body', null,
 		"WHAT THIS TOOL DOES\n\n"
 		+ "The Mod Pack tab seals a zip mod into a CNEZ container or an AES-256 password zip, unwraps\n"
 		+ "either one into a plain zip again, and turns keys into shareable tokens. The Scripts tab\n"
@@ -636,7 +639,7 @@ class EncryptionEditor extends UIState {
 		+ ".cne/keys folder, which is deleted when the game closes.\n"
 		+ "\n"
 		+ "tips: while a text field is focused Backspace edits it and ESC only drops the focus, ESC\n"
-		+ "again leaves the editor. The mouse wheel scrolls this page.\n";
+		+ "again leaves the editor. The mouse wheel scrolls this page.\n");
 
 	function buildHelpTab() {
 		var g = tabGroups[TAB_HELP];
@@ -648,7 +651,7 @@ class EncryptionEditor extends UIState {
 		if (helpViewH < 80) helpViewH = 80;
 
 		track(g, new UISliceSprite(10, CONTENT_Y, Std.int(FlxG.width - 20), Std.int(helpViewH + 40), 'editors/ui/context-bg'));
-		track(g, new UIText(20, CONTENT_Y + 7, FlxG.width - 40, "Help & About", 14, 0xFFFFFFFF, false));
+		track(g, new UIText(20, CONTENT_Y + 7, FlxG.width - 40, TU.translate('encTool.help.title', null, "Help & About"), 14, 0xFFFFFFFF, false));
 
 		track(g, helpText = new UIText(helpViewX, helpViewY, helpViewW, HELP_BODY, 13, 0xFFFFFFFF, false));
 		helpText.wordWrap = true;
@@ -756,7 +759,7 @@ class EncryptionEditor extends UIState {
 			integrityJobRunning = false;
 			var result = integrityJobResult;
 			integrityJobResult = null;
-			status("Integrity manifest: " + result + " - regenerate it after every build.");
+			status(TU.translate('encTool.status.integrity', [result], "Integrity manifest: " + result + " - regenerate it after every build."));
 		}
 
 		// the wrapped help text settles its height over the first frames it is shown,
@@ -794,7 +797,7 @@ class EncryptionEditor extends UIState {
 		if (!isEditingText()) return;
 		var box:UITextBox = cast currentFocus;
 		box.focused = false;
-		status("Text field unfocused - press ESC again to leave the editor.");
+		status(TU.translate('encTool.status.unfocused', null, "Text field unfocused - press ESC again to leave the editor."));
 	}
 
 	function closeOpenMenus() {
@@ -816,26 +819,26 @@ class EncryptionEditor extends UIState {
 	function onMakeToken() {
 		var key = tokenKeyBox.label.text;
 		if (key == null || StringTools.trim(key).length == 0) {
-			status("Type the key first, then press Make Token.");
+			status(TU.translate('encTool.status.keyFirst', null, "Type the key first, then press Make Token."));
 			return;
 		}
 		tokenTokenBox.label.text = ScriptCrypto.encodeKeyToken(StringTools.trim(key));
-		status("Token created - it turns back into the same key with Recover Key.");
+		status(TU.translate('encTool.status.tokenMade', null, "Token created - it turns back into the same key with Recover Key."));
 	}
 
 	function onRecoverKey() {
 		var token = tokenTokenBox.label.text;
 		if (token == null || StringTools.trim(token).length == 0) {
-			status("Paste a token first, then press Recover Key.");
+			status(TU.translate('encTool.status.tokenFirst', null, "Paste a token first, then press Recover Key."));
 			return;
 		}
 		var key = ScriptCrypto.decodeKeyToken(StringTools.trim(token));
 		if (key == null) {
-			status("That token is not valid (it must start with " + ScriptCrypto.TOKEN_PREFIX + ").");
+			status(TU.translate('encTool.status.tokenInvalid', [ScriptCrypto.TOKEN_PREFIX], "That token is not valid (it must start with " + ScriptCrypto.TOKEN_PREFIX + ")."));
 			return;
 		}
 		tokenKeyBox.label.text = key;
-		status("Key recovered from the token.");
+		status(TU.translate('encTool.status.keyRecovered', null, "Key recovered from the token."));
 	}
 
 	/** Puts a value on the system clipboard so it can be sent to a player. */
@@ -843,7 +846,7 @@ class EncryptionEditor extends UIState {
 		if (value == null) value = "";
 		value = StringTools.trim(value);
 		if (value.length == 0) {
-			status("Nothing to copy - " + label + " is empty.");
+			status(TU.translate('encTool.status.nothingToCopy', [label], "Nothing to copy - " + label + " is empty."));
 			return;
 		}
 		lime.system.Clipboard.text = value;
@@ -872,12 +875,8 @@ class EncryptionEditor extends UIState {
 
 	function packModeDescription(index:Int):String {
 		if (index == 1)
-			return "Standard: the zip stays a normal zip, but every entry is encrypted with AES-256 (WinZip AES).\n"
-				+ "7-Zip, WinRAR and Bandizip open it with the password, and so does the engine - players are asked\n"
-				+ "for that password at startup. Hand out the key or a token: the same password works in both.";
-		return "Enhanced: the zip is wrapped in a CNEZ container. No archive tool can open it at all - only\n"
-			+ "Codename Engine can, with the key (or a token). Safest option, but nobody can browse the mod in\n"
-			+ "7-Zip and every tool that expects a real zip just sees garbage.";
+			return TU.translate('encTool.pack.descStandard', null, "Standard: the zip stays a normal zip, but every entry is encrypted with AES-256 (WinZip AES).\n7-Zip, WinRAR and Bandizip open it with the password, and so does the engine - players are asked\nfor that password at startup. Hand out the key or a token: the same password works in both.");
+		return TU.translate('encTool.pack.descStrong', null, "Enhanced: the zip is wrapped in a CNEZ container. No archive tool can open it at all - only\nCodename Engine can, with the key (or a token). Safest option, but nobody can browse the mod in\n7-Zip and every tool that expects a real zip just sees garbage.");
 	}
 
 	/**
@@ -886,11 +885,11 @@ class EncryptionEditor extends UIState {
 	 */
 	function encryptModPack() {
 		if (jobActive) {
-			status("Wait for the current pack job to finish - watch the progress bar.");
+			status(TU.translate('encTool.status.busyPack', null, "Wait for the current pack job to finish - watch the progress bar."));
 			return;
 		}
 		fileDialogOpen = true;
-		FileDialog.openFile(FlxG.stage.window, "Choose the mod pack(s) (.zip) to encrypt", function(files, filter) {
+		FileDialog.openFile(FlxG.stage.window, TU.translate('encTool.dialog.choosePacks', null, "Choose the mod pack(s) (.zip) to encrypt"), function(files, filter) {
 			if (files == null || files.length == 0) {
 				fileDialogOpen = false;
 				return;
@@ -908,18 +907,18 @@ class EncryptionEditor extends UIState {
 	function encryptProblem(path:String):String {
 		try {
 			if (ModPackCrypto.isEncryptedPackFile(path))
-				return "That file is already an encrypted (CNEZ) mod pack: " + Path.withoutDirectory(path);
+				return TU.translate('encTool.error.alreadyEncrypted', [Path.withoutDirectory(path)], "That file is already an encrypted (CNEZ) mod pack: " + Path.withoutDirectory(path));
 			var handle = File.read(path, true);
 			var head = handle.read(4);
 			handle.close();
 			if (head == null || head.length < 4 || head.get(0) != 0x50 || head.get(1) != 0x4B)
-				return "That file is not a zip archive: " + Path.withoutDirectory(path);
+				return TU.translate('encTool.error.notZip', [Path.withoutDirectory(path)], "That file is not a zip archive: " + Path.withoutDirectory(path));
 		} catch (e:Dynamic) {
-			return "Cannot read " + path + ": " + Std.string(e);
+			return TU.translate('encTool.error.unreadable', [path, Std.string(e)], "Cannot read " + path + ": " + Std.string(e));
 		}
 
 		if (ZipPassword.isProtected(path))
-			return "That zip is already password protected. Remove its password first, the exporter needs a plain zip.";
+			return TU.translate('encTool.error.alreadyPassword', null, "That zip is already password protected. Remove its password first, the exporter needs a plain zip.");
 		return null;
 	}
 
@@ -1023,7 +1022,7 @@ class EncryptionEditor extends UIState {
 	 */
 	function decryptModPack() {
 		if (jobActive) {
-			status("Wait for the current pack job to finish - watch the progress bar.");
+			status(TU.translate('encTool.status.busyPack', null, "Wait for the current pack job to finish - watch the progress bar."));
 			return;
 		}
 		fileDialogOpen = true;

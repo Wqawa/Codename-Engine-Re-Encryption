@@ -49,14 +49,13 @@ class ModPackKeyState extends PopupScreen {
 		}
 		if (packs.length > 4) names = packs.length + " mod packs";
 
-		beginPanel("Encrypted mod pack", 720);
+		beginPanel(TU.translate('pack.key.title', null, "Encrypted mod pack"), 720);
 
-		addText("This mod pack is encrypted. Type the password the author gave you.", 15, PopupScreen.COLOR_TEXT, 6);
-		addText("A key token works here as well - it usually starts with CNEK1-. A zip protected with a normal "
-			+ "zip password (ZipCrypto or AES-256) also opens with that password.", 13, PopupScreen.COLOR_TEXT, 16);
-		addText("Pack: " + names, 15, PopupScreen.COLOR_TEXT, 20);
+		addText(TU.translate('pack.key.intro', null, "This mod pack is encrypted. Type the password the author gave you."), 15, PopupScreen.COLOR_TEXT, 6);
+		addText(TU.translate('pack.key.tokenHint', null, "A key token works here as well - it usually starts with CNEK1-. A zip protected with a normal zip password (ZipCrypto or AES-256) also opens with that password."), 13, PopupScreen.COLOR_TEXT, 16);
+		addText(TU.translate('pack.key.pack', [names], "Pack: " + names), 15, PopupScreen.COLOR_TEXT, 20);
 
-		addText("Password or token", 13, PopupScreen.COLOR_TEXT, 6);
+		addText(TU.translate('pack.key.field', null, "Password or token"), 13, PopupScreen.COLOR_TEXT, 6);
 		final fieldY = row(32, 8);
 		final fieldW = contentW - CLEAR_SIZE - 8;
 		place(box = new UITextBox(contentX, fieldY, "", fieldW));
@@ -71,9 +70,9 @@ class ModPackKeyState extends PopupScreen {
 		errorText.visible = false;
 
 		setButtons([
-			{label: "Quit", onClick: function() Sys.exit(0), width: 140, color: PopupScreen.COLOR_DANGER},
-			{label: "Play without mods", onClick: onDisableMods, width: 190},
-			{label: "Unlock and continue", onClick: onSubmit, width: 200, color: PopupScreen.COLOR_OK}
+			{label: TU.translate('pack.button.quit', null, "Quit"), onClick: function() Sys.exit(0), width: 140, color: PopupScreen.COLOR_DANGER},
+			{label: TU.translate('pack.button.noMods', null, "Play without mods"), onClick: onDisableMods, width: 190},
+			{label: TU.translate('pack.button.unlock', null, "Unlock and continue"), onClick: onSubmit, width: 200, color: PopupScreen.COLOR_OK}
 		]);
 		endPanel();
 
@@ -84,8 +83,7 @@ class ModPackKeyState extends PopupScreen {
 		if (errorMessage == null) {
 			for (p in packs) {
 				if (!ModPackCrypto.hasFailedBefore(p)) continue;
-				showError("This pack already failed a full unlock attempt in this session, so it will not be"
-					+ " decrypted again. Use \"Play without mods\" if the password keeps being rejected.");
+				showError(TU.translate('pack.key.errFailedAtStart', null, "This pack already failed a full unlock attempt in this session, so it will not be decrypted again. Use \"Play without mods\" if the password keeps being rejected."));
 				break;
 			}
 		}
@@ -117,7 +115,7 @@ class ModPackKeyState extends PopupScreen {
 	function onSubmit() {
 		var typed = box == null || box.label == null ? null : box.label.text;
 		if (typed == null || StringTools.trim(typed).length == 0) {
-			showError("Type a password or a key token first.");
+			showError(TU.translate('pack.key.errEmpty', null, "Type a password or a key token first."));
 			return;
 		}
 		var key = StringTools.trim(typed);
@@ -154,9 +152,9 @@ class ModPackKeyState extends PopupScreen {
 			var names = "";
 			for (p in bad)
 				names += (names.length == 0 ? "" : ", ") + Path.withoutExtension(Path.withoutDirectory(p));
-			showError("Wrong password: " + names + " could not be unlocked. Check the password and try again."
-				+ (triedInFull ? "\nA full unlock attempt for this pack already failed, so it will not be "
-					+ "decrypted again - use \"Play without mods\" if the password keeps being rejected." : ""));
+			showError(TU.translate('pack.key.errWrong', [names], "Wrong password: " + names
+					+ " could not be unlocked. Check the password and try again.")
+				+ (triedInFull ? TU.translate('pack.key.errFailedOnce', null, "\nA full unlock attempt for this pack already failed, so it will not be decrypted again - use \"Play without mods\" if the password keeps being rejected.") : ""));
 			return;
 		}
 		// Rejected three times in a row: let the loader do a real decryption attempt

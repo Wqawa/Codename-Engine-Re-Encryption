@@ -60,10 +60,9 @@ class ModPackLoadingState extends PopupScreen {
 		}
 		if (packs.length > 4) names = packs.length + " mod packs";
 
-		beginPanel("Unlocking mod pack", 720);
-		addText("The pack is decrypted into memory so the engine can read it. Nothing is written to disk, "
-			+ "so this pass runs on every start for as long as the pack stays loaded.", 13, PopupScreen.COLOR_TEXT, 16);
-		addText("Pack: " + names, 15, PopupScreen.COLOR_TEXT, 20);
+		beginPanel(TU.translate('pack.loading.title', null, "Unlocking mod pack"), 720);
+		addText(TU.translate('pack.loading.intro', null, "The pack is decrypted into memory so the engine can read it. Nothing is written to disk, so this pass runs on every start for as long as the pack stays loaded."), 13, PopupScreen.COLOR_TEXT, 16);
+		addText(TU.translate('pack.loading.pack', [names], "Pack: " + names), 15, PopupScreen.COLOR_TEXT, 20);
 
 		bar = addProgress(14);
 
@@ -71,8 +70,8 @@ class ModPackLoadingState extends PopupScreen {
 		statusText = new UIText(contentX, row(18), contentW, "", 13, PopupScreen.COLOR_INFO);
 		place(statusText);
 
-		etaText = addText("Estimating the time left...", 13, PopupScreen.COLOR_TEXT, 12);
-		hintText = addText("Working...", 13, PopupScreen.COLOR_TEXT, 12);
+		etaText = addText(TU.translate('pack.loading.estimating', null, "Estimating the time left..."), 13, PopupScreen.COLOR_TEXT, 12);
+		hintText = addText(TU.translate('pack.loading.working', null, "Working..."), 13, PopupScreen.COLOR_TEXT, 12);
 
 		var egg = maybeAddEasterEgg();
 		if (egg != null) {
@@ -100,13 +99,16 @@ class ModPackLoadingState extends PopupScreen {
 		elapsedTotal += elapsed;
 		var eta = EtaFrom(elapsedTotal, p, etaSmooth);
 		etaSmooth = eta;
-		etaText.text = eta < 0 ? "Estimating the time left..." : "About " + FormatSeconds(eta) + " left";
+		etaText.text = eta < 0
+			? TU.translate('pack.loading.estimating', null, "Estimating the time left...")
+			: TU.translate('pack.loading.eta', [FormatSeconds(eta)], "About " + FormatSeconds(eta) + " left");
 
 		// a tiny animated marker, so the screen clearly still runs while a single
 		// big entry is being decrypted
 		startedAt += elapsed;
 		var dots = Std.int(startedAt * 2) % 4;
-		hintText.text = "Working" + ".".repeat(dots) + "  (the window may stop responding for a moment)";
+		hintText.text = TU.translate('pack.loading.workingDots', [".".repeat(dots)],
+			"Working" + ".".repeat(dots) + "  (the window may stop responding for a moment)");
 
 		if (!finished && ModPackCrypto.prepareDone && !ModPackCrypto.preparing) {
 			finished = true;
@@ -116,7 +118,7 @@ class ModPackLoadingState extends PopupScreen {
 				for (pack in failed) ModPackCrypto.clearSessionKey(pack);
 				// the key passed the quick check but decryption still failed: say so
 				FlxG.switchState(new ModPackKeyState(failed,
-					"Wrong password: the pack could not be decrypted. Check the password and try again."));
+					TU.translate('pack.loading.errWrong', null, "Wrong password: the pack could not be decrypted. Check the password and try again.")));
 			}
 			else
 				FlxG.switchState(new MainState());
@@ -138,11 +140,12 @@ class ModPackLoadingState extends PopupScreen {
 	}
 
 	static function FormatSeconds(seconds:Float):String {
-		if (seconds < 1) return "less than a second";
-		if (seconds < 60) return Std.int(seconds + 0.5) + "s";
+		if (seconds < 1) return TU.translate('pack.time.lessThanSecond', null, "less than a second");
+		if (seconds < 60) return TU.translate('pack.time.seconds', [Std.int(seconds + 0.5)], Std.int(seconds + 0.5) + "s");
 		var minutes = Std.int(seconds / 60);
 		var rest = Std.int(seconds - minutes * 60);
-		return minutes + "m " + (rest < 10 ? "0" : "") + rest + "s";
+		var padded = (rest < 10 ? "0" : "") + rest;
+		return TU.translate('pack.time.minutes', [minutes, padded], minutes + "m " + padded + "s");
 	}
 
 	/**

@@ -843,7 +843,7 @@ class ModPackCrypto {
 		cleanupProgress = 0;
 		cleanupSummary = "";
 		cleanupLines = [];
-		cleanupLabel = "Releasing the pack handles";
+		cleanupLabel = TU.translate('pack.cleanup.stepHandles', null, "Releasing the pack handles");
 	}
 
 	/**
@@ -864,7 +864,7 @@ class ModPackCrypto {
 					closePackHandles();
 					if (handles > 0) cleanupLines.push('Released $handles pack handle(s)');
 					#end
-					cleanupLabel = "Wiping the decrypted packs";
+					cleanupLabel = TU.translate('pack.cleanup.stepWipe', null, "Wiping the decrypted packs");
 					cleanupProgress = 0.2;
 					cleanupStep = 1;
 				case 1:
@@ -876,7 +876,7 @@ class ModPackCrypto {
 					}
 					releaseZips();
 					if (packs > 0) cleanupLines.push('Wiped $packs decrypted pack(s) from memory (' + humanSize(bytes) + ')');
-					cleanupLabel = "Removing the copied keys";
+					cleanupLabel = TU.translate('pack.cleanup.stepKeys', null, "Removing the copied keys");
 					cleanupProgress = 0.55;
 					cleanupStep = 2;
 				case 2:
@@ -893,7 +893,7 @@ class ModPackCrypto {
 							? 'No copied key files were on disk'
 							: 'Removed $removedCount copied key file(s)');
 					}
-					cleanupLabel = "Removing the video cache";
+					cleanupLabel = TU.translate('pack.cleanup.stepVideos', null, "Removing the video cache");
 					cleanupProgress = 0.75;
 					cleanupStep = 3;
 				case 3:
@@ -919,7 +919,7 @@ class ModPackCrypto {
 
 	static function finishCleanup(?problem:String):Void {
 		cleanupProgress = 1;
-		cleanupLabel = "Done";
+		cleanupLabel = TU.translate('pack.cleanup.stepDone', null, "Done");
 		if (problem != null) cleanupLines.push(problem);
 		if (cleanupLines.length == 0) cleanupLines.push('Nothing had reached the disk');
 		cleanupSummary = cleanupLines.join("\n");
