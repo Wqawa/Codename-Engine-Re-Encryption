@@ -49,14 +49,16 @@ class IntegrityScreen extends PopupScreen {
 	var shownProblems:Int = -1;
 
 	var movingOn:Bool = false;
-	/** Seconds since the screen opened, for the idle bob. */
-	var bobTime:Float = 0;
 	var labelTimer:Float = 0;
 
 	public function new(work:Array<String>, locked:Array<String>) {
 		super();
 		this.work = work == null ? [] : work;
 		this.locked = locked == null ? [] : locked;
+		bgType = 'cmd';
+		// The crash overlay's idle bob, same amplitude and speed: a frame that keeps moving
+		// hides the hitch of a check that reads every shipped file.
+		bobAmplitude = 5;
 	}
 
 	override function create() {
@@ -117,13 +119,10 @@ class IntegrityScreen extends PopupScreen {
 	override function update(elapsed:Float) {
 		super.update(elapsed);
 
-		// The crash overlay's idle bob, same amplitude and speed: a frame that keeps moving
-		// hides the hitch of a check that reads every shipped file.
-		bobTime += elapsed;
-		setContentOffset(Math.sin(bobTime * 1.5) * 5);
-		// out of phase on purpose: two windows bobbing in lockstep read as one block being
-		// dragged around, not as two panes
-		setSideOffset(Math.sin(bobTime * 1.5 + 2.1) * 5);
+		// the panel bobs from PopupScreen.update (bobAmplitude); the counter rides that same
+		// clock out of phase on purpose - two windows moving in lockstep read as one block
+		// being dragged around, not as two panes
+		setSideOffset(Math.sin(bobTime * PopupScreen.BOB_SPEED + 2.1) * 5);
 
 		final total = IntegrityCheck.total;
 		final fraction = total <= 0 ? 0 : Math.max(0, Math.min(1, IntegrityCheck.checked / total));

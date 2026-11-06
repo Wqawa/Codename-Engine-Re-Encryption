@@ -2,6 +2,7 @@ package funkin.menus;
 
 import flixel.FlxG;
 import flixel.FlxSprite;
+import flixel.addons.display.FlxBackdrop;
 import funkin.editors.ui.UIButton;
 import funkin.editors.ui.UISliceSprite;
 import funkin.editors.ui.UIState;
@@ -55,11 +56,28 @@ class PopupScreen extends UIState {
 	static inline var MIN_PANEL_W:Int = 320;
 	static inline var SHADE:Int = 0xB4000000;
 
+	/** The editors' own backdrop drift: 85 px/s at a slight tilt (EditorTreeMenu). */
+	static inline var BG_SPEED:Float = 85;
+	static inline var BG_ANGLE:Float = -5;
+	/** Radians per second of the idle bob; the crash overlay and the file check use 1.5. */
+	public static inline var BOB_SPEED:Float = 1.5;
+
 	public var panel:UISliceSprite;
 	public var titleText:UIText;
 	public var buttons:Array<UIButton> = [];
 	/** Percentage label of addProgress(), if that was used. */
 	public var progressLabel:UIText;
+
+	/**
+	 * Backdrop tile under the name `assets/images/editors/bgs/<bgType>`, drifting the way
+	 * the editor menus do; null draws none. Read in create(), so a subclass sets it in its
+	 * constructor.
+	 */
+	public var bgType:String = null;
+	/** Idle bob amplitude in px; 0 keeps the screen still. */
+	public var bobAmplitude:Float = 0;
+	/** Seconds spent bobbing, shared with anything that wants to move on its own phase. */
+	public var bobTime:Float = 0;
 
 	public var contentX(default, null):Float = 0;
 	public var contentW(default, null):Int = 0;
@@ -83,6 +101,32 @@ class PopupScreen extends UIState {
 		var shade = new FlxSprite().makeSolid(FlxG.width, FlxG.height, SHADE);
 		shade.scrollFactor.set(0, 0);
 		add(shade);
+		// Over the shade, not under it: the tiles are drawn in a 15% grey already, and the
+		// 70% shade on top would take them to about 4% - a pattern nobody can see.
+		if (bgType != null) addBackdrop();
+	}
+
+	/**
+	 * The tiled editor wallpaper.
+	 *
+	 * Same graphic, tilt and drift as EditorTreeMenu: these screens are reached from the
+	 * editor menus, and a different motion here would read as a different game.
+	 */
+	function addBackdrop():Void {
+		final backdrop = new FlxBackdrop();
+		backdrop.loadGraphic(Paths.image('editors/bgs/$bgType'));
+		backdrop.antialiasing = true;
+		backdrop.scrollFactor.set(0, 0);
+		backdrop.rotation = BG_ANGLE;
+		backdrop.velocity.set(BG_SPEED, 0).degrees = backdrop.rotation;
+		add(backdrop);
+	}
+
+	override function update(elapsed:Float) {
+		super.update(elapsed);
+		if (bobAmplitude == 0) return;
+		bobTime += elapsed;
+		setContentOffset(Math.sin(bobTime * BOB_SPEED) * bobAmplitude);
 	}
 
 	/**

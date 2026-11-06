@@ -47,6 +47,7 @@ class ModPackCleanupState extends PopupScreen {
 	public function new(?continuing:Bool = false) {
 		super();
 		this.continuing = continuing;
+		bgType = 'default';
 	}
 
 	override function create() {

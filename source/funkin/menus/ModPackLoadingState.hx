@@ -44,6 +44,10 @@ class ModPackLoadingState extends PopupScreen {
 	public function new(packs:Array<String>) {
 		super();
 		this.packs = packs == null ? [] : packs;
+		bgType = 'lock';
+		// the pass can run for seconds without the bar moving; a panel that drifts makes
+		// that read as "still working" instead of "stuck"
+		bobAmplitude = 2;
 	}
 
 	override function create() {

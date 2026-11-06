@@ -33,6 +33,10 @@ class ModPackKeyState extends PopupScreen {
 		super();
 		this.packs = packs == null ? [] : packs;
 		this.errorMessage = errorMessage;
+		bgType = 'lock';
+		// barely there on purpose: the field is focused and being typed into, and anything
+		// bigger makes the caret wander while the player reads their own input
+		bobAmplitude = 1;
 	}
 
 	override function create() {
