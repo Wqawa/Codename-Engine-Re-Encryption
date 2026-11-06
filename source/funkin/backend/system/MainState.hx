@@ -212,6 +212,8 @@ class MainState extends FlxState {
 			Framerate.instance.reload();
 
 		#if sys
+		// upstream hides ./.temp here; that directory is .cne/temp in this fork, and
+		// ensure() creates it, hides it and swallows the failure the same way
 		funkin.backend.system.RuntimeDirs.ensure(funkin.backend.system.RuntimeDirs.TEMP);
 		#end
 

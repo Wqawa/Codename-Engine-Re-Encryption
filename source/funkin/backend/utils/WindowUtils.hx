@@ -222,4 +222,21 @@ final class WindowUtils {
 		if (app == null || app.window == null) return;
 		app.window.title = '$prefix$title$suffix';
 	}
+
+	// backwards compat
+	@:noCompletion public static var endfix(get, set):String;
+	@:noCompletion private inline static function set_endfix(value:String):String {
+		return suffix = value;
+	}
+	@:noCompletion private inline static function get_endfix():String {
+		return suffix;
+	}
+
+	@:noCompletion public static var winTitle(get, set):String;
+	@:noCompletion private inline static function get_winTitle():String {
+		return title;
+	}
+	@:noCompletion private inline static function set_winTitle(value:String):String {
+		return title = value;
+	}
 }

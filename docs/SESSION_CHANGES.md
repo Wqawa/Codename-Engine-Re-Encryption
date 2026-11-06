@@ -228,7 +228,44 @@ V7（key token 只是混淆，不是分发密钥的安全手段）。
 
 ---
 
-## 十一、没做的
+## 十一、11-06 合上游（afe74668 → 450ab5b5）
+
+上游 35 个提交、47 个文件。本仓库和上游没有共同祖先（基线是文件快照），所以先给上次的 vendor
+提交 `99c24d9d` 临时 graft 到 `afe74668`，做了一次正常的三方合并；graft 用完已删
+（`git replace -l` 为空）。
+
+**结果没有以合并提交的形式保留**：把上游接进历史意味着 push 要把它 3500+ 个提交的对象全部上传
+（本仓库是 `blob:none` 部分克隆，这些 blob 本地都没有），代价远大于收益。所以最终落地的是一个
+普通提交，内容等于三方合并的结果，历史仍是单线。下次合上游的做法写在 `AGENTS.md` 开头。
+
+**带进来的（按块）**
+
+| 块 | 内容 |
+| --- | --- |
+| 构建 / 文档 | FlxAnimate → flixel-animate（仓库搬家，README 与编译说明）、`format` 库从 `project.xml` 移除、`dd17dcda` lime_disable_assets_version、release workflow 修复 |
+| 帧率 | FramePacer 配置项（`Options.framePacerMode`）、"More optimization with gc"、顺手回退了之前那个分数标签优化 |
+| 角色 / 舞台 | 角色编辑器拖拽与手柄修复、`DEBUG_HITBOX` 换色、`characterPosGuide.frag`、`applyStageMatrix` 默认改由 `USE_LEGACY_FLXANIMATE_STAGE_MATRIX` 决定（`MOD_API_VERSION < 3` 才是 true） |
+| freeplay | 歌曲列表 addon 支持及后续修补、上下键 turbo 控制、预览音乐修复、列表滚动加速 |
+| 播放 | `StrumLine` 与 `PlayState` 解耦、`ignoreInactive` 与 `ignoreInvisible` 修好接到 `getStrumlineCamPos` / `getCharactersCamPos`、`Flags.FORCE_CAM_ZOOM_EVERY_MEASURE` |
+| 其它 | `ScriptableShader` / `ShaderResizeFix` 弃用修复、`SaveSubstate` 取消时崩溃、`ModSwitchMenu` addon 迭代、`WindowUtils` 旧兼容 API 恢复、`DEFAULT_GITAROO` 默认 false |
+
+**冲突（3 处，都以官方为准，只保留本 fork 必须的注入）**
+
+| 文件 | 官方改了什么 | 处理 |
+| --- | --- | --- |
+| `README.md` | 换掉 FlxAnimate 的仓库链接 | 采用官方的四条 credits，保留本 fork 自己的 "Re-Encryption additions" 段落 |
+| `source/funkin/backend/system/MainState.hx` | 把隐藏 `./.temp` 包进 try/catch 并 warn | **保留本 fork 的 `RuntimeDirs.ensure(.cne/temp)`**：那个目录在本 fork 叫 `.cne/temp`，`ensure()` 已经建目录、隐藏目录、并且吞掉异常，官方的写法在这里没有对象 |
+| `source/funkin/backend/utils/WindowUtils.hx` | 恢复 `endfix` / `winTitle` 兼容属性，`updateTitle` 改回 `inline` | 兼容属性照收；`updateTitle` 保留本 fork 的空窗口守卫（启动早期 `Lib.application.window` 还不存在），因此不是 `inline` |
+
+**行为变化，值得留意的两条**
+
+- `applyStageMatrix` 不再默认 true：`MOD_API_VERSION < 3` 的 mod 维持旧行为，声明 3 及以上的 mod
+  不再套舞台矩阵。老 mod 不受影响，新 mod 的站位可能与之前不同。
+- `WindowUtils` 的老兼容 API 回来了（`endfix`、`winTitle`），脚本里写过的旧名字重新可用。
+
+---
+
+## 十二、没做的
 
 | 项 | 状态 |
 | --- | --- |

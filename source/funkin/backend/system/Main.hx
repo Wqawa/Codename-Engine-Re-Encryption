@@ -158,7 +158,6 @@ class Main extends Sprite
 		#if UPDATE_CHECKING
 		funkin.backend.system.updating.UpdateUtil.init();
 		#end
-		ShaderResizeFix.init();
 		Paths.init();
 
 		// Worker thread: hashing a large assets folder must not hold up the window. The

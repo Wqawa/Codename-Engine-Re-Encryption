@@ -1186,7 +1186,7 @@ class PlayState extends MusicBeatState
 		if (songData == null) songData = SONG;
 
 		var foundCam = false;
-		var foundSigs = songData.meta.beatsPerMeasure.getDefault(4) != 4 || songData.meta.stepsPerBeat.getDefault(4) != 4;
+		var foundSigs = Flags.FORCE_CAM_ZOOM_EVERY_MEASURE || songData.meta.beatsPerMeasure.getDefault(4) != 4 || songData.meta.stepsPerBeat.getDefault(4) != 4;
 
 		if (events == null) events = [];
 		else events = [
@@ -1594,7 +1594,7 @@ class PlayState extends MusicBeatState
 		if (__camPosData == null) __camPosData = new CamPosData(__camPos, 0);
 
 		__camPos.set(0, 0);
-		var data:CamPosData = getStrumlineCamPos(curCameraTarget, __camPos, true, __camPosData);
+		var data:CamPosData = getStrumlineCamPos(curCameraTarget, __camPos, true, true, __camPosData);
 		data.pos.add(cameraFocusOffset.x, cameraFocusOffset.y);
 
 		if (data.amount > 0) {
@@ -1609,10 +1609,11 @@ class PlayState extends MusicBeatState
 	 * @param strumLine The strumline to get the camera position of.
 	 * @param pos The position to put the camera position in. If `null`, a new FlxPoint will be created.
 	 * @param ignoreInvisible Whenever invisible characters should be ignored.
+	 * @param ignoreInactive Whether inactive characters should be ignored.
 	 * @param out If provided, fills and returns this instance instead of allocating a new one. The caller keeps ownership of `pos` (don't put it back to the pool).
 	**/
-	public inline function getStrumlineCamPos(strumLine:Int, ?pos:FlxPoint = null, ?ignoreInvisible:Bool = true, ?out:CamPosData = null):CamPosData {
-		return getCharactersCamPos(strumLines.members[strumLine].characters, pos, ignoreInvisible, out);
+	public inline function getStrumlineCamPos(strumLine:Int, ?pos:FlxPoint = null, ?ignoreInvisible:Bool = true, ?ignoreInactive:Bool = true, ?out:CamPosData = null):CamPosData {
+		return getCharactersCamPos(strumLines.members[strumLine].characters, pos, ignoreInvisible, ignoreInactive, out);
 	}
 
 	/**
@@ -1620,19 +1621,21 @@ class PlayState extends MusicBeatState
 	 * @param chars The characters to get the camera position of.
 	 * @param pos The position to put the camera position in. If `null`, a new FlxPoint will be created.
 	 * @param ignoreInvisible Whenever invisible characters should be ignored.
+	 * @param ignoreInactive Whether inactive characters should be ignored.
 	 * @param out If provided, fills and returns this instance instead of allocating a new one. The caller keeps ownership of `pos` (don't put it back to the pool).
 	**/
-	public dynamic function getCharactersCamPos(chars:Array<Character>, ?pos:FlxPoint = null, ?ignoreInvisible:Bool = true, ?out:CamPosData = null):CamPosData {
+	public dynamic function getCharactersCamPos(chars:Array<Character>, ?pos:FlxPoint = null, ?ignoreInvisible:Bool = true, ?ignoreInactive:Bool = true, ?out:CamPosData = null):CamPosData {
 		if (pos == null) pos = FlxPoint.get();
-		var amount = 0;
+		var amount:Int = 0;
+		final cpos = FlxPoint.get();
 		for(c in chars) {
-			if (c == null || (ignoreInvisible && !c.visible)) continue;
-			var cpos = c.getCameraPosition();
+			if (c == null || (!ignoreInvisible && (c.alpha <= 0 || !c.visible || !c.exists)) || (!ignoreInactive && !c.active)) continue;
+			c.__getCameraPositionInto(cpos);
 			pos.x += cpos.x;
 			pos.y += cpos.y;
 			amount++;
-			//cpos.put(); // not actually in the pool, so no need
 		}
+		cpos.put();
 		if (amount > 0) {
 			pos.x /= amount;
 			pos.y /= amount;

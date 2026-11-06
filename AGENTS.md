@@ -2,11 +2,28 @@
 
 本仓库是 Codename Engine 1.1.0（官方代码）+ 从用户 1.0.1 分支迁移来的加密/打包功能。
 分支只有 `main`（本地与远端同名）；最早提交 `112aa91`（纯 1.1.0 快照，已打 tag `baseline/upstream-1.1.0`），
-迁移提交 `e9ac49b`；上游 `main` 已在 `130391f4` 并入（2026-10-31）。`130391f4` 的提交信息里写的
-`afe74668` 是**上游仓库**的提交号，本仓库没有这个对象，`git show afe74668` 会报 MISSING，属正常。
+迁移提交 `e9ac49b`。上游 `main` 合过两次：2026-10-31（上游 `afe74668`，合并提交 `130391f4`）、
+2026-11-06（上游 `450ab5b5`，压成单个提交）。
 
-历史状态（2026-11-04 更新）：完整历史 120 余个提交，已非浅克隆；仓库仍是 `blob:none` 部分克隆，
-旧版本的文件内容在本机首次访问时按需从远端拉取（`git show <旧提交>:<路径>` 会自动联网）。
+上游远端叫 `upstream`（`https://github.com/CodenameCrew/CodenameEngine`）。**历史是断的，而且要保持断**：
+基线是文件快照、不是上游提交的后代；上游有 3500+ 个提交和大量资源，把它们接进历史意味着 push 要把
+整段历史的对象都传上去（本仓库是 `blob:none` 部分克隆，这些 blob 本地根本没有），所以每次合上游
+**只合树、不接历史**，压成一个普通提交。
+
+三方合并用一次性的 graft 拿共同祖先：
+
+```bash
+git fetch upstream --filter=blob:none --no-tags
+git replace --graft 99c24d9d <上次合过的上游 SHA>   # 99c24d9d 的树 = afe74668 的树
+git merge --no-commit --no-ff upstream/main        # 正常出冲突标记
+# 解冲突 → git replace -d 99c24d9d → git reset --soft HEAD（退回合并前）→ 一个普通提交
+```
+
+`git replace -l` 必须回到空。冲突处理：以官方为准，本 fork 必须保留的定点注入（`.temp` →
+`.cne/temp`、`updateTitle` 的空窗口守卫等）记在 `docs/SESSION_CHANGES.md` 的合并章节里。
+
+历史状态（2026-11-06 更新）：仓库仍是 `blob:none` 部分克隆，旧版本的文件内容在本机首次访问时
+按需从远端拉取（`git show <旧提交>:<路径>` 会自动联网）。
 
 ## 0. 文档地图（改文档前先看这里）
 
