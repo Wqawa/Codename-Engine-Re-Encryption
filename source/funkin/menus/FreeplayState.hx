@@ -15,7 +15,6 @@ import funkin.backend.system.Controls.Control;
 import funkin.backend.TurboControls;
 
 import funkin.backend.assets.ModsFolder;
-import funkin.backend.assets.ModsFolderLibrary;
 import funkin.backend.assets.IModsAssetLibrary;
 import funkin.backend.assets.AssetSource;
 
@@ -569,6 +568,12 @@ class FreeplaySonglist {
 
 	public function new() {}
 
+	/** exists() is not part of IModsAssetLibrary; Paths.txt() already returns an assets/ path. */
+	static function libExists(lib:IModsAssetLibrary, path:String):Bool {
+		var assets:openfl.utils.AssetLibrary = cast lib;
+		return assets != null && assets.exists(path, "TEXT");
+	}
+
 	public static function isSubSongDirectory(subs:Array<String>):Bool {
 		for (i in EXCLUDE_SUBFOLDERS) {
 			if (subs.contains(i)) return false;
@@ -580,9 +585,15 @@ class FreeplaySonglist {
 	public function getSongsFromSource(source:AssetSource = BOTH, useTxt:Bool = true, ?startDir:String = 'songs/', ?flatten:Bool = true) {
 		var totalSongsFound:Array<String> = [];
 		var mods:Array<IModsAssetLibrary> = ModsFolder.getLoadedModsLibs(true);
-		// addon songs appear lower than the mod's main music now
-		while (mods[0].modName != (ModsFolder.currentModFolder ?? 'assets')) {
-			final thisMod = mods.pop();
+		if (mods.length == 0) return true;
+		// addon songs appear lower than the mod's main music now. Finding the
+		// index first matters: if currentModFolder is not in the list, the old
+		// pop/insert loop rotated forever.
+		final wantedMod = ModsFolder.currentModFolder ?? 'assets';
+		var currentIndex:Int = -1;
+		for (j in 0...mods.length) if (mods[j].modName == wantedMod) { currentIndex = j; break; }
+		if (currentIndex > 0) {
+			final thisMod = mods.splice(currentIndex, 1)[0];
 			mods.insert(0, thisMod);
 		}
 		if (source != BOTH && ModsFolder.currentModFolder != null) {
@@ -596,8 +607,10 @@ class FreeplaySonglist {
 		}
 		var i:Int = 0;
 		while (i < mods.length) {
-			final modLib:ModsFolderLibrary = cast mods[i++];
-			if (modLib == null) { i++; continue; }
+			// upstream narrowed this to ModsFolderLibrary, but a packed mod is a ZipFolderLibrary:
+			// the cast sent every zip mod's song scan to a folder that does not exist
+			final modLib:IModsAssetLibrary = mods[i++];
+			if (modLib == null) continue;
 
 			final modName = modLib.modName;
 			var songsFound:Array<String> = [];
@@ -606,9 +619,9 @@ class FreeplaySonglist {
 				var oldPath = Paths.txt('freeplaySonglist/LIB_$modName');
 				var newPath = Paths.txt('config/freeplaySonglist/LIB_$modName');
 
-				if (modLib.exists(newPath, "TEXT")) {
+				if (libExists(modLib, newPath)) {
 					for (i in CoolUtil.coolTextFile(newPath)) songsFound.push(i);
-				} else if (modLib.exists(oldPath, "TEXT")) {
+				} else if (libExists(modLib, oldPath)) {
 					Logs.warn("data/freeplaySonglist.txt is deprecated and will be removed in the future. Please move the file to data/config/", DARKYELLOW, "FreeplaySonglist");
 					for (i in CoolUtil.coolTextFile(oldPath)) songsFound.push(i);
 				}
