@@ -104,4 +104,82 @@
 		<str id="diff.erect">Erect</str>
 		<str id="diff.nightmare">Nightmare</str>
 	</group>
+
+	<group name="Mod Pack Screens">
+		<!-- the screens this fork adds around an encrypted pack: the key prompt, the decryption pass, the cleanup and the merge -->
+		<str id="pack.button.closeNow">Close now</str>
+		<str id="pack.button.continueNow">Continue now</str>
+		<str id="pack.button.noMods">Play without mods</str>
+		<str id="pack.button.quit">Quit</str>
+		<str id="pack.button.unlock">Unlock and continue</str>
+		<str id="pack.cleanup.countdownClose">Closing in {0} second(s) - or press the button.</str>
+		<str id="pack.cleanup.countdownContinue">Continuing in {0} second(s) - or press the button.</str>
+		<str id="pack.cleanup.hintClose">The window closes on its own when this is done.</str>
+		<str id="pack.cleanup.hintSwitch">The switch continues on its own when this is done.</str>
+		<str id="pack.cleanup.intro">The decrypted mod pack, the keys copied out of it and everything lifted onto disk only exist while the game runs. They are wiped now, so nothing readable is left behind.</str>
+		<str id="pack.cleanup.stepDone">Done</str>
+		<str id="pack.cleanup.stepHandles">Releasing the pack handles</str>
+		<str id="pack.cleanup.stepKeys">Removing the copied keys</str>
+		<str id="pack.cleanup.stepVideos">Removing the video cache</str>
+		<str id="pack.cleanup.stepWipe">Wiping the decrypted packs</str>
+		<str id="pack.cleanup.titleClose">Cleaning up before closing</str>
+		<str id="pack.cleanup.titleSwitch">Cleaning up before the switch</str>
+		<str id="pack.key.errEmpty">Type a password or a key token first.</str>
+		<str id="pack.key.errFailedAtStart">This pack already failed a full unlock attempt in this session, so it will not be decrypted again. Use "Play without mods" if the password keeps being rejected.</str>
+		<str id="pack.key.errFailedOnce">\nA full unlock attempt for this pack already failed, so it will not be decrypted again - use "Play without mods" if the password keeps being rejected.</str>
+		<str id="pack.key.errWrong">Wrong password: {0} could not be unlocked. Check the password and try again.</str>
+		<str id="pack.key.field">Password or token</str>
+		<str id="pack.key.intro">This mod pack is encrypted. Type the password the author gave you.</str>
+		<str id="pack.key.pack">Pack: {0}</str>
+		<str id="pack.key.title">Encrypted mod pack</str>
+		<str id="pack.key.tokenHint">A key token works here as well - it usually starts with CNEK1-. A zip protected with a normal zip password (ZipCrypto or AES-256) also opens with that password.</str>
+		<str id="pack.loading.errWrong">Wrong password: the pack could not be decrypted. Check the password and try again.</str>
+		<str id="pack.loading.estimating">Estimating the time left...</str>
+		<str id="pack.loading.eta">About {0} left</str>
+		<str id="pack.loading.intro">The pack is decrypted into memory so the engine can read it. Nothing is written to disk, so this pass runs on every start for as long as the pack stays loaded.</str>
+		<str id="pack.loading.pack">Pack: {0}</str>
+		<str id="pack.loading.title">Unlocking mod pack</str>
+		<str id="pack.loading.working">Working...</str>
+		<str id="pack.loading.workingDots">Working{0}  (the window may stop responding for a moment)</str>
+		<str id="pack.merge.done">merged {0} file(s) into {1}</str>
+		<str id="pack.merge.failed">could not merge the staged files: {0}</str>
+		<str id="pack.merge.failedLeft">The staged files were left on disk, so nothing was lost.</str>
+		<str id="pack.merge.intro">The files saved for "{0}" are written into its pack now. The whole archive is rewritten, so this takes a moment on a big mod.</str>
+		<str id="pack.merge.reading">Reading the staged files</str>
+		<str id="pack.merge.title">Merging staged files</str>
+		<str id="pack.merge.working">Working{0}</str>
+		<str id="pack.time.lessThanSecond">less than a second</str>
+		<str id="pack.time.minutes">{0}m {1}s</str>
+		<str id="pack.time.seconds">{0}s</str>
+	</group>
+
+	<group name="File Check">
+		<!-- the manifest check at startup and its result dialog -->
+		<str id="integrity.counterHint">found so far</str>
+		<str id="integrity.counterTitle">Problems</str>
+		<str id="integrity.dialog.checkFailed">The check could not run, so nothing was verified.</str>
+		<str id="integrity.dialog.compared">{0} file(s) were compared against the manifest shipped with this build.</str>
+		<str id="integrity.dialog.continue">Continue</str>
+		<str id="integrity.dialog.more">... and {0} more</str>
+		<str id="integrity.dialog.outro">The game keeps running; anything loaded from the files above may not be what was shipped.</str>
+		<str id="integrity.dialog.sectionAdded">Added  ({0})</str>
+		<str id="integrity.dialog.sectionMissing">Missing  ({0})</str>
+		<str id="integrity.dialog.sectionModified">Modified  ({0})</str>
+		<str id="integrity.dialog.title">Files Do Not Match This Build</str>
+		<str id="integrity.dialog.whyAdded">Under assets/, but not in the manifest.</str>
+		<str id="integrity.dialog.whyMissing">Listed in the manifest, no longer on disk.</str>
+		<str id="integrity.dialog.whyModified">On disk, but not what this build shipped.</str>
+		<str id="integrity.intro">Every shipped file is compared against the manifest before anything else starts. The game keeps running either way.</str>
+		<str id="integrity.problem.format">The integrity manifest is not in a format this build understands.</str>
+		<str id="integrity.problem.tampered">The integrity manifest was modified (its signature does not match).</str>
+		<str id="integrity.problem.unreadable">The integrity manifest could not be read: {0}</str>
+		<str id="integrity.problem.unsigned">The integrity manifest is not signed.</str>
+		<str id="integrity.progress">{0} / {1}</str>
+		<str id="integrity.summary.added">{0} added</str>
+		<str id="integrity.summary.changed">{0} modified</str>
+		<str id="integrity.summary.missing">{0} missing</str>
+		<str id="integrity.summary.noManifest">no manifest shipped</str>
+		<str id="integrity.summary.ok">all {0} file(s) match</str>
+		<str id="integrity.title">Checking game files</str>
+	</group>
 </language>
