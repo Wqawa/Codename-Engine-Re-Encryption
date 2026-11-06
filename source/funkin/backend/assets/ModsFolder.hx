@@ -112,6 +112,13 @@ class ModsFolder {
 				Logs.warn('Skipping encrypted mod pack "$packPath": it needs a password that was not given.');
 				return null;
 			}
+			// A CNEZ container of a version this build does not know reads as an ordinary zip
+			// and indexes nothing, which looks like a mod that loaded but has no content.
+			var containerVersion = ModPackCrypto.containerVersion(packPath);
+			if (containerVersion >= 0 && !ModPackCrypto.isEncryptedPackFile(packPath)) {
+				Logs.error('Skipping mod pack "$packPath": CNEZ container version $containerVersion is not supported by this build.');
+				return null;
+			}
 			try {
 				// `mods/Name.zip` with a `mods/Name/` folder next to it: the folder holds
 				// what the editors saved, so it is laid on top of the pack instead of

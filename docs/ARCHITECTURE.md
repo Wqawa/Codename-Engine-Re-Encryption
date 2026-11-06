@@ -11,11 +11,12 @@
 
 ---
 
-## 1. 新增文件：42 个，按职责分七组
+## 1. 新增文件：43 个，按职责分七组
 
 | 组 | 文件 | 职责 |
 | --- | --- | --- |
-| **A. 容器与密钥** | `assets/CnezV2.hx` | 唯一的容器布局：分块 tag + 根 tag，按需校验。早期单 tag 布局发布前已移除，没有兼容分支 |
+| **A. 容器与密钥** | `assets/CnezV2.hx` | 写入口：分块 tag + 根 tag，按需校验（版本 2 / 3） |
+| | `assets/CnezV1.hx` | 只读的旧布局（版本 1，单条 ChaCha20 流 + 一个 HMAC）：1.0.1 发的包仍能打开，不写这个版本 |
 | | `assets/ModPackCrypto.hx` | 容器入口：选密钥、内存副本、失败标记、退出清理 |
 | | `scripting/crypto/ScriptCrypto.hx` | 密钥派生（SHA256 迭代 2048 轮）、HMAC tag、key token 编解码、脚本密钥文件 |
 | | `scripting/crypto/{ChaCha20,Aes,Pbkdf2,HmacSha1,Sha1Stream}.hx` | 纯 Haxe 密码学原语，不依赖原生库 |

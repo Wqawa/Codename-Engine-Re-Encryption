@@ -56,26 +56,38 @@ class ModPackCrypto {
 
 	// -------------------------------------------------------------- detection
 
-	/** True for a CNEZ container. */
+	/** True for a CNEZ container of any version this build can read. */
 	public static function isEncryptedPack(data:Bytes):Bool {
-		return CnezV2.isV2(data);
+		return CnezV1.isV1(data) || CnezV2.isV2(data);
+	}
+
+	/**
+	 * The version byte of a CNEZ file, or -1 when the magic does not match.
+	 *
+	 * A version this build does not know is reported as-is, so the loader can say
+	 * "made by a newer/older build" instead of quietly treating the file as a plain zip.
+	 * Zero is a real (invalid) CNEZ version, so it cannot double as "not CNEZ".
+	 */
+	public static function containerVersion(path:String):Int {
+		#if sys
+		try {
+			if (path == null || !FileSystem.exists(path) || FileSystem.isDirectory(path)) return -1;
+			var handle = File.read(path, true);
+			var head = handle.read(5);
+			handle.close();
+			if (head == null || head.length < 5) return -1;
+			for (i in 0...4)
+				if (head.get(i) != CnezV2.MAGIC[i]) return -1;
+			return head.get(4);
+		} catch (e:Dynamic) {}
+		#end
+		return -1;
 	}
 
 	/** Same, for a file: reads five bytes instead of loading it. */
 	public static function isEncryptedPackFile(path:String):Bool {
-		#if sys
-		try {
-			if (!FileSystem.exists(path) || FileSystem.isDirectory(path)) return false;
-			var handle = File.read(path, true);
-			var head = handle.read(5);
-			handle.close();
-			if (head == null || head.length < 5) return false;
-			for (i in 0...4)
-				if (head.get(i) != CnezV2.MAGIC[i]) return false;
-			return head.get(4) == CnezV2.VERSION;
-		} catch (e:Dynamic) {}
-		#end
-		return false;
+		var version = containerVersion(path);
+		return version >= CnezV1.VERSION && version <= CnezV2.VERSION;
 	}
 
 	/** A raw zip starts with "PK". */
@@ -128,7 +140,11 @@ class ModPackCrypto {
 		pass = ScriptCrypto.resolveKeyValue(pass);
 
 		if (pass == null) throw "ModPackCrypto: no key";
-		if (!isEncryptedPack(data)) throw "ModPackCrypto: not an encrypted mod pack";
+		#if sys
+		if (CnezV1.isV1(data))
+			throw "ModPackCrypto: version 1 packs have no chunk table, use unpack()";
+		#end
+		if (!CnezV2.isV2(data)) throw "ModPackCrypto: not an encrypted mod pack";
 
 		var opened = CnezV2.open(data, pass);
 		return {
@@ -144,8 +160,12 @@ class ModPackCrypto {
 
 	public static function unpack(data:Bytes, ?pass:String, ?onProgress:Float->Void):Bytes {
 		if (pass == null) pass = ScriptCrypto.getPassword();
+		#if sys
+		// version 1 packs predate the chunk table, so they are always opened whole
+		if (CnezV1.isV1(data)) return CnezV1.unpack(data, ScriptCrypto.resolveKeyValue(pass), onProgress);
+		#end
 		if (!CnezV2.isV2(data))
-			throw "ModPackCrypto: not a CNEZ container of the current version";
+			throw "ModPackCrypto: not a CNEZ container this build can read";
 		return CnezV2.unpack(data, pass, onProgress);
 	}
 
@@ -250,6 +270,7 @@ class ModPackCrypto {
 		var pass = ScriptCrypto.resolveKeyValue(key);
 		if (pass == null) return false;
 		try {
+			if (CnezV1.isV1File(zipPath)) return CnezV1.verifyKeyFile(zipPath, pass);
 			if (isEncryptedPackFile(zipPath)) return CnezV2.verifyKeyFile(zipPath, pass);
 			if (ZipPassword.isProtected(zipPath)) return ZipPassword.checkPassword(zipPath, pass);
 		} catch (e:Dynamic) {}
@@ -430,7 +451,13 @@ class ModPackCrypto {
 				onProgress(p);
 			};
 			var zip:SysZip;
-			if (packed) {
+			if (packed && CnezV1.isV1File(packPath)) {
+				// version 1 has a single cipher stream and no chunk table, so there is nothing
+				// to seek in: the pack is decrypted once and indexed in memory
+				var plain = CnezV1.unpack(File.getBytes(packPath), key, wrapped);
+				if (!looksLikeZip(plain)) return null;
+				zip = SysZip.fromBytes(plain, true);
+			} else if (packed) {
 				if (Options.wrapDecryptedPacks) {
 					// memory mode: read once, stay ciphertext, decrypt each asset on read
 					if (wrapped != null) wrapped(0.15);
