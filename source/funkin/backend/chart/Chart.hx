@@ -330,7 +330,7 @@ class Chart {
 	 * decrypted into memory)
 	 * exist as assets but not on the file system, so the folder never exists.
 	 */
-	static function isWritablePath(path:String):Bool {
+	public static function isWritablePath(path:String):Bool {
 		if (path == null) return false;
 		var folder = Path.directory(path);
 		return folder != null && folder != "" && FileSystem.exists(folder) && FileSystem.isDirectory(folder);
