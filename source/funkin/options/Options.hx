@@ -355,17 +355,9 @@ class Options
 	}
 }
 
-enum abstract CharacterDragMode(Int) from Int to Int {
+enum abstract CharacterDragMode(Int) {
 	var NONE = 0;
 	var OFFSET = 1;
 	var POSITION = 2;
-
-	// Old mods treated this as a Bool. true was "drag offsets", which is OFFSET;
-	// false was "off", which is NONE. Keep those assignments compiling.
-	@:from public static inline function fromBool(value:Bool):CharacterDragMode
-		return value ? OFFSET : NONE;
-
-	@:to public inline function toBool():Bool
-		return this != NONE;
 }
 
