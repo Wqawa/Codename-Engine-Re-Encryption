@@ -2,7 +2,7 @@
 
 这份文档回答一个问题：**加密功能和官方引擎到底在哪几处接上的。**
 
-实现是外挂式的：42 个新增文件承担全部逻辑，官方文件只做定点注入。但改动散在几十个官方文件里，
+实现是外挂式的：43 个新增文件承担全部逻辑，官方文件只做定点注入。但改动散在几十个官方文件里，
 时间一长就看不出边界了。这里按模块列一遍，改功能前先查这张表。
 
 > 表里写**文件和函数名**，不写行号。行号每次改动都会漂，写死只会得到一份过期的表；
@@ -36,7 +36,7 @@
 
 ---
 
-## 2. 官方文件的接缝点：20 个
+## 2. 官方文件的接缝点：21 个
 
 只列**直接调用新功能 API** 的位置。
 
@@ -58,9 +58,11 @@
 | `assets/Paths.hx` | `disableMods` | 玩家选"不加载 mod"后，路径解析要真的跳过 mod |
 | | `ScriptCrypto.PROTECTED_SUFFIX` | 找资源时连带查 `.hxb` 版本 |
 | `assets/ModsFolderLibrary.hx` | `PROTECTED_SUFFIX` | 库列表里识别受保护脚本 |
+| `assets/IModsAssetLibrary.hx` | `exists(asset, type)` | 四个实现类本来就有这个方法，写进接口后调用方不用再 `cast` 成具体库（freeplay 扫描） |
 | `assets/ZipFolderLibrary.hx` | `SysZip` / `SysZipEntry` | 官方原本用 `haxe.zip.Reader`，这里换成可随机访问的 `SysZip` |
 | | `releaseForReplace()` / `reopenAfterReplace()` | 合并要 rename 换包，Windows 不允许 rename 被打开的文件；由 `ZipEditCache.replaceWith` 先松手、换完重读新包 |
 | `backend/chart/Chart.hx` | `ZipEditCache.isPackedMod` / `Paths.getAssetsRoot()` | 打包 mod 只有一个可写位置（暂存目录），保存不再经资源树推算 |
+| | `isWritablePath()`（public） | 资源树给出的 zip 内路径不可写；谱面保存和角色编辑器共用这一个判断 |
 | `backend/scripting/HScript.hx` | `for (suffix in ["", PROTECTED_SUFFIX])` | 加载 `.hx` 时先找 `.hxb`，找到就走解密 |
 | `system/modules/CrashHandler.hx` | `disableMods` | 崩溃后重启时先禁用 mod，避免同一个包反复搞崩 |
 | `menus/ModSwitchMenu.hx` | `disableMods` / `isEncryptedMod` | 列表里标出哪些 mod 是加密的 |
@@ -71,6 +73,7 @@
 | `editors/charter/CharterNoteTypesList.hx` | `ScriptCrypto.unprotectName` | 同上，谱面编辑器的脚本列表 |
 | `backend/system/updating/AsyncUpdater.hx` | `RuntimeDirs.TEMP` | 更新器的临时文件并入统一目录 |
 | `editors/character/CharacterEditor.hx` | `RuntimeDirs.TEMP` | 撤销/重做数据并入统一目录 |
+| | `Chart.isWritablePath` | 角色保存同样要落到暂存目录，不能写进 zip |
 | `editors/character/CharacterSpriteScreen.hx` | `RuntimeDirs.TEMP` | 同上 |
 | `system/Logs.hx` | `RuntimeDirs.LOGS` | 日志文件写进 `.cne/logs/` |
 | `backend/utils/CoolUtil.hx` | `RuntimeDirs.LOGS` | 保存失败的那条记录（路径 + 异常）写进 `.cne/logs/save-errors.log` |
@@ -79,6 +82,19 @@
 
 - `Main` / `MainState` / `ModsFolder` / `Paths` 是**流程注入**，改错会让游戏起不来，改前先看 §3。
 - 其余是**工具替换**（临时目录、文件名还原、日志路径），出错只影响局部功能。
+
+**偏离是可以用 blob 量出来的**，不用凭感觉：把上游目标提交的树取下来，用 `git ls-tree` 的 blob
+SHA 和本地逐个比，文件名对不上就是偏离：
+
+```bash
+curl -s "https://api.github.com/repos/CodenameCrew/CodenameEngine/git/trees/<上游SHA>?recursive=1" -o tree.json
+git ls-tree -r HEAD -- source | awk '{print $3" "$4}'   # 和 tree.json 里 source/ 的 sha 比
+```
+
+2026-11-07 以 `450ab5b5` 为基准的结果：`source/` 下 417 个文件里 **311 个 blob 完全相同**，
+63 个被本 fork 改过，43 个是新增，1 个是刻意删除（`PlaytestingWarningSubstate.hx`）。
+也就是说这是一棵“上游主干 + 定点接缝”的树，不是 1.1.0 与 RC4 拼接出来的混合体；
+接缝本身按上面的表管理，新增偏离要有理由，能不加就不加。
 
 ---
 

@@ -371,15 +371,64 @@ V7（key token 只是混淆，不是分发密钥的安全手段）。
 | --- | --- | --- |
 | `game/PlayState.hx` | 上游 `064d91b` 把 `ignoreInvisible` / `ignoreInactive` 的条件写反：默认 true 时反而把隐藏、失活角色算进相机平均值 | 恢复 `ignoreInvisible && (...)` / `ignoreInactive && ...`，并留一句上游提交号 |
 | `game/StrumLine.hx` | `__dispatchOnMiss` 的 `directionID` 默认 0，`if (directionID == null)` 永远不成立，非 0 方向的 miss 全报成 0 | 默认值改成 `Null<Int> = null`，事件方向兜底 0 |
-| `editors/character/CharacterEditor.hx` | 上游把保存路径改成 `assetsTree.getPath(...)`；zip 包的路径是虚拟路径，写不进去，且 `Paths.getAssetsRoot()` 本来就会落到暂存目录 | 只有父目录真实存在才用资源树路径，否则回退 `Paths.getAssetsRoot()`，与 `Chart.save()` 一致 |
+| `editors/character/CharacterEditor.hx` | 上游把保存路径改成 `assetsTree.getPath(...)`；zip 包的路径是虚拟路径，写不进去，且 `Paths.getAssetsRoot()` 本来就会落到暂存目录 | 用 `Chart.isWritablePath()` 判断，不可写就回退 `Paths.getAssetsRoot()`，与 `Chart.save()` 同一套规则 |
 | `editors/character/CharacterEditor.hx` | 三个姿态引导角色在 `changeStage(null)` 后只是被 `remove`，关闭编辑器时仍持有纹理和共享 shader | `destroy()` 里逐个 `remove` + `destroy`；shader 本身由 GC 回收 |
-| `menus/FreeplayState.hx` | `libExists` 重复拼 `assets/`；目标 mod 不在列表时 `while (mods[0]...)` 无限旋转；`i++` 后再 `i++` 会跳过一项 | 直接使用 `Paths.txt()` 的路径；先查下标再 `splice`；空列表返回；删掉二次自增 |
+| `menus/FreeplayState.hx` | 目标 mod 不在列表时 `while (mods[0]...)` 无限旋转；空列表 NPE；`i++` 后再 `i++` 会跳过一项 | 先查下标再 `splice`；空列表直接返回；删掉二次自增 |
 | `backend/assets/ModPackCrypto.hx` | `containerVersion` 用 0 兼作“不是 CNEZ”，版本 0 的 CNEZ 会漏报 | 哨兵改成 -1，`ModsFolder` 用 `>= 0` 判断 |
-| `backend/utils/ControlsUtil.hx`、`options/keybinds/KeybindsOptions.hx` | 上游 per-addon 方案只读 `config/controls/LIB_*.xml`，旧版全局 `config/controls.xml` 不再生效 | 先读全局文件，再读各 mod 的 `LIB_` 文件；后者仍按加载顺序覆盖 |
-| `backend/shaders/ScriptableShader.hx` | 没有 `scriptName` 且 shader 没有源文件路径时，新代码会拿空字符串去 `Paths.script` | 恢复明确的 “Missing name” 异常 |
-| `options/Options.hx` | `characterDragging` 从 Bool 改成 `CharacterDragMode` 枚举，旧脚本的 `= true/false` 会类型不符 | 加 `@:from Bool` / `@:to Bool`，true 映射 OFFSET，false 映射 NONE |
+| `backend/shaders/ScriptableShader.hx` | 没有 `scriptName` 且 shader 没有源文件路径时，新代码会拿空字符串去 `Paths.script`，悄悄退化成 DummyScript（1.1.0 原本是抛异常） | 恢复明确的 “Missing name” 异常 |
 
 **没有改的**：`UIButtonList` 把滚轮步长乘以按钮数（上游有意“加速滚动”），这不是本轮回归，
 但列表很长时手感会变得很跳，是否恢复固定步长需要实机确认；`getCharactersCamPos` 新增的
 `?ignoreInactive` 插在 `?out` 前面，旧的 4 参数脚本调用会受影响，属于上游 API 变更，
 当前仓库内没有调用点，暂不额外加兼容层。
+
+## 十六、11-07 复审：撤掉兼容层，修回被合并改坏的逻辑
+
+起因是上一轮的交付里混进了几处"为了兼容而兼容"的写法。先把偏离量出来，再逐条判性质。
+
+**偏离量（以 `450ab5b5` 的树为基准，比 blob SHA）**：`source/` 下 417 个文件里
+**311 个与上游逐字相同**，63 个被本 fork 改过，43 个新增，1 个刻意删除
+（`PlaytestingWarningSubstate.hx`）。这是一棵"上游主干 + 定点接缝"的树，不是 1.1.0 与 RC4
+拼起来的混合体。复量的命令写在 `docs/ARCHITECTURE.md` §2 末尾。
+
+顺带把"基地是哪一版"也量了：仓库最早的快照 `112aa91`（tag `baseline/upstream-1.1.0`）
+在 `source/` 下与 **`afe74668`（10-28）相同 361/375 = 96%**，与 `v1.1.0-rc3`（09-13）只有 79%，
+与 `v1.1.0-rc4`（11-01）是 93%。所以基座不是 rc3，是 rc3 之后一个多月的主干；这次合的是
+RC4 之后 3 天的 `450ab5b5`。两头都不是 tag，差的都是主干提交。
+
+**撤掉的三处兼容层**（仓库里没有任何使用方，留着只是把旧约定续命）：
+
+| 位置 | 撤掉的写法 | 为什么撤 |
+| --- | --- | --- |
+| `backend/utils/ControlsUtil.hx`、`options/keybinds/KeybindsOptions.hx` | 在 per-addon 的 `LIB_*.xml` 之外，额外读全局 `data/config/controls.xml` | 引擎自己不写这个文件，`assets/` 里没有，现场两个 mod 包（`2hot/`、`2hotBFmix (1).zip`）里也没有 |
+| `options/Options.hx` | `CharacterDragMode` 上的 `@:from Bool` / `@:to Bool` / `from Int to Int` | 上游只声明 `enum abstract(Int)`；仓库里没有任何把 Bool 赋给它的脚本。要赋值应该改脚本，不是给枚举加转换 |
+
+撤完后 `ControlsUtil.hx`、`KeybindsOptions.hx` 与上游逐字一致。
+
+**修回被合并改坏的三处**（`menus/FreeplayState.hx`）：这三处不是上游的现状，是 `ebc621ce`
+解冲突时写歪的，与 zip/加密无关，普通 mod 也会中：
+
+1. `source == SOURCE` 分支被改成"只剔除当前 mod"，等于把其它 mod 的歌也算进基础资源；
+   恢复成上游的"剔除所有非 `assets` 库"。
+2. `scanForSongs` 递归时少一个结尾斜杠（上游是 `'$startDir$i/'`）；两个库都会补斜杠，
+   所以行为没变，但这是一处没理由的偏离。
+3. `get()` 的 `default` 分支少了 `currentModFolder == null` 时先 SOURCE 再 MODS 的那条路。
+
+**顺带收敛的写法**：删掉 `libExists()`（把接口 `cast` 成 `AssetLibrary` 再调 `exists`），
+改成在 `IModsAssetLibrary` 里声明 `exists(asset, type)`——四个实现类本来就有这个方法，
+接口只是把既有事实写下来，调用方不必再降级到具体的库类。`CharacterEditor` 的"父目录可写"
+也不再自己写一遍，改用 `Chart.isWritablePath()`（改为 public）。
+
+**保留的**：`ScriptableShader` 的 “Missing name” 异常（1.1.0 本来就抛，450 退化成静默
+DummyScript）；`Flags.SHADERS_CACHE_RESET_ON_SWITCH_STATE`（默认 false 的调试开关，
+上游已移除，本 fork 仍在用它调试自定义 shader）。
+
+**没有做的**：没有逐个重读那 64 个偏离文件。这轮是"用 blob 找出偏离集合 + 抽查高风险接缝"
+（Freeplay、PlayState、StrumLine、CharacterEditor、Controls、Options、ScriptableShader、
+Paths、ModsFolder、MainState、Chart、HScript、Stage、GlobalScript）。剩余偏离按 i18n、
+`RuntimeDirs`、加密接缝三类归口，没有发现合并残留的迹象。
+
+**编译**：这次跑的就是 `Build.bat` 内部那条命令（`haxelib run lime build windows -nocolor`，
+缓存 `%LOCALAPPDATA%\cne-hxcpp-cache`），退出码 0、日志无 `error:`；以后统一走
+`building\Build.bat -Yes`。产物 `export/release/windows/bin/CodenameEngine.exe` 70,206,464 字节；
+`integrity.dat` 已按新 exe 重算 exe 条目并重签，937 条。没有启动游戏。

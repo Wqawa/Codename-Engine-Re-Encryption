@@ -31,7 +31,7 @@ git merge --no-commit --no-ff upstream/main        # 正常出冲突标记
 | --- | --- | --- |
 | `README.md` | 仓库门面：本 fork 是什么、新增了什么、构建方法、上游 Usage Info / Credits | 本 fork 维护（英文） |
 | `docs/RE-ENCRYPTION.md` | 加密功能说明书：容器格式、脚本四层、密钥与 token、编辑器用法、能力边界 | 本 fork 维护（中文，源码注释为英文） |
-| `docs/ARCHITECTURE.md` | 架构接缝图：42 个新增文件的分组、20 个官方文件接缝点（文件 + 调用函数）、启动到播放的调用链、数据在磁盘/内存的位置 | 本 fork 维护（中文）；改接缝点必须同步这张表 |
+| `docs/ARCHITECTURE.md` | 架构接缝图：43 个新增文件的分组、21 个官方文件接缝点（文件 + 调用函数）、启动到播放的调用链、数据在磁盘/内存的位置、偏离量的 blob 复量法 | 本 fork 维护（中文）；改接缝点必须同步这张表 |
 | `docs/INTEGRITY.md` | 完整性校验：清单格式与签名、启动校验流程、差异分类、**防得住什么/防不住什么** | 本 fork 维护（中文）；每次构建后要重新生成清单 |
 | `docs/SESSION_CHANGES.md` | 本轮改动记录：按功能分组记"改了什么、为什么"，以及明确没做的项 | 本 fork 维护（中文） |
 | `docs/CODE_MAP.md` / `CODE_MAP.html` | 代码地图：包结构与各层职责、fork 新增文件落在哪 | 本 fork 维护（中文） |
@@ -86,18 +86,23 @@ git merge --no-commit --no-ff upstream/main        # 正常出冲突标记
 10. **推送**（用户 2026-10 的要求）：**编译通过之后才 `git push`**。编译没过就不上传，先在本地修好；
     宁可留在本地工作区，也不要让远端出现编不过的提交。
 11. **不吹**：不写"已完全修复/100% 安全"这类无依据的结论。
+12. **偏离可量化**：改动官方文件后，用 `docs/ARCHITECTURE.md` §2 末尾的 blob 对比法核一次
+    ——确认偏离集合里只有你想改的文件，且每个文件只差你写的那几行。合并上游之后尤其要做，
+    冲突解错的典型表现是"文件还是那个文件，逻辑被悄悄换回了旧版"。
 
 ## 4. 构建备忘
 
-一键（推荐，会自己找/装 Haxe+Neko、查库与 ndll、查 MSVC）：双击 `building/Build.bat`，详见 `building/lazy-build.md`。
-Linux / macOS 用 `building/build-linux.sh` / `building/build-macos.sh`（同一套六步，参数见同一份文档）；CI 也是调这三个。
-
-手动：
+**编译一律走 `building/Build.bat`（用户 2026-11-07 的要求），不要直接敲 `haxelib run lime build`。**
+它会自己找/装 Haxe+Neko、按 `libs.xml` 补库、查 lime 原生库与 MSVC，然后编译；缓存目录默认
+`%LOCALAPPDATA%\cne-hxcpp-cache`。
 
 ```powershell
-$env:Path='D:\FNF\Haxe\4.3.7\haxe;D:\FNF\Haxe\4.3.7\neko;'+$env:Path
-haxelib run lime build windows -nocolor   # 构建前先关掉运行中的 CodenameEngine.exe
+building\Build.bat -Yes      # 非交互；自动化/助手用这个
+building\Build.bat -Clean    # 忽略 hxcpp 中间产物，整编
 ```
+
+Linux / macOS 用 `building/build-linux.sh` / `building/build-macos.sh`（同一套六步，参数见 `building/lazy-build.md`）；
+CI 也是调这三个。
 
 ## 5. 回滚
 
