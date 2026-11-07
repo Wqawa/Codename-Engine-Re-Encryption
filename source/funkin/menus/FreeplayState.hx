@@ -568,12 +568,6 @@ class FreeplaySonglist {
 
 	public function new() {}
 
-	/** exists() is not part of IModsAssetLibrary; Paths.txt() already returns an assets/ path. */
-	static function libExists(lib:IModsAssetLibrary, path:String):Bool {
-		var assets:openfl.utils.AssetLibrary = cast lib;
-		return assets != null && assets.exists(path, "TEXT");
-	}
-
 	public static function isSubSongDirectory(subs:Array<String>):Bool {
 		for (i in EXCLUDE_SUBFOLDERS) {
 			if (subs.contains(i)) return false;
@@ -596,11 +590,14 @@ class FreeplaySonglist {
 			final thisMod = mods.splice(currentIndex, 1)[0];
 			mods.insert(0, thisMod);
 		}
-		if (source != BOTH && ModsFolder.currentModFolder != null) {
+		if (source != BOTH) {
 			var i:Int = 0;
 			while (i < mods.length) {
 				final thisMod = mods[i];
-				if (thisMod.modName == ((source == MODS) ? 'assets' : ModsFolder.currentModFolder))
+				if (
+					((source == MODS) && (thisMod.modName == 'assets'))
+					|| ((source == SOURCE) && (thisMod.modName != 'assets'))
+				)
 					mods.remove(thisMod);
 				else i++;
 			}
@@ -619,9 +616,9 @@ class FreeplaySonglist {
 				var oldPath = Paths.txt('freeplaySonglist/LIB_$modName');
 				var newPath = Paths.txt('config/freeplaySonglist/LIB_$modName');
 
-				if (libExists(modLib, newPath)) {
+				if (modLib.exists(newPath, "TEXT")) {
 					for (i in CoolUtil.coolTextFile(newPath)) songsFound.push(i);
-				} else if (libExists(modLib, oldPath)) {
+				} else if (modLib.exists(oldPath, "TEXT")) {
 					Logs.warn("data/freeplaySonglist.txt is deprecated and will be removed in the future. Please move the file to data/config/", DARKYELLOW, "FreeplaySonglist");
 					for (i in CoolUtil.coolTextFile(oldPath)) songsFound.push(i);
 				}
@@ -632,9 +629,9 @@ class FreeplaySonglist {
 				var songDirs = modLib.getFolders('assets/' + startDir);
 				function scanForSongs(a:Array<Dynamic>, startDir:String, ?multiScan:Bool = false) {
 					for (i in a) {
-						var subs = modLib.getFolders('$startDir$i');
+						var subs = modLib.getFolders('$startDir$i/');
 						if (isSubSongDirectory(subs)) {
-							if (multiScan) scanForSongs(subs, '$startDir$i');
+							if (multiScan) scanForSongs(subs, '$startDir$i/');
 							else songsFound.push(StringTools.trim(i + '/'));
 						}
 						else songsFound.push(StringTools.trim(i));
@@ -665,7 +662,12 @@ class FreeplaySonglist {
 				songList.getSongsFromSource(SOURCE, useTxt, startDir, flatten);
 				songList.getSongsFromSource(MODS, useTxt, startDir, flatten);
 			default /*case 'override'*/:
-				if (songList.getSongsFromSource(MODS, useTxt, startDir, flatten))
+				// appends addon songs after base game songs,
+				// because old behavior would clear base game songs either way
+				if (ModsFolder.currentModFolder == null) {
+					songList.getSongsFromSource(SOURCE, useTxt, startDir, flatten);
+					songList.getSongsFromSource(MODS, useTxt, startDir, flatten);
+				} else if (songList.getSongsFromSource(MODS, useTxt, startDir, flatten))
 					songList.getSongsFromSource(SOURCE, useTxt, startDir, flatten);
 		}
 

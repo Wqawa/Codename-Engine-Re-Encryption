@@ -18,5 +18,9 @@ interface IModsAssetLibrary {
 	public function getFiles(folder:String):Array<String>;
 
 	public function getFolders(folder:String):Array<String>;
+
+	// every implementation already overrides this from AssetLibrary; declaring it
+	// lets callers stay on the interface instead of casting to a concrete lib
+	public function exists(asset:String, type:String):Bool;
 	#end
 }
